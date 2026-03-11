@@ -30,7 +30,8 @@ Binary-identical output requires:
 - **Cycle 29-33 (M8):** M8 completed in 1 implementation cycle + 1 verification. Leo implemented real PDF backend: pdf-writer 0.9, A4 page layout, Base-14 Helvetica font, BoxNode rendering to PDF content streams, CLI writes .pdf file. Apollo verified 138 tests pass, CI clean.
 - **Cycle 34-38 (M9):** M9 completed in 1 implementation cycle + 1 verification. Ares implemented Knuth-Plass DP line-breaking: LineBreaker trait, GreedyLineBreaker, KnuthPlassLineBreaker (O(n²) DP, badness/demerits, tolerance=200), 19 new tests. Apollo verified 157 tests pass, CI clean.
 - **Cycle 39-41 (M10):** M10 completed in 1 implementation cycle + 1 verification. Ares implemented integration tests (20 tests, 4 .tex corpus files), Helvetica metric alignment, CLI error handling. Apollo verified 182 tests pass, CI clean.
-- **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9). M10 focuses on integration quality and font consistency before binary-identity work. M11 embeds real CM Type1 fonts.
+- **Cycle 42-45 (M11):** M11 completed in 1 implementation cycle + 1 verification. Ares embedded cmr10.pfb (Type1 font), updated StandardFontMetrics to CM Roman AFM widths, added Type1 font dict+descriptor+file to PDF. Apollo verified 196 tests pass, CI clean.
+- **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9). M10 focuses on integration quality and font consistency before binary-identity work. M11 embeds real CM Type1 fonts. M12 targets document structure rendering (sections, spacing, multi-page layout).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
 - **Font resources available:** cmr10.afm at `/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/afm/cmr10.afm` and cmr10.pfb at `/System/Volumes/Data/Users/wenhanlyu/.local/lib/python2.7/site-packages/matplotlib/tests/cmr10.pfb` — both available for M11 font embedding.
@@ -148,30 +149,50 @@ Validate the full pipeline with real `.tex` documents and fix the font/metrics c
 - **Cycles budget:** 5 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit 1a2254d, 182 tests total)
 
-### M11: Real TeX Font Embedding (Type1 / Computer Modern)
+### M11: Real TeX Font Embedding (Type1 / Computer Modern) ✅ COMPLETE
 Embed actual Computer Modern Roman Type1 font (cmr10) in the PDF output, using real AFM metrics.
 
-**Scope:**
-- Copy `cmr10.pfb` (35KB) to `crates/rustlatex-pdf/fonts/cmr10.pfb` (embed via `include_bytes!`)
-  - Source: `/System/Volumes/Data/Users/wenhanlyu/.local/lib/python2.7/site-packages/matplotlib/tests/cmr10.pfb`
-- Update `StandardFontMetrics` in `rustlatex-engine` to use CM Roman 10pt AFM widths
-  - Source: `/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/afm/cmr10.afm`
-  - WX values / 100 = pt width at 10pt (e.g. space=3.333pt, a=5.000pt, w=7.222pt)
-- Implement Type1 font embedding in PDF via pdf-writer 0.9:
-  - Font dictionary with FirstChar, LastChar, Widths array
-  - FontDescriptor with BBox, Ascender, Descender
-  - Embedded font file stream (FontFile entry)
-- PDF renders text in CM Roman (visually like pdflatex), engine metrics match PDF font
-- 10+ new tests, all 182 existing tests continue to pass
+- **Deliverables:** cmr10.pfb embedded, CM Roman AFM metrics in engine, Type1 font dict+descriptor+file in PDF, 14 new tests
+- **Cycles budget:** 6 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 93a8af4, 196 tests total)
+
+### M12: Document Structure Rendering (Sections, Multi-page, Paragraph Spacing)
+Make the PDF output visually resemble a real LaTeX-compiled document by implementing proper rendering of document structure.
+
+**Scope in `rustlatex-engine`:**
+- Section/subsection/subsubsection rendering: render as bold text at larger font sizes (12pt, 11pt, 10pt bold) with vertical space before/after
+- Paragraph spacing: add proper paragraph skip (parskip) between paragraphs — `\parskip=6pt` equivalent
+- Multi-page layout: implement page breaking in the `typeset()` function using `\vsize=700pt` — when lines overflow a page, create a new `Page`
+- `\LaTeX`, `\TeX`, `\today` commands: expand to text strings ("LaTeX", "TeX", current date)
+- `\vspace`, `\hspace`: emit Kern/Glue nodes of specified size
+- `\newline`, `\\`: emit forced line break (Penalty=-10000)
+- `\noindent`, `\indent`: no-op for now (already handled by ignoring)
+
+**Scope in `rustlatex-pdf`:**
+- Multi-page PDF output: the PDF backend already handles `Vec<Page>`, verify/fix that multi-page documents produce correct output with all pages visible
+- FontSize rendering: extend `BoxNode::Text` to carry a font size field (default 10pt), used when rendering PDF content streams — text at different sizes (section heads)
+
+**Tests (15+):**
+- Test section command produces larger-size text boxes in the box list
+- Test paragraph spacing adds glue between paragraphs
+- Test multi-page: a document with enough text spans 2+ pages
+- Test `\LaTeX` expands to "LaTeX" text in box list
+- Test `\\` forces a line break
+- All 196 existing tests continue to pass
 
 - **Cycles budget:** 6
-- **Status:** 🔄 In Progress
+- **Status:** Pending
 
-### M12: Integration & Binary-Identity Testing
-- End-to-end test with real `.tex` documents
-- Compare output byte-by-byte with pdflatex (after disabling timestamps)
-- Fix all differences — font embedding, metadata, timestamps
-- Achieve binary-identical output for a defined test corpus
+### M13: Basic Math Rendering (Inline Math Symbols)
+Replace `(math)` placeholder with actual rendered inline math text using CM math fonts.
+
+- **Cycles budget:** 8
+- **Status:** Pending
+
+### M14: Integration & Visual Quality Testing
+- Install pdflatex via MacTeX/BasicTeX (`brew install --cask basictex`)
+- End-to-end visual comparison: render both PDFs to images (with `gs` or `convert`) and compute pixel diff
+- Fix layout differences until output is visually close
 
 - **Cycles budget:** 10
 - **Status:** Pending
