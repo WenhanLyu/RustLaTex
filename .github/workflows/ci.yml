@@ -21,6 +21,9 @@ jobs:
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install GhostScript
+        run: sudo apt-get install -y ghostscript
+
       - name: Cache Cargo registry and build artifacts
         uses: actions/cache@v4
         with:
