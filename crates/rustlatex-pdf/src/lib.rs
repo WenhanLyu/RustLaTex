@@ -290,6 +290,21 @@ impl PdfWriter {
                             current_x += *amount as f32;
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
+                        BoxNode::Rule { width, height } => {
+                            // End text mode, draw rule, re-enter text mode
+                            content.end_text();
+                            // Draw a filled rectangle as the rule
+                            let rx = margin_left;
+                            let ry = current_y - *height as f32;
+                            let rw = *width as f32;
+                            let rh = *height as f32;
+                            content.rect(rx, ry, rw, rh);
+                            content.fill_nonzero();
+                            current_y -= *height as f32 + 1.0;
+                            // Re-enter text mode
+                            content.begin_text();
+                            content.set_font(Name(b"F1"), font_size);
+                        }
                         _ => {
                             // HBox, VBox, Penalty, AlignmentMarker — skip
                         }
@@ -690,6 +705,29 @@ mod tests {
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
         assert!(!output.bytes.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_renders_rule() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Rule {
+                    width: 345.0,
+                    height: 0.5,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(
+            !output.bytes.is_empty(),
+            "PDF with Rule should be non-empty"
+        );
+        // Should still be valid PDF
+        assert_eq!(&output.bytes[0..5], b"%PDF-");
     }
 
     #[test]

@@ -57,6 +57,8 @@ pub enum BoxNode {
     VBox { width: f64, content: Vec<BoxNode> },
     /// An alignment marker that sets the alignment mode for subsequent lines.
     AlignmentMarker { alignment: Alignment },
+    /// A horizontal rule (solid line).
+    Rule { width: f64, height: f64 },
 }
 
 // ===== Font Metrics Trait and CM Roman Implementation =====
@@ -507,6 +509,146 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     });
                     result
                 }
+                "tabular" => {
+                    // Step A: Extract column spec from the first Group node
+                    let col_specs: Vec<char> = if let Some(Node::Group(nodes)) = content.first() {
+                        let spec_text: String = nodes
+                            .iter()
+                            .filter_map(|n| {
+                                if let Node::Text(t) = n {
+                                    Some(t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        let parsed: Vec<char> = spec_text
+                            .chars()
+                            .filter(|c| *c == 'l' || *c == 'r' || *c == 'c')
+                            .collect();
+                        if parsed.is_empty() {
+                            vec!['l']
+                        } else {
+                            parsed
+                        }
+                    } else {
+                        vec!['l']
+                    };
+
+                    // Step B: Fixed column width
+                    let col_width = (345.0_f64 / col_specs.len() as f64).max(40.0);
+
+                    // Step C: Split content into rows and cells
+                    // Skip the first Group node (column spec)
+                    let body_nodes: Vec<&Node> = content.iter().skip(1).collect();
+
+                    let mut rows: Vec<Vec<Vec<Node>>> = Vec::new();
+                    let mut current_row: Vec<Vec<Node>> = Vec::new();
+                    let mut current_cell: Vec<Node> = Vec::new();
+                    let mut hline_before: Vec<bool> = Vec::new();
+                    let mut pending_hline = false;
+
+                    for node in &body_nodes {
+                        match node {
+                            Node::Text(s) => {
+                                // Split by '&' for cell separators
+                                let parts: Vec<&str> = s.split('&').collect();
+                                for (j, part) in parts.iter().enumerate() {
+                                    if j > 0 {
+                                        // '&' separator: push current_cell, start new cell
+                                        current_row.push(current_cell);
+                                        current_cell = Vec::new();
+                                    }
+                                    let trimmed = part.trim();
+                                    if !trimmed.is_empty() {
+                                        current_cell.push(Node::Text(trimmed.to_string()));
+                                    }
+                                }
+                            }
+                            Node::Command { name: cmd_name, .. }
+                                if cmd_name == "\\" || cmd_name == "newline" =>
+                            {
+                                // End of row
+                                current_row.push(current_cell);
+                                current_cell = Vec::new();
+                                rows.push(current_row);
+                                hline_before.push(pending_hline);
+                                pending_hline = false;
+                                current_row = Vec::new();
+                            }
+                            Node::Command { name: cmd_name, .. } if cmd_name == "hline" => {
+                                pending_hline = true;
+                            }
+                            other => {
+                                current_cell.push((*other).clone());
+                            }
+                        }
+                    }
+                    // Flush remaining cell/row
+                    if !current_cell.is_empty() || !current_row.is_empty() {
+                        current_row.push(current_cell);
+                        rows.push(current_row);
+                        hline_before.push(pending_hline);
+                    }
+
+                    // Step D: Render
+                    let mut result = Vec::new();
+
+                    for (row_idx, row) in rows.iter().enumerate() {
+                        // Check hline flag
+                        if row_idx < hline_before.len() && hline_before[row_idx] {
+                            result.push(BoxNode::Rule {
+                                width: 345.0,
+                                height: 0.5,
+                            });
+                            result.push(BoxNode::Penalty { value: -10000 });
+                        }
+
+                        for (cell_idx, cell) in row.iter().enumerate() {
+                            let _alignment = col_specs.get(cell_idx).copied().unwrap_or('l');
+
+                            // Left padding kern
+                            result.push(BoxNode::Kern { amount: 3.0 });
+
+                            // Translate cell nodes
+                            let cell_nodes: Vec<BoxNode> = cell
+                                .iter()
+                                .flat_map(|n| translate_node_with_metrics(n, metrics))
+                                .collect();
+
+                            // Compute cell text width
+                            let cell_text_width: f64 = cell_nodes
+                                .iter()
+                                .map(|n| match n {
+                                    BoxNode::Text { width, .. } => *width,
+                                    BoxNode::Kern { amount } => *amount,
+                                    _ => 0.0,
+                                })
+                                .sum();
+
+                            // Push cell content
+                            result.extend(cell_nodes);
+
+                            // Right padding kern
+                            let padding = (col_width - cell_text_width - 3.0).max(0.0);
+                            result.push(BoxNode::Kern { amount: padding });
+                        }
+
+                        // Force line break after row
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+
+                    // Handle trailing hline (after last row)
+                    if pending_hline && rows.is_empty() {
+                        result.push(BoxNode::Rule {
+                            width: 345.0,
+                            height: 0.5,
+                        });
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+
+                    result
+                }
                 _ => content
                     .iter()
                     .flat_map(|n| translate_node_with_metrics(n, metrics))
@@ -644,7 +786,8 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
             BoxNode::Penalty { .. }
             | BoxNode::HBox { .. }
             | BoxNode::VBox { .. }
-            | BoxNode::AlignmentMarker { .. } => {
+            | BoxNode::AlignmentMarker { .. }
+            | BoxNode::Rule { .. } => {
                 // Pass through without affecting width calculation for now
                 current_line.push(item.clone());
             }
@@ -3454,6 +3597,248 @@ mod tests {
             for n in &line.nodes {
                 assert!(!matches!(n, BoxNode::AlignmentMarker { .. }));
             }
+        }
+    }
+
+    // ===== M17: Tabular environment tests =====
+
+    /// Helper: parse LaTeX input and translate to BoxNodes
+    fn parse_and_translate(input: &str) -> Vec<BoxNode> {
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        translate_node(&doc)
+    }
+
+    #[test]
+    fn test_tabular_output_is_non_empty() {
+        let result = parse_and_translate(r"\begin{tabular}{l} hello \end{tabular}");
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_tabular_single_row_single_cell() {
+        let result = parse_and_translate(r"\begin{tabular}{l} hello \end{tabular}");
+        let has_text = result.iter().any(|n| matches!(n, BoxNode::Text { .. }));
+        assert!(has_text, "Expected Text node in tabular output");
+    }
+
+    #[test]
+    fn test_tabular_colspec_parsing_lrc() {
+        // 'lrc' → 3 columns, so with input "A & B & C" we should see all 3 texts
+        let result = parse_and_translate(r"\begin{tabular}{lrc} A & B & C \end{tabular}");
+        let texts: Vec<&str> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(texts.contains(&"A"), "Expected 'A' in output");
+        assert!(texts.contains(&"B"), "Expected 'B' in output");
+        assert!(texts.contains(&"C"), "Expected 'C' in output");
+    }
+
+    #[test]
+    fn test_tabular_colspec_parsing_with_vlines() {
+        // '|l|r|c|' → same as 3 columns
+        let result = parse_and_translate(r"\begin{tabular}{|l|r|c|} A & B & C \end{tabular}");
+        let texts: Vec<&str> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(texts.contains(&"A"), "Expected 'A' in output");
+        assert!(texts.contains(&"B"), "Expected 'B' in output");
+        assert!(texts.contains(&"C"), "Expected 'C' in output");
+    }
+
+    #[test]
+    fn test_tabular_single_row_two_cells() {
+        let result = parse_and_translate(r"\begin{tabular}{lr} Alpha & Beta \end{tabular}");
+        let texts: Vec<&str> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(texts.contains(&"Alpha"), "Expected 'Alpha'");
+        assert!(texts.contains(&"Beta"), "Expected 'Beta'");
+    }
+
+    #[test]
+    fn test_tabular_three_columns() {
+        let result = parse_and_translate(r"\begin{tabular}{lcr} X & Y & Z \end{tabular}");
+        let text_count = result
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .count();
+        assert!(
+            text_count >= 3,
+            "Expected at least 3 Text nodes for 3 cells"
+        );
+    }
+
+    #[test]
+    fn test_tabular_two_rows() {
+        let result = parse_and_translate(r"\begin{tabular}{l} row1 \\ row2 \end{tabular}");
+        let texts: Vec<&str> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(texts.contains(&"row1"), "Expected 'row1'");
+        assert!(texts.contains(&"row2"), "Expected 'row2'");
+    }
+
+    #[test]
+    fn test_tabular_hline_produces_rule() {
+        let result = parse_and_translate(r"\begin{tabular}{l}\hline hello \end{tabular}");
+        let has_rule = result.iter().any(|n| matches!(n, BoxNode::Rule { .. }));
+        assert!(has_rule, "Expected BoxNode::Rule for \\hline");
+    }
+
+    #[test]
+    fn test_tabular_rule_has_correct_width() {
+        let result = parse_and_translate(r"\begin{tabular}{l}\hline hello \end{tabular}");
+        let rule = result.iter().find(|n| matches!(n, BoxNode::Rule { .. }));
+        if let Some(BoxNode::Rule { width, height }) = rule {
+            assert!(
+                (*width - 345.0).abs() < f64::EPSILON,
+                "Rule width should be 345.0, got {}",
+                width
+            );
+            assert!(
+                (*height - 0.5).abs() < f64::EPSILON,
+                "Rule height should be 0.5, got {}",
+                height
+            );
+        } else {
+            panic!("Expected BoxNode::Rule");
+        }
+    }
+
+    #[test]
+    fn test_tabular_col_width_is_hsize_divided_by_cols() {
+        // 2-col tabular: col_width = 345.0 / 2 = 172.5
+        // Each cell should have padding that reflects this width
+        let result = parse_and_translate(r"\begin{tabular}{lr} A & B \end{tabular}");
+        // Count Kern nodes. There should be at least left padding kerns (3.0 each) and
+        // right padding kerns that fill to col_width
+        let kern_amounts: Vec<f64> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Kern { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // The padding kerns should reflect col_width=172.5
+        // Left padding: 3.0, right padding: 172.5 - text_width - 3.0
+        // Sum of all kerns for one cell should be close to col_width
+        let total_kern: f64 = kern_amounts.iter().sum();
+        // With 2 cells, total kern should be roughly 2 * col_width - total_text_width
+        assert!(
+            total_kern > 100.0,
+            "Expected significant kern amounts for 2 columns (172.5pt each), got {}",
+            total_kern
+        );
+    }
+
+    #[test]
+    fn test_tabular_row_ends_with_penalty() {
+        let result = parse_and_translate(r"\begin{tabular}{l} hello \\ world \end{tabular}");
+        let penalty_count = result
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000))
+            .count();
+        assert!(
+            penalty_count >= 2,
+            "Expected at least 2 Penalty(-10000) for 2 rows, got {}",
+            penalty_count
+        );
+    }
+
+    #[test]
+    fn test_tabular_cell_has_left_padding_kern() {
+        let result = parse_and_translate(r"\begin{tabular}{l} hello \end{tabular}");
+        let has_kern_3 = result
+            .iter()
+            .any(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 3.0).abs() < f64::EPSILON));
+        assert!(has_kern_3, "Expected Kern(3.0) for cell left padding");
+    }
+
+    #[test]
+    fn test_tabular_three_rows_hline() {
+        let result =
+            parse_and_translate(r"\begin{tabular}{l}\hline a \\\hline b \\\hline c \end{tabular}");
+        let rule_count = result
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Rule { .. }))
+            .count();
+        assert_eq!(
+            rule_count, 3,
+            "Expected 3 Rule nodes for 3 hlines, got {}",
+            rule_count
+        );
+    }
+
+    #[test]
+    fn test_tabular_empty_cell() {
+        // Should not panic on empty cell
+        let result = parse_and_translate(r"\begin{tabular}{lr} & B \end{tabular}");
+        assert!(
+            !result.is_empty(),
+            "Empty cell should not cause empty result"
+        );
+    }
+
+    #[test]
+    fn test_tabular_cell_text_content() {
+        let result = parse_and_translate(r"\begin{tabular}{lr} Hello & World \end{tabular}");
+        let texts: Vec<&str> = result
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(texts.contains(&"Hello"), "Expected 'Hello' in cell content");
+        assert!(texts.contains(&"World"), "Expected 'World' in cell content");
+    }
+
+    #[test]
+    fn test_tabular_boxnode_rule_construction() {
+        let rule = BoxNode::Rule {
+            width: 345.0,
+            height: 0.5,
+        };
+        if let BoxNode::Rule { width, height } = &rule {
+            assert!((*width - 345.0).abs() < f64::EPSILON);
+            assert!((*height - 0.5).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected BoxNode::Rule");
         }
     }
 }
