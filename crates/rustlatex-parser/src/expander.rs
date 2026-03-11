@@ -1050,4 +1050,42 @@ mod tests {
             }])
         );
     }
+
+    // === Test 21: Macro expansion inside a LaTeX environment ===
+    #[test]
+    fn test_macro_in_environment() {
+        // \def\foo{bar} then use \foo inside \begin{document}...\end{document}
+        let src = r"\def\foo{bar}\begin{document}\foo\end{document}";
+        let mut exp = Expander::new(src);
+        let doc = exp.parse();
+        match doc {
+            Node::Document(nodes) => {
+                // Find the Environment node
+                let env = nodes
+                    .iter()
+                    .find(|n| matches!(n, Node::Environment { name, .. } if name == "document"));
+                assert!(
+                    env.is_some(),
+                    "Expected Environment{{document}} in output, got: {:?}",
+                    nodes
+                );
+                if let Some(Node::Environment { content, .. }) = env {
+                    // The content should contain Text("bar") from expanded \foo
+                    let text: String = content
+                        .iter()
+                        .filter_map(|n| match n {
+                            Node::Text(t) => Some(t.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    assert!(
+                        text.contains("bar"),
+                        "Expected 'bar' inside environment content, got: {:?}",
+                        content
+                    );
+                }
+            }
+            _ => panic!("Expected Document"),
+        }
+    }
 }
