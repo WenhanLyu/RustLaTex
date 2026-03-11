@@ -3,7 +3,14 @@
 //! This crate implements the second stage of the LaTeX compilation pipeline:
 //! parsing the token stream produced by `rustlatex-lexer` into an Abstract
 //! Syntax Tree (AST) representing the document structure.
+//!
+//! The [`expander`] module adds M4-level macro expansion as a preprocessing
+//! stage: `\def`, `\newcommand`, `\renewcommand`, `\let`, `\if`, `\ifx`,
+//! and `\ifnum` are evaluated before the token stream reaches the parser.
 
+pub mod expander;
+
+pub use expander::{Expander, MacroDef, MacroTable};
 use rustlatex_lexer::{Category, Lexer, Token};
 
 /// A node in the LaTeX document AST.
@@ -49,6 +56,11 @@ impl Parser {
     pub fn new(source: &str) -> Self {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
+        Parser { tokens, pos: 0 }
+    }
+
+    /// Create a parser from a pre-built token vector (used by the expander).
+    pub fn from_tokens(tokens: Vec<Token>) -> Self {
         Parser { tokens, pos: 0 }
     }
 
