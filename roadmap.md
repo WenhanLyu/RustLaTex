@@ -42,6 +42,8 @@ Binary-identical output requires:
 - **GhostScript available:** `gs` at /opt/homebrew/bin/gs (v10.06.0) — can render PDFs to PNG for visual validation. Use this for M15 integration tests.
 - **Cycle 55-57 (M15):** M15 completed in 1 implementation cycle. Ares delivered 16 GhostScript integration tests (5 example file tests + 11 inline tests), CI installs ghostscript. Apollo verified all 264 tests pass, CI green.
 - **M16 scope:** Focus on text alignment in PDF backend (justify/center/raggedright). Justification requires computing inter-word spacing adjustments per line. The KP line breaker already computes break points — the PDF renderer needs to use the adjustment ratios. Add \centering, \raggedright, \raggedleft command support in the engine. Keep hyphenation simple (pattern-based prefix suffix, Aho-Corasick not needed).
+- **Cycle 58-62 (M16):** M16 completed in 1 implementation cycle + 1 verification. Leo delivered Alignment enum (Justify/Center/RaggedRight/RaggedLeft), AlignmentMarker BoxNode variant, OutputLine struct, \centering/\raggedright/\raggedleft/center-environment support, PDF per-line x-offset computation. 19 new tests, 283 total tests pass, CI green.
+- **M17 scope:** Tables (tabular environment). tabular column spec parsing (l/r/c/|), \hline rules, cell content rendering, & column separator, \multicolumn support. Engine must produce table box layout. PDF backend must render table cells with proper alignment and column widths.
 
 ## Milestones
 
@@ -211,24 +213,25 @@ Implement proper visual rendering of LaTeX list environments in the engine.
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit 773472f, 264 tests total)
 
-### M16: Text Alignment & Justified Output
+### M16: Text Alignment & Justified Output ✅ COMPLETE
 - Implement text alignment modes: justified (default), centered, ragged-right, ragged-left
 - Add `Alignment` enum to engine: `Justify`, `Center`, `RaggedRight`, `RaggedLeft`
 - Handle `\centering`, `\raggedright`, `\raggedleft` commands in the translator
 - PDF backend: compute x-position offset per line based on alignment and actual line width
 - For justified text: distribute remaining space proportionally across inter-word glue
-- 15+ new tests covering each alignment mode
+- 19 new tests covering each alignment mode
 - All 264 existing tests continue to pass
-- **Cycles budget:** 4
-- **Status:** Pending
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit ed1ece8, 283 tests total)
 
 ### M17: Tables (tabular environment)
 - Implement `\begin{tabular}{lrc}` with column spec parsing
 - Cell content rendering with alignment (l/r/c)
 - Column separators (vertical rules `|`)
-- Horizontal rules (`\hline`, `\toprule`, `\midrule`, `\bottomrule`)
-- Multi-column spans via `\multicolumn`
-- **Cycles budget:** 8
+- Horizontal rules (`\hline`)
+- 15+ new tests covering column spec parsing, cell rendering, hline, multi-column documents
+- All 283 existing tests continue to pass
+- **Cycles budget:** 6
 - **Status:** Pending
 
 ### M18: Figures & Cross-References
