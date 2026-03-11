@@ -137,6 +137,153 @@ pub fn char_width(s: &str) -> f64 {
     metrics.string_width(s)
 }
 
+/// Recursively convert a math AST node to a readable text string.
+///
+/// This walks the structured math AST and produces a plain-text representation
+/// suitable for rendering as a `BoxNode::Text` item.
+pub fn math_node_to_text(node: &Node) -> String {
+    match node {
+        Node::Text(s) => s.clone(),
+        Node::Superscript { base, exponent } => {
+            format!(
+                "{}^{}",
+                math_node_to_text(base),
+                math_node_to_text(exponent)
+            )
+        }
+        Node::Subscript { base, subscript } => {
+            format!(
+                "{}_{}",
+                math_node_to_text(base),
+                math_node_to_text(subscript)
+            )
+        }
+        Node::Fraction {
+            numerator,
+            denominator,
+        } => {
+            format!(
+                "{}/{}",
+                math_node_to_text(numerator),
+                math_node_to_text(denominator)
+            )
+        }
+        Node::Radical {
+            radicand,
+            degree: None,
+        } => {
+            format!("√{}", math_node_to_text(radicand))
+        }
+        Node::Radical {
+            radicand,
+            degree: Some(d),
+        } => {
+            format!("^{}√{}", math_node_to_text(d), math_node_to_text(radicand))
+        }
+        Node::MathGroup(nodes) | Node::Group(nodes) => {
+            nodes.iter().map(math_node_to_text).collect::<String>()
+        }
+        Node::Command { name, args } => {
+            match name.as_str() {
+                // Greek lowercase
+                "alpha" => "α".to_string(),
+                "beta" => "β".to_string(),
+                "gamma" => "γ".to_string(),
+                "delta" => "δ".to_string(),
+                "epsilon" => "ε".to_string(),
+                "zeta" => "ζ".to_string(),
+                "eta" => "η".to_string(),
+                "theta" => "θ".to_string(),
+                "iota" => "ι".to_string(),
+                "kappa" => "κ".to_string(),
+                "lambda" => "λ".to_string(),
+                "mu" => "μ".to_string(),
+                "nu" => "ν".to_string(),
+                "xi" => "ξ".to_string(),
+                "pi" => "π".to_string(),
+                "rho" => "ρ".to_string(),
+                "sigma" => "σ".to_string(),
+                "tau" => "τ".to_string(),
+                "upsilon" => "υ".to_string(),
+                "phi" => "φ".to_string(),
+                "chi" => "χ".to_string(),
+                "psi" => "ψ".to_string(),
+                "omega" => "ω".to_string(),
+                // Greek uppercase
+                "Alpha" => "Α".to_string(),
+                "Beta" => "Β".to_string(),
+                "Gamma" => "Γ".to_string(),
+                "Delta" => "Δ".to_string(),
+                "Theta" => "Θ".to_string(),
+                "Lambda" => "Λ".to_string(),
+                "Pi" => "Π".to_string(),
+                "Sigma" => "Σ".to_string(),
+                "Phi" => "Φ".to_string(),
+                "Omega" => "Ω".to_string(),
+                // Math operators
+                "cdot" => "·".to_string(),
+                "times" => "×".to_string(),
+                "div" => "÷".to_string(),
+                "pm" => "±".to_string(),
+                "mp" => "∓".to_string(),
+                "leq" => "≤".to_string(),
+                "geq" => "≥".to_string(),
+                "neq" => "≠".to_string(),
+                "infty" => "∞".to_string(),
+                "sum" => "∑".to_string(),
+                "prod" => "∏".to_string(),
+                "int" => "∫".to_string(),
+                "partial" => "∂".to_string(),
+                "nabla" => "∇".to_string(),
+                "in" => "∈".to_string(),
+                "notin" => "∉".to_string(),
+                "subset" => "⊂".to_string(),
+                "cup" => "∪".to_string(),
+                "cap" => "∩".to_string(),
+                "cdots" => "⋯".to_string(),
+                "ldots" => "…".to_string(),
+                "to" => "→".to_string(),
+                "leftarrow" => "←".to_string(),
+                "rightarrow" => "→".to_string(),
+                "Rightarrow" => "⇒".to_string(),
+                "Leftrightarrow" => "⇔".to_string(),
+                "forall" => "∀".to_string(),
+                "exists" => "∃".to_string(),
+                "land" => "∧".to_string(),
+                "lor" => "∨".to_string(),
+                "neg" => "¬".to_string(),
+                // frac fallback (in case the parser produces a Command rather than Fraction)
+                "frac" => {
+                    if args.len() >= 2 {
+                        format!(
+                            "{}/{}",
+                            math_node_to_text(&args[0]),
+                            math_node_to_text(&args[1])
+                        )
+                    } else if args.len() == 1 {
+                        math_node_to_text(&args[0])
+                    } else {
+                        "frac".to_string()
+                    }
+                }
+                // sqrt fallback (in case the parser produces a Command rather than Radical)
+                "sqrt" => {
+                    if let Some(arg) = args.first() {
+                        format!("√{}", math_node_to_text(arg))
+                    } else {
+                        "√".to_string()
+                    }
+                }
+                // Unknown commands — use name as text
+                other => other.to_string(),
+            }
+        }
+        // Other node types (InlineMath, DisplayMath, etc. shouldn't appear
+        // inside math mode, but handle gracefully)
+        _ => String::new(),
+    }
+}
+
 /// Translate a parser AST node into a flat list of box/glue items,
 /// using the provided font metrics.
 pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Vec<BoxNode> {
@@ -246,12 +393,30 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             .iter()
             .flat_map(|n| translate_node_with_metrics(n, metrics))
             .collect(),
-        Node::InlineMath(_) | Node::DisplayMath(_) => {
+        Node::InlineMath(nodes) => {
+            let text: String = nodes.iter().map(math_node_to_text).collect();
             vec![BoxNode::Text {
-                text: "(math)".to_string(),
-                width: 20.0,
+                width: metrics.string_width(&text),
+                text,
                 font_size: 10.0,
             }]
+        }
+        Node::DisplayMath(nodes) => {
+            let text: String = nodes.iter().map(math_node_to_text).collect();
+            vec![
+                BoxNode::Penalty { value: -10000 },
+                BoxNode::Text {
+                    width: metrics.string_width(&text),
+                    text,
+                    font_size: 10.0,
+                },
+                BoxNode::Penalty { value: -10000 },
+                BoxNode::Glue {
+                    natural: 6.0,
+                    stretch: 2.0,
+                    shrink: 0.0,
+                },
+            ]
         }
         Node::Group(nodes) => nodes
             .iter()
@@ -1022,29 +1187,33 @@ mod tests {
         let node = Node::InlineMath(vec![Node::Text("x".to_string())]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
-        assert_eq!(
-            items[0],
-            BoxNode::Text {
-                text: "(math)".to_string(),
-                width: 20.0,
-                font_size: 10.0,
-            }
-        );
+        // Should render "x", not the old "(math)" placeholder
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('x'),
+                "Expected math text to contain 'x', got '{}'",
+                text
+            );
+            assert_ne!(text, "(math)", "Should not produce (math) placeholder");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
     }
 
     #[test]
     fn test_translate_display_math() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 1);
-        assert_eq!(
-            items[0],
-            BoxNode::Text {
-                text: "(math)".to_string(),
-                width: 20.0,
-                font_size: 10.0,
-            }
-        );
+        // DisplayMath produces: Penalty, Text, Penalty, Glue (4 items)
+        assert_eq!(items.len(), 4);
+        assert!(matches!(items[0], BoxNode::Penalty { value: -10000 }));
+        if let BoxNode::Text { text, .. } = &items[1] {
+            assert_ne!(text, "(math)", "Should not produce (math) placeholder");
+        } else {
+            panic!("Expected BoxNode::Text at index 1");
+        }
+        assert!(matches!(items[2], BoxNode::Penalty { value: -10000 }));
+        assert!(matches!(items[3], BoxNode::Glue { .. }));
     }
 
     #[test]
@@ -1309,12 +1478,17 @@ mod tests {
         let pages = engine.typeset();
         assert_eq!(pages.len(), 1);
         assert!(!pages[0].box_lines.is_empty());
-        // Should contain a (math) text box somewhere
+        // Should contain a math text box (not the old "(math)" placeholder)
         let all_items: Vec<&BoxNode> = pages[0].box_lines.iter().flatten().collect();
-        let has_math = all_items
+        let has_math_text = all_items.iter().any(
+            |n| matches!(n, BoxNode::Text { text, .. } if text.contains('x') || text.contains('2')),
+        );
+        assert!(has_math_text, "Expected math content (x^2) in the output");
+        // Must NOT use the old placeholder
+        let has_placeholder = all_items
             .iter()
             .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "(math)"));
-        assert!(has_math, "Expected a (math) placeholder in the output");
+        assert!(!has_placeholder, "Should not produce (math) placeholder");
     }
 
     #[test]
@@ -2211,5 +2385,340 @@ mod tests {
             1,
             "Empty document should still produce one page"
         );
+    }
+
+    // ===== M13: Math Rendering Tests =====
+
+    #[test]
+    fn test_math_superscript_renders_as_text() {
+        // $x^2$ should render as text containing "x" and "2", NOT "(math)"
+        let mut parser = Parser::new("$x^2$");
+        let doc = parser.parse();
+        let items = translate_node(&doc);
+        let text_content: String = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            text_content.contains('x'),
+            "Expected 'x' in math output, got '{}'",
+            text_content
+        );
+        assert!(
+            text_content.contains('2'),
+            "Expected '2' in math output, got '{}'",
+            text_content
+        );
+        assert!(
+            !text_content.contains("(math)"),
+            "Should not contain '(math)' placeholder"
+        );
+    }
+
+    #[test]
+    fn test_math_subscript_renders_as_text() {
+        // $x_i$ should render text containing "x" and "i"
+        let node = Node::InlineMath(vec![Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('x'),
+                "Expected 'x' in subscript text, got '{}'",
+                text
+            );
+            assert!(
+                text.contains('i'),
+                "Expected 'i' in subscript text, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_fraction_renders_slash() {
+        // $\frac{a}{b}$ should produce text containing "a", "/", "b"
+        let node = Node::InlineMath(vec![Node::Fraction {
+            numerator: Box::new(Node::MathGroup(vec![Node::Text("a".to_string())])),
+            denominator: Box::new(Node::MathGroup(vec![Node::Text("b".to_string())])),
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('a'),
+                "Expected 'a' in fraction, got '{}'",
+                text
+            );
+            assert!(
+                text.contains('/'),
+                "Expected '/' in fraction, got '{}'",
+                text
+            );
+            assert!(
+                text.contains('b'),
+                "Expected 'b' in fraction, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_sqrt_renders_radical() {
+        // $\sqrt{x}$ should produce text containing "√"
+        let node = Node::InlineMath(vec![Node::Radical {
+            degree: None,
+            radicand: Box::new(Node::MathGroup(vec![Node::Text("x".to_string())])),
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('√') || text.to_lowercase().contains("sqrt"),
+                "Expected radical symbol in '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_greek_alpha() {
+        // $\alpha$ should produce text containing "α"
+        let node = Node::InlineMath(vec![Node::Command {
+            name: "alpha".to_string(),
+            args: vec![],
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('α'),
+                "Expected 'α' for \\alpha, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_greek_beta() {
+        // $\beta$ should produce text containing "β"
+        let node = Node::InlineMath(vec![Node::Command {
+            name: "beta".to_string(),
+            args: vec![],
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('β'),
+                "Expected 'β' for \\beta, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_greek_pi() {
+        // $\pi$ should produce text containing "π"
+        let node = Node::InlineMath(vec![Node::Command {
+            name: "pi".to_string(),
+            args: vec![],
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(text.contains('π'), "Expected 'π' for \\pi, got '{}'", text);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_operator_times() {
+        // $a \times b$ should produce text containing "×"
+        let node = Node::InlineMath(vec![
+            Node::Text("a".to_string()),
+            Node::Command {
+                name: "times".to_string(),
+                args: vec![],
+            },
+            Node::Text("b".to_string()),
+        ]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('×'),
+                "Expected '×' for \\times, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_operator_leq() {
+        // $x \leq y$ should produce text containing "≤"
+        let node = Node::InlineMath(vec![
+            Node::Text("x".to_string()),
+            Node::Command {
+                name: "leq".to_string(),
+                args: vec![],
+            },
+            Node::Text("y".to_string()),
+        ]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(text.contains('≤'), "Expected '≤' for \\leq, got '{}'", text);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_operator_infty() {
+        // $\infty$ should produce text containing "∞"
+        let node = Node::InlineMath(vec![Node::Command {
+            name: "infty".to_string(),
+            args: vec![],
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert!(
+                text.contains('∞'),
+                "Expected '∞' for \\infty, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_display_math_forces_linebreak() {
+        // DisplayMath node should produce Penalty{value: -10000} items
+        // Use $$...$$ which the parser recognises as DisplayMath
+        let mut parser = Parser::new("$$E=mc^2$$");
+        let doc = parser.parse();
+        let items = translate_node(&doc);
+        let has_forced_break = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000));
+        assert!(
+            has_forced_break,
+            "Display math should force line breaks (Penalty -10000)"
+        );
+    }
+
+    #[test]
+    fn test_inline_math_no_math_placeholder() {
+        // InlineMath with text "x" should NOT produce BoxNode::Text with text == "(math)"
+        let node = Node::InlineMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        let has_placeholder = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "(math)"));
+        assert!(
+            !has_placeholder,
+            "InlineMath should not produce '(math)' placeholder"
+        );
+    }
+
+    #[test]
+    fn test_math_node_to_text_superscript_nested() {
+        // x^{2+y} → text contains "2" and "y"
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::MathGroup(vec![
+                Node::Text("2".to_string()),
+                Node::Text("+".to_string()),
+                Node::Text("y".to_string()),
+            ])),
+        };
+        let result = math_node_to_text(&node);
+        assert!(
+            result.contains('2'),
+            "Expected '2' in nested superscript: '{}'",
+            result
+        );
+        assert!(
+            result.contains('y'),
+            "Expected 'y' in nested superscript: '{}'",
+            result
+        );
+    }
+
+    #[test]
+    fn test_math_node_to_text_fraction_complex() {
+        // \frac{x^2}{y_i} → text contains "x" and "y"
+        let node = Node::Fraction {
+            numerator: Box::new(Node::MathGroup(vec![Node::Superscript {
+                base: Box::new(Node::Text("x".to_string())),
+                exponent: Box::new(Node::Text("2".to_string())),
+            }])),
+            denominator: Box::new(Node::MathGroup(vec![Node::Subscript {
+                base: Box::new(Node::Text("y".to_string())),
+                subscript: Box::new(Node::Text("i".to_string())),
+            }])),
+        };
+        let result = math_node_to_text(&node);
+        assert!(
+            result.contains('x'),
+            "Expected 'x' in complex fraction: '{}'",
+            result
+        );
+        assert!(
+            result.contains('y'),
+            "Expected 'y' in complex fraction: '{}'",
+            result
+        );
+    }
+
+    #[test]
+    fn test_math_text_has_computed_width() {
+        // Math text width should equal metrics.string_width(text), not hardcoded 20.0
+        let metrics = StandardFontMetrics;
+        let node = Node::InlineMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, width, .. } = &items[0] {
+            let expected_width = metrics.string_width(text);
+            assert!(
+                (width - expected_width).abs() < f64::EPSILON,
+                "Math text width should be computed from metrics ({}), not hardcoded. Got {}, expected {}",
+                text,
+                width,
+                expected_width
+            );
+            assert!(
+                (width - 20.0).abs() > f64::EPSILON || text == "????",
+                "Width should not be hardcoded 20.0 (unless text happens to be exactly 20.0pt wide)"
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
     }
 }
