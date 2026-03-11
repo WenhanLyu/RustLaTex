@@ -40,6 +40,8 @@ Binary-identical output requires:
 - **pdflatex not installed:** M12 binary-identity testing requires installing pdflatex. Consider Homebrew install or alternative before starting M12.
 - **Cycle 52-54 (M14):** M14 completed in 1 implementation cycle. Leo delivered itemize/enumerate rendering with bullet/number prefixes, 20pt indentation, inter-item glue, 17 new tests. CI green, 248 total tests pass.
 - **GhostScript available:** `gs` at /opt/homebrew/bin/gs (v10.06.0) — can render PDFs to PNG for visual validation. Use this for M15 integration tests.
+- **Cycle 55-57 (M15):** M15 completed in 1 implementation cycle. Ares delivered 16 GhostScript integration tests (5 example file tests + 11 inline tests), CI installs ghostscript. Apollo verified all 264 tests pass, CI green.
+- **M16 scope:** Focus on text alignment in PDF backend (justify/center/raggedright). Justification requires computing inter-word spacing adjustments per line. The KP line breaker already computes break points — the PDF renderer needs to use the adjustment ratios. Add \centering, \raggedright, \raggedleft command support in the engine. Keep hyphenation simple (pattern-based prefix suffix, Aho-Corasick not needed).
 
 ## Milestones
 
@@ -200,21 +202,24 @@ Implement proper visual rendering of LaTeX list environments in the engine.
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by CI (commit 02a7722, 248 tests total)
 
-### M15: GhostScript Integration Tests + Visual Smoke Tests
+### M15: GhostScript Integration Tests + Visual Smoke Tests ✅ COMPLETE
 - Use GhostScript (`gs`) to render our output PDFs to images
 - Run our compiler on all example .tex files and verify they produce valid, non-empty PDFs
 - Add integration test: compile each example, render with gs, verify PNG is non-empty
 - Note: pdflatex comparison deferred (requires sudo install)
 
-- **Cycles budget:** 4
-- **Status:** Pending
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 773472f, 264 tests total)
 
-### M16: Text Alignment, Hyphenation & Justified Output
-- Implement proper text justification (left, right, center, full justify)
-- Basic automatic hyphenation support using a simple pattern-based approach
-- `\centering`, `\raggedright`, `\raggedleft` commands
-- Better word-spacing adjustment for fully justified paragraphs
-- **Cycles budget:** 6
+### M16: Text Alignment & Justified Output
+- Implement text alignment modes: justified (default), centered, ragged-right, ragged-left
+- Add `Alignment` enum to engine: `Justify`, `Center`, `RaggedRight`, `RaggedLeft`
+- Handle `\centering`, `\raggedright`, `\raggedleft` commands in the translator
+- PDF backend: compute x-position offset per line based on alignment and actual line width
+- For justified text: distribute remaining space proportionally across inter-word glue
+- 15+ new tests covering each alignment mode
+- All 264 existing tests continue to pass
+- **Cycles budget:** 4
 - **Status:** Pending
 
 ### M17: Tables (tabular environment)
