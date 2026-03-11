@@ -21,8 +21,9 @@ Binary-identical output requires:
 ## Lessons Learned
 
 - **Cycle 1-4 (M1):** M1 completed in 3 cycles (under budget). The workspace setup was well-understood, Ares's team executed efficiently. Leo was hired mid-milestone to fix CI/fmt issues.
+- **Cycle 5-6 (M2):** M2 completed in 2 cycles (under budget of 4). Leo delivered the full lexer implementation with all 16 catcodes, mutable catcode table, 28 tests, parameter tokens, active chars, comment handling, and Par handling. Apollo verified all checks pass (34 tests total).
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
-- **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable.
+- **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 
 ## Milestones
 
@@ -33,34 +34,24 @@ Set up a well-structured Rust workspace with CI, basic project scaffolding, and 
 - **Cycles budget:** 3 | **Cycles actual:** 3
 - **Status:** ✅ Complete — verified by Apollo (cycle 4)
 
-### M2: LaTeX Lexer (Tokenizer) — IN PROGRESS
-Implement a complete, production-quality LaTeX tokenizer in `rustlatex-lexer`. The stub exists but needs full implementation.
+### M2: LaTeX Lexer (Tokenizer) ✅ COMPLETE
+Implement a complete, production-quality LaTeX tokenizer in `rustlatex-lexer`.
 
-Key requirements:
-- Correctly handle all 16 TeX category codes with a mutable catcode table
-- Control sequences: multi-letter (`\hello`), single-char (`\ `, `\@`, `\1`)
-- Skip trailing spaces after word control sequences (TeX rule)
-- Comment handling (`%` to end of line), producing no token
-- Produce a `Token` stream faithful to TeX's tokenization rules
-- Parameter tokens (`#1`-`#9`)
-- Active characters (catcode 13, e.g., `~`)
-- Comprehensive unit tests covering edge cases (empty input, only comments, nested groups, special chars)
-- All existing CI checks must still pass
+- **Deliverables:** CatcodeTable (256-entry), all 16 catcodes, mutable table, parameter tokens, active chars, Par/Space tokens, comment handling, 28 unit tests
+- **Cycles budget:** 4 | **Cycles actual:** 2
+- **Status:** ✅ Complete — verified by Apollo (commit 05518e3)
 
-- **Cycles budget:** 4
-- **Status:** 🔄 In Progress (M2 starting now)
-
-### M3: LaTeX Parser & Basic Document Structure
+### M3: LaTeX Parser & Basic Document Structure — IN PROGRESS
 Parse tokenized input into an AST representing:
 - Document structure: `\documentclass`, `\begin{document}`, `\end{document}`
 - Common environments: `itemize`, `enumerate`, `verbatim`, `figure`, `table`
 - Sections: `\section`, `\subsection`, etc.
 - Basic text formatting: `\textbf`, `\textit`, `\emph`
 - `\usepackage` declarations
-- Argument parsing: `\cmd{arg}` with mandatory `{}` args
+- Argument parsing: `\cmd{arg}` with mandatory `{}` args and optional `[opt]` args
 
 - **Cycles budget:** 5
-- **Status:** Pending
+- **Status:** 🔄 In Progress (M3 starting now)
 
 ### M4: Macro Expansion Engine
 Implement TeX's macro expansion:
