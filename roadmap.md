@@ -29,9 +29,12 @@ Binary-identical output requires:
 - **Cycle 26-28 (M7):** M7 completed in 1 implementation cycle + 1 verification. Leo implemented FontMetrics trait, StandardFontMetrics struct (CM Roman 10pt), translate_node_with_metrics(), Engine uses StandardFontMetrics by default. Apollo verified 131 tests pass, CI clean.
 - **Cycle 29-33 (M8):** M8 completed in 1 implementation cycle + 1 verification. Leo implemented real PDF backend: pdf-writer 0.9, A4 page layout, Base-14 Helvetica font, BoxNode rendering to PDF content streams, CLI writes .pdf file. Apollo verified 138 tests pass, CI clean.
 - **Cycle 34-38 (M9):** M9 completed in 1 implementation cycle + 1 verification. Ares implemented Knuth-Plass DP line-breaking: LineBreaker trait, GreedyLineBreaker, KnuthPlassLineBreaker (O(n²) DP, badness/demerits, tolerance=200), 19 new tests. Apollo verified 157 tests pass, CI clean.
-- **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9). M10 focuses on integration quality and font consistency before binary-identity work.
+- **Cycle 39-41 (M10):** M10 completed in 1 implementation cycle + 1 verification. Ares implemented integration tests (20 tests, 4 .tex corpus files), Helvetica metric alignment, CLI error handling. Apollo verified 182 tests pass, CI clean.
+- **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9). M10 focuses on integration quality and font consistency before binary-identity work. M11 embeds real CM Type1 fonts.
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
+- **Font resources available:** cmr10.afm at `/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/afm/cmr10.afm` and cmr10.pfb at `/System/Volumes/Data/Users/wenhanlyu/.local/lib/python2.7/site-packages/matplotlib/tests/cmr10.pfb` — both available for M11 font embedding.
+- **pdflatex not installed:** M12 binary-identity testing requires installing pdflatex. Consider Homebrew install or alternative before starting M12.
 
 ## Milestones
 
@@ -138,30 +141,31 @@ Replace the greedy `break_into_lines()` with the Knuth-Plass optimal line-breaki
 - **Cycles budget:** 6 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (157 tests total)
 
-### M10: End-to-End Integration Tests + Font/Rendering Consistency — IN PROGRESS
+### M10: End-to-End Integration Tests + Font/Rendering Consistency ✅ COMPLETE
 Validate the full pipeline with real `.tex` documents and fix the font/metrics consistency gap.
 
-**Scope:**
-- Add integration tests exercising the full pipeline: `.tex` → PDF bytes
-- Create a small corpus of 3-5 test `.tex` documents (simple article, math, sections, lists)
-- Verify each produces non-empty, valid PDF (check `%PDF-` header, `%%EOF`, cross-ref table)
-- Fix font consistency: engine uses CM Roman metrics but PDF uses Helvetica — align the PDF font to Courier (monospace) or document the mismatch with a TODO; adjust metrics if necessary
-- Fix CLI error handling: parse errors → non-zero exit with descriptive message
-- 10+ new integration tests
-- All 157 existing tests continue to pass
-
-- **Cycles budget:** 5
-- **Status:** 🔄 In Progress
+- **Deliverables:** 20 integration tests, 4 .tex corpus files, Helvetica metrics alignment, CLI error handling, 5 CLI tests
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 1a2254d, 182 tests total)
 
 ### M11: Real TeX Font Embedding (Type1 / Computer Modern)
-Embed actual Computer Modern Type1 fonts in the PDF output, using real TFM metrics.
-- Download/bundle CM Roman Type1 font data
-- Implement Type1 font embedding in PDF (font dictionary, widths array, font file stream)
-- Engine metrics align with embedded font metrics
-- Output is visually identical to pdflatex for plain text documents
+Embed actual Computer Modern Roman Type1 font (cmr10) in the PDF output, using real AFM metrics.
 
-- **Cycles budget:** 8
-- **Status:** Pending
+**Scope:**
+- Copy `cmr10.pfb` (35KB) to `crates/rustlatex-pdf/fonts/cmr10.pfb` (embed via `include_bytes!`)
+  - Source: `/System/Volumes/Data/Users/wenhanlyu/.local/lib/python2.7/site-packages/matplotlib/tests/cmr10.pfb`
+- Update `StandardFontMetrics` in `rustlatex-engine` to use CM Roman 10pt AFM widths
+  - Source: `/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/afm/cmr10.afm`
+  - WX values / 100 = pt width at 10pt (e.g. space=3.333pt, a=5.000pt, w=7.222pt)
+- Implement Type1 font embedding in PDF via pdf-writer 0.9:
+  - Font dictionary with FirstChar, LastChar, Widths array
+  - FontDescriptor with BBox, Ascender, Descender
+  - Embedded font file stream (FontFile entry)
+- PDF renders text in CM Roman (visually like pdflatex), engine metrics match PDF font
+- 10+ new tests, all 182 existing tests continue to pass
+
+- **Cycles budget:** 6
+- **Status:** 🔄 In Progress
 
 ### M12: Integration & Binary-Identity Testing
 - End-to-end test with real `.tex` documents
