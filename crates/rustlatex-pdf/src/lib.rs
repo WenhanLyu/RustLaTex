@@ -6,7 +6,7 @@
 
 use pdf_writer::types::FontFlags;
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
-use rustlatex_engine::{BoxNode, Page as EnginePage};
+use rustlatex_engine::{Alignment, BoxNode, Page as EnginePage};
 
 /// PDF generation result.
 #[derive(Debug)]
@@ -239,12 +239,38 @@ impl PdfWriter {
             let mut current_y = start_y;
 
             for line in &page.box_lines {
-                let mut current_x = margin_left;
+                // Compute line natural width and glue info
+                let mut line_nat_width: f32 = 0.0;
+                let mut glue_count: usize = 0;
+                for node in &line.nodes {
+                    match node {
+                        BoxNode::Text { width, .. } => line_nat_width += *width as f32,
+                        BoxNode::Kern { amount } => line_nat_width += *amount as f32,
+                        BoxNode::Glue { natural, .. } => {
+                            line_nat_width += *natural as f32;
+                            glue_count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                let hsize = 495.0_f32; // 595 - 2*50 margins
+                let remaining = hsize - line_nat_width;
 
-                // Position at the start of this line
+                let start_x = match line.alignment {
+                    Alignment::Center => margin_left + remaining / 2.0,
+                    Alignment::RaggedLeft => margin_left + remaining,
+                    Alignment::Justify | Alignment::RaggedRight => margin_left,
+                };
+                let glue_extra = if line.alignment == Alignment::Justify && glue_count > 0 {
+                    remaining / glue_count as f32
+                } else {
+                    0.0
+                };
+
+                let mut current_x = start_x;
                 content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
 
-                for node in line {
+                for node in &line.nodes {
                     match node {
                         BoxNode::Text {
                             text,
@@ -257,10 +283,7 @@ impl PdfWriter {
                             current_x += *width as f32;
                         }
                         BoxNode::Glue { natural, .. } => {
-                            // Advance x by natural width - emit a space
-                            // Use text matrix repositioning for the next text node
-                            current_x += *natural as f32;
-                            // Re-position for the next text element
+                            current_x += *natural as f32 + glue_extra;
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
                         BoxNode::Kern { amount } => {
@@ -268,7 +291,7 @@ impl PdfWriter {
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
                         _ => {
-                            // HBox, VBox, Penalty — skip for now
+                            // HBox, VBox, Penalty, AlignmentMarker — skip
                         }
                     }
                 }
@@ -301,7 +324,9 @@ impl PdfWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustlatex_engine::{BoxNode, FontMetrics, Page as EnginePage, StandardFontMetrics};
+    use rustlatex_engine::{
+        Alignment, BoxNode, FontMetrics, OutputLine, Page as EnginePage, StandardFontMetrics,
+    };
 
     #[test]
     fn test_pdf_header_starts_with_pdf() {
@@ -321,23 +346,26 @@ mod tests {
         let pages = vec![EnginePage {
             number: 1,
             content: "Hello world".to_string(),
-            box_lines: vec![vec![
-                BoxNode::Text {
-                    text: "Hello".to_string(),
-                    width: 25.0,
-                    font_size: 10.0,
-                },
-                BoxNode::Glue {
-                    natural: 3.33,
-                    stretch: 1.67,
-                    shrink: 1.11,
-                },
-                BoxNode::Text {
-                    text: "world".to_string(),
-                    width: 24.76,
-                    font_size: 10.0,
-                },
-            ]],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![
+                    BoxNode::Text {
+                        text: "Hello".to_string(),
+                        width: 25.0,
+                        font_size: 10.0,
+                    },
+                    BoxNode::Glue {
+                        natural: 3.33,
+                        stretch: 1.67,
+                        shrink: 1.11,
+                    },
+                    BoxNode::Text {
+                        text: "world".to_string(),
+                        width: 24.76,
+                        font_size: 10.0,
+                    },
+                ],
+            }],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -351,11 +379,14 @@ mod tests {
         let pages = vec![EnginePage {
             number: 1,
             content: "page one".to_string(),
-            box_lines: vec![vec![BoxNode::Text {
-                text: "Hello".to_string(),
-                width: 25.0,
-                font_size: 10.0,
-            }]],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Hello".to_string(),
+                    width: 25.0,
+                    font_size: 10.0,
+                }],
+            }],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -372,20 +403,26 @@ mod tests {
             EnginePage {
                 number: 1,
                 content: "page one".to_string(),
-                box_lines: vec![vec![BoxNode::Text {
-                    text: "First".to_string(),
-                    width: 20.0,
-                    font_size: 10.0,
-                }]],
+                box_lines: vec![OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "First".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                    }],
+                }],
             },
             EnginePage {
                 number: 2,
                 content: "page two".to_string(),
-                box_lines: vec![vec![BoxNode::Text {
-                    text: "Second".to_string(),
-                    width: 30.0,
-                    font_size: 10.0,
-                }]],
+                box_lines: vec![OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "Second".to_string(),
+                        width: 30.0,
+                        font_size: 10.0,
+                    }],
+                }],
             },
         ];
         let writer = PdfWriter::new();
@@ -425,11 +462,14 @@ mod tests {
         let pages = vec![EnginePage {
             number: 1,
             content: "test".to_string(),
-            box_lines: vec![vec![BoxNode::Text {
-                text: "test".to_string(),
-                width: 20.0,
-                font_size: 10.0,
-            }]],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "test".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                }],
+            }],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -605,11 +645,14 @@ mod tests {
         let pages = vec![EnginePage {
             number: 1,
             content: "sample".to_string(),
-            box_lines: vec![vec![BoxNode::Text {
-                text: "sample".to_string(),
-                width: 30.0,
-                font_size: 10.0,
-            }]],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "sample".to_string(),
+                    width: 30.0,
+                    font_size: 10.0,
+                }],
+            }],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -628,5 +671,43 @@ mod tests {
             "Default fallback width should be 5.000pt, got {}",
             w
         );
+    }
+
+    #[test]
+    fn test_pdf_centered_line() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Center,
+                nodes: vec![BoxNode::Text {
+                    text: "Hello".to_string(),
+                    width: 30.0,
+                    font_size: 10.0,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(!output.bytes.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_raggedleft_line() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::RaggedLeft,
+                nodes: vec![BoxNode::Text {
+                    text: "Right".to_string(),
+                    width: 30.0,
+                    font_size: 10.0,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(!output.bytes.is_empty());
     }
 }

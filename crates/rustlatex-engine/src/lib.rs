@@ -6,6 +6,27 @@
 
 use rustlatex_parser::Node;
 
+/// Text alignment mode for a line or block.
+#[derive(Debug, Clone, PartialEq, Copy, Default)]
+pub enum Alignment {
+    /// Justify (stretch/shrink glue to fill hsize). This is the default.
+    #[default]
+    Justify,
+    /// Center the line horizontally.
+    Center,
+    /// Ragged-right alignment (left-aligned, no justification).
+    RaggedRight,
+    /// Ragged-left alignment (right-aligned).
+    RaggedLeft,
+}
+
+/// A single typeset line with its alignment mode.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputLine {
+    pub alignment: Alignment,
+    pub nodes: Vec<BoxNode>,
+}
+
 /// A node in the typesetting intermediate representation (box/glue model).
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoxNode {
@@ -34,6 +55,8 @@ pub enum BoxNode {
     },
     /// A vertical box containing sub-nodes.
     VBox { width: f64, content: Vec<BoxNode> },
+    /// An alignment marker that sets the alignment mode for subsequent lines.
+    AlignmentMarker { alignment: Alignment },
 }
 
 // ===== Font Metrics Trait and CM Roman Implementation =====
@@ -383,6 +406,15 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
+                "centering" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center,
+                }],
+                "raggedright" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::RaggedRight,
+                }],
+                "raggedleft" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::RaggedLeft,
+                }],
                 _ => {
                     // Unknown commands → skip
                     vec![]
@@ -461,6 +493,18 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         shrink: 0.0,
                     });
 
+                    result
+                }
+                "center" => {
+                    let mut result = vec![BoxNode::AlignmentMarker {
+                        alignment: Alignment::Center,
+                    }];
+                    for node in content {
+                        result.extend(translate_node_with_metrics(node, metrics));
+                    }
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Justify,
+                    });
                     result
                 }
                 _ => content
@@ -597,7 +641,10 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
                 current_width += amount;
                 current_line.push(item.clone());
             }
-            BoxNode::Penalty { .. } | BoxNode::HBox { .. } | BoxNode::VBox { .. } => {
+            BoxNode::Penalty { .. }
+            | BoxNode::HBox { .. }
+            | BoxNode::VBox { .. }
+            | BoxNode::AlignmentMarker { .. } => {
                 // Pass through without affecting width calculation for now
                 current_line.push(item.clone());
             }
@@ -988,6 +1035,43 @@ impl LineBreaker for KnuthPlassLineBreaker {
     }
 }
 
+/// Break items into lines while tracking alignment markers.
+/// AlignmentMarker nodes set the alignment for lines that follow them.
+/// They are removed from the output lines (not rendered directly).
+pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLine> {
+    // Segment items by alignment spans
+    let mut segments: Vec<(Alignment, Vec<BoxNode>)> = Vec::new();
+    let mut current_alignment = Alignment::Justify;
+    let mut current_items: Vec<BoxNode> = Vec::new();
+
+    for item in items {
+        if let BoxNode::AlignmentMarker { alignment } = item {
+            if !current_items.is_empty() {
+                segments.push((current_alignment, current_items.clone()));
+                current_items.clear();
+            }
+            current_alignment = *alignment;
+        } else {
+            current_items.push(item.clone());
+        }
+    }
+    if !current_items.is_empty() {
+        segments.push((current_alignment, current_items));
+    }
+
+    let breaker = KnuthPlassLineBreaker::new();
+    let mut result: Vec<OutputLine> = Vec::new();
+
+    for (alignment, seg_items) in segments {
+        let lines = breaker.break_lines(&seg_items, hsize);
+        for nodes in lines {
+            result.push(OutputLine { alignment, nodes });
+        }
+    }
+
+    result
+}
+
 /// A laid-out page ready for PDF rendering.
 #[derive(Debug)]
 pub struct Page {
@@ -996,7 +1080,7 @@ pub struct Page {
     /// Placeholder content — will become a proper box tree.
     pub content: String,
     /// The typeset box lines for this page.
-    pub box_lines: Vec<Vec<BoxNode>>,
+    pub box_lines: Vec<OutputLine>,
 }
 
 /// The typesetting engine processes an AST and produces pages.
@@ -1019,14 +1103,13 @@ impl Engine {
     pub fn typeset(&self) -> Vec<Page> {
         let metrics = StandardFontMetrics;
         let items = translate_node_with_metrics(&self.document, &metrics);
-        let breaker = KnuthPlassLineBreaker::new();
-        let all_lines = breaker.break_lines(&items, 345.0);
+        let all_lines = break_items_with_alignment(&items, 345.0);
         let content = format!("(stub) document node: {:?}", self.document);
 
         let vsize = 700.0_f64;
         let line_height = 12.0_f64;
         let mut pages: Vec<Page> = Vec::new();
-        let mut current_page_lines: Vec<Vec<BoxNode>> = Vec::new();
+        let mut current_page_lines: Vec<OutputLine> = Vec::new();
         let mut accumulated_height = 0.0_f64;
 
         for line in all_lines {
@@ -1555,7 +1638,11 @@ mod tests {
         assert_eq!(pages.len(), 1);
         assert!(!pages[0].box_lines.is_empty());
         // Should contain a math text box (not the old "(math)" placeholder)
-        let all_items: Vec<&BoxNode> = pages[0].box_lines.iter().flatten().collect();
+        let all_items: Vec<&BoxNode> = pages[0]
+            .box_lines
+            .iter()
+            .flat_map(|l| l.nodes.iter())
+            .collect();
         let has_math_text = all_items.iter().any(
             |n| matches!(n, BoxNode::Text { text, .. } if text.contains('x') || text.contains('2')),
         );
@@ -2412,7 +2499,7 @@ mod tests {
         let pages = engine.typeset();
         for page in &pages {
             for line in &page.box_lines {
-                for node in line {
+                for node in &line.nodes {
                     if let BoxNode::Text { font_size, .. } = node {
                         assert!(*font_size > 0.0, "font_size must be positive");
                     }
@@ -3084,6 +3171,289 @@ mod tests {
             );
         } else {
             panic!("Expected a Text node with bullet •");
+        }
+    }
+
+    // ===== M16: Alignment tests =====
+
+    #[test]
+    fn test_alignment_enum_default() {
+        assert_eq!(Alignment::default(), Alignment::Justify);
+    }
+
+    #[test]
+    fn test_alignment_marker_boxnode_centering() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "centering".to_string(),
+            args: vec![],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center
+            }
+        );
+    }
+
+    #[test]
+    fn test_alignment_marker_boxnode_raggedright() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "raggedright".to_string(),
+            args: vec![],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::RaggedRight
+            }
+        );
+    }
+
+    #[test]
+    fn test_alignment_marker_boxnode_raggedleft() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "raggedleft".to_string(),
+            args: vec![],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::RaggedLeft
+            }
+        );
+    }
+
+    #[test]
+    fn test_center_environment_produces_alignment_markers() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "center".to_string(),
+            options: None,
+            content: vec![Node::Text("hello".to_string())],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        // First item is AlignmentMarker::Center, last is AlignmentMarker::Justify
+        assert!(matches!(
+            result.first(),
+            Some(BoxNode::AlignmentMarker {
+                alignment: Alignment::Center
+            })
+        ));
+        assert!(matches!(
+            result.last(),
+            Some(BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify
+            })
+        ));
+    }
+
+    #[test]
+    fn test_break_items_with_alignment_default_justify() {
+        let items = vec![BoxNode::Text {
+            text: "hello".to_string(),
+            width: 30.0,
+            font_size: 10.0,
+        }];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].alignment, Alignment::Justify);
+    }
+
+    #[test]
+    fn test_break_items_with_alignment_centering() {
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(!lines.is_empty());
+        assert_eq!(lines[0].alignment, Alignment::Center);
+    }
+
+    #[test]
+    fn test_break_items_with_alignment_raggedright() {
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::RaggedRight,
+            },
+            BoxNode::Text {
+                text: "hi".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(!lines.is_empty());
+        assert_eq!(lines[0].alignment, Alignment::RaggedRight);
+    }
+
+    #[test]
+    fn test_break_items_with_alignment_raggedleft() {
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::RaggedLeft,
+            },
+            BoxNode::Text {
+                text: "hi".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(!lines.is_empty());
+        assert_eq!(lines[0].alignment, Alignment::RaggedLeft);
+    }
+
+    #[test]
+    fn test_break_items_alignment_switches_mid_document() {
+        let items = vec![
+            BoxNode::Text {
+                text: "normal".to_string(),
+                width: 40.0,
+                font_size: 10.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "centered".to_string(),
+                width: 50.0,
+                font_size: 10.0,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(lines.len() >= 2);
+        assert_eq!(lines[0].alignment, Alignment::Justify);
+        assert_eq!(lines[1].alignment, Alignment::Center);
+    }
+
+    #[test]
+    fn test_alignment_marker_not_in_output_nodes() {
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "text".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // AlignmentMarker should be stripped from nodes
+        for line in &lines {
+            for node in &line.nodes {
+                assert!(!matches!(node, BoxNode::AlignmentMarker { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn test_output_line_struct() {
+        let line = OutputLine {
+            alignment: Alignment::Center,
+            nodes: vec![BoxNode::Text {
+                text: "x".to_string(),
+                width: 6.0,
+                font_size: 10.0,
+            }],
+        };
+        assert_eq!(line.alignment, Alignment::Center);
+        assert_eq!(line.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_typeset_with_centering_command() {
+        let doc = Node::Document(vec![
+            Node::Command {
+                name: "centering".to_string(),
+                args: vec![],
+            },
+            Node::Paragraph(vec![Node::Text("Hello World".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        let has_centered = pages
+            .iter()
+            .any(|p| p.box_lines.iter().any(|l| l.alignment == Alignment::Center));
+        assert!(has_centered, "Expected at least one centered line");
+    }
+
+    #[test]
+    fn test_typeset_center_environment() {
+        let doc = Node::Document(vec![Node::Environment {
+            name: "center".to_string(),
+            options: None,
+            content: vec![Node::Text("Centered text".to_string())],
+        }]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        let has_centered = pages
+            .iter()
+            .any(|p| p.box_lines.iter().any(|l| l.alignment == Alignment::Center));
+        assert!(
+            has_centered,
+            "Expected centered lines from center environment"
+        );
+    }
+
+    #[test]
+    fn test_typeset_raggedright_command() {
+        let doc = Node::Document(vec![
+            Node::Command {
+                name: "raggedright".to_string(),
+                args: vec![],
+            },
+            Node::Paragraph(vec![Node::Text("Left text".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        let has_ragged = pages.iter().any(|p| {
+            p.box_lines
+                .iter()
+                .any(|l| l.alignment == Alignment::RaggedRight)
+        });
+        assert!(has_ragged);
+    }
+
+    #[test]
+    fn test_break_items_empty_produces_no_lines() {
+        let lines = break_items_with_alignment(&[], 345.0);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn test_center_env_content_has_no_alignment_markers_in_nodes() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "center".to_string(),
+            options: None,
+            content: vec![Node::Text("test".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let lines = break_items_with_alignment(&items, 345.0);
+        for line in &lines {
+            for n in &line.nodes {
+                assert!(!matches!(n, BoxNode::AlignmentMarker { .. }));
+            }
         }
     }
 }
