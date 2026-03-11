@@ -20,35 +20,35 @@ Binary-identical output requires:
 
 ## Lessons Learned
 
-_(Updated each cycle)_
+- **Cycle 1-4 (M1):** M1 completed in 3 cycles (under budget). The workspace setup was well-understood, Ares's team executed efficiently. Leo was hired mid-milestone to fix CI/fmt issues.
+- **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
+- **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable.
 
 ## Milestones
 
-### M1: Project Foundation & Rust Workspace Setup ✅ PLANNED
-Set up a well-structured Rust workspace with CI, basic project scaffolding, and clear crate organization. This lays the foundation for all subsequent development.
+### M1: Project Foundation & Rust Workspace Setup ✅ COMPLETE
+Set up a well-structured Rust workspace with CI, basic project scaffolding, and clear crate organization.
 
-- **Deliverables:**
-  - `Cargo.toml` workspace with crates: `rustlatex-lexer`, `rustlatex-parser`, `rustlatex-engine`, `rustlatex-pdf`, `rustlatex-cli`
-  - CI pipeline (GitHub Actions) running `cargo build` and `cargo test`
-  - Basic CLI binary that accepts a `.tex` file argument
-  - README documenting the architecture
-- **Cycles budget:** 3
-- **Status:** Pending
+- **Deliverables:** 5-crate workspace, CI (GitHub Actions), CLI binary, README
+- **Cycles budget:** 3 | **Cycles actual:** 3
+- **Status:** ✅ Complete — verified by Apollo (cycle 4)
 
-### M2: LaTeX Lexer (Tokenizer)
-Implement a complete LaTeX tokenizer that handles:
-- Control sequences (`\commandname`, `\ `, `\@`)
-- Active characters
-- Grouping (`{`, `}`)
-- Math mode (`$`, `$$`, `\(`, `\[`)
-- Comments (`%`)
+### M2: LaTeX Lexer (Tokenizer) — IN PROGRESS
+Implement a complete, production-quality LaTeX tokenizer in `rustlatex-lexer`. The stub exists but needs full implementation.
+
+Key requirements:
+- Correctly handle all 16 TeX category codes with a mutable catcode table
+- Control sequences: multi-letter (`\hello`), single-char (`\ `, `\@`, `\1`)
+- Skip trailing spaces after word control sequences (TeX rule)
+- Comment handling (`%` to end of line), producing no token
+- Produce a `Token` stream faithful to TeX's tokenization rules
 - Parameter tokens (`#1`-`#9`)
-- Category codes (catcodes) — TeX's core tokenization mechanism
-
-Output: stream of TeX tokens matching TeX's Category Code rules.
+- Active characters (catcode 13, e.g., `~`)
+- Comprehensive unit tests covering edge cases (empty input, only comments, nested groups, special chars)
+- All existing CI checks must still pass
 
 - **Cycles budget:** 4
-- **Status:** Pending
+- **Status:** 🔄 In Progress (M2 starting now)
 
 ### M3: LaTeX Parser & Basic Document Structure
 Parse tokenized input into an AST representing:
@@ -57,6 +57,7 @@ Parse tokenized input into an AST representing:
 - Sections: `\section`, `\subsection`, etc.
 - Basic text formatting: `\textbf`, `\textit`, `\emph`
 - `\usepackage` declarations
+- Argument parsing: `\cmd{arg}` with mandatory `{}` args
 
 - **Cycles budget:** 5
 - **Status:** Pending
