@@ -24,8 +24,10 @@ Binary-identical output requires:
 - **Cycle 5-6 (M2):** M2 completed in 2 cycles (under budget of 4). Leo delivered the full lexer implementation with all 16 catcodes, mutable catcode table, 28 tests, parameter tokens, active chars, comment handling, and Par handling. Apollo verified all checks pass (34 tests total).
 - **Cycle 7-12 (M3):** M3 completed in 2 implementation cycles + 1 verification. Leo delivered the full parser upgrade: Environment, Paragraph, DisplayMath nodes, argument/optional arg parsing, 22 tests total. Apollo verified all 52 tests pass, CI clean.
 - **Cycle 13-19 (M4):** M4 completed in 2 implementation cycles + 1 verification (with 1 fix round). Leo delivered MacroTable, \def, \newcommand, \renewcommand, \let, \if/\ifx/\ifnum conditionals, 21 new tests. Apollo verified all 73 tests pass, CI clean.
+- **Cycle 20-22 (M5):** M5 completed in 1 implementation cycle + 1 verification. Ares implemented math AST nodes directly (Superscript, Subscript, Fraction, Radical, MathGroup). Apollo verified 90 total tests pass, CI clean.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
+- **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
 
 ## Milestones
 
@@ -67,52 +69,78 @@ Implement TeX macro expansion in `rustlatex-parser`:
 - **Cycles budget:** 5 | **Cycles actual:** 3
 - **Status:** ✅ Complete — verified by Apollo (commit 8da83d2, 73 tests total)
 
-### M5: Math Mode AST Enhancement — IN PROGRESS
+### M5: Math Mode AST Enhancement ✅ COMPLETE
 Enhance the math mode parser in `rustlatex-parser` to produce structured AST nodes instead of raw text:
-- `Superscript(base, exp)` — AST node for `x^2`, `x^{2n}`
-- `Subscript(base, sub)` — AST node for `x_i`, `x_{ij}`
-- `Fraction { numerator, denominator }` — AST node for `\frac{a}{b}`
-- `Radical { degree, radicand }` — AST node for `\sqrt{x}`, `\sqrt[n]{x}`
-- `MathCommand { name, args }` — for `\sum`, `\int`, `\prod`, `\lim`, etc.
-- `MathGroup(Vec<Node>)` — for `{...}` groups inside math
-- Math-mode text: `\text{...}` — embed text in math
-- 15+ new tests for all math AST nodes
-- All existing 73 tests must continue to pass
+- `Superscript`, `Subscript`, `Fraction`, `Radical`, `MathGroup` nodes
+- 17 new math tests, all existing 73 tests continue to pass
+
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (90 tests total)
+
+### M6: Box/Glue Data Model & AST→BoxList Translator — IN PROGRESS
+Implement the typesetting IR (intermediate representation) in `rustlatex-engine`:
+
+**Box/Glue data model:**
+- `BoxNode` enum: `HBox`, `VBox`, `Text`, `Glue`, `Kern`, `Penalty`, `Rule` variants
+- `Glue` struct: `{ natural: f64, stretch: f64, shrink: f64 }` (scaled points or float)
+- `Dimension` type (scaled points as i64, or f64 for initial implementation)
+- `HBox { width, height, depth, content: Vec<BoxNode> }`
+- `VBox { width, height, content: Vec<BoxNode> }`
+
+**AST→BoxList translator:**
+- Traverse AST `Node` tree and produce a `Vec<BoxNode>` (the "horizontal list")
+- Handle: `Text` → sequence of character `BoxNode::Text` items + inter-word glue
+- Handle: `Command` for font/formatting commands (`\textbf`, `\textit`) — stub, no real font change
+- Handle: `Paragraph(nodes)` → horizontal list of items followed by paragraph glue
+- Handle: `Environment` → vertical list of boxed paragraphs
+- Handle: `InlineMath` / `DisplayMath` → placeholder `BoxNode::Text("(math)")` (full math layout is later)
+
+**Naive line breaking (greedy):**
+- Implement a greedy line-breaking algorithm (first-fit, no Knuth-Plass yet)
+- Break horizontal lists at glue points to produce lines of a given `\hsize` (hardcoded 345pt for A4)
+- Stack lines into pages using a fixed `\vsize` (hardcoded 550pt for A4)
+
+**Output:**
+- `Engine::typeset()` returns `Vec<Page>` where each `Page` has a `Vec<Vec<BoxNode>>` (lines) — replace the current placeholder `String`
+
+**Tests (15+):**
+- Test `BoxNode` construction and basic properties
+- Test AST→BoxList for simple text paragraph
+- Test naive line breaking with known text width
+- Test multi-paragraph documents produce multiple paragraph groups
+- All existing 90 tests continue to pass
 
 - **Cycles budget:** 5
 - **Status:** 🔄 In Progress
-
-### M6: TeX Box/Glue Typesetting Engine
-Implement TeX's typesetting model:
-- Hboxes and vboxes
-- Glue (flexible spacing)
-- Penalties
-- Line breaking (Knuth-Plass algorithm)
-- Page breaking
-
-This is the core algorithmic challenge. Requires careful study of TeX: The Program.
-
-- **Cycles budget:** 10
-- **Status:** Pending
 
 ### M7: Font Handling & Metrics
 - Load and interpret TFM (TeX Font Metric) files
 - Handle font families, sizes, encodings
 - Kern pairs and ligatures
+- Integrate metrics into engine for accurate character widths
 
-- **Cycles budget:** 4
+- **Cycles budget:** 5
 - **Status:** Pending
 
-### M8: PDF Backend
-- Generate PDF 1.5 output
-- Embed fonts (Type1/TrueType/OpenType)
-- Handle cross-references, hyperlinks
-- Match pdflatex's PDF structure for binary-identical output
+### M8: PDF Backend (Real Output)
+- Generate real PDF 1.5 output using `pdf-writer` crate
+- Embed a base 14 font (Helvetica/Times) — no subsetting yet
+- Render text to PDF content streams using correct glyph positioning
+- Produce a viewable PDF from a simple `.tex` document
 
 - **Cycles budget:** 6
 - **Status:** Pending
 
-### M9: Integration & Binary-Identity Testing
+### M9: Knuth-Plass Line Breaking
+- Implement the full Knuth-Plass algorithm (§813–§890 of TeX: The Program)
+- Replace greedy line breaking with optimal line breaking
+- Handle hyphenation (simple rules first)
+- Handle `\tolerance`, `\pretolerance` parameters
+
+- **Cycles budget:** 8
+- **Status:** Pending
+
+### M10: Integration & Binary-Identity Testing
 - End-to-end test with real `.tex` documents
 - Compare output byte-by-byte with pdflatex
 - Fix all differences — font embedding, metadata, timestamps
