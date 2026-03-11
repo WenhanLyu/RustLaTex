@@ -26,6 +26,7 @@ Binary-identical output requires:
 - **Cycle 13-19 (M4):** M4 completed in 2 implementation cycles + 1 verification (with 1 fix round). Leo delivered MacroTable, \def, \newcommand, \renewcommand, \let, \if/\ifx/\ifnum conditionals, 21 new tests. Apollo verified all 73 tests pass, CI clean.
 - **Cycle 20-22 (M5):** M5 completed in 1 implementation cycle + 1 verification. Ares implemented math AST nodes directly (Superscript, Subscript, Fraction, Radical, MathGroup). Apollo verified 90 total tests pass, CI clean.
 - **Cycle 23-25 (M6):** M6 completed in 1 implementation cycle + 1 verification. Leo implemented BoxNode enum (6 variants), AST→BoxList translator, greedy line breaking, and updated Engine::typeset(). Apollo verified 117 tests pass, CI clean.
+- **Cycle 26-28 (M7):** M7 completed in 1 implementation cycle + 1 verification. Leo implemented FontMetrics trait, StandardFontMetrics struct (CM Roman 10pt), translate_node_with_metrics(), Engine uses StandardFontMetrics by default. Apollo verified 131 tests pass, CI clean.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
@@ -114,36 +115,28 @@ Implement the typesetting IR (intermediate representation) in `rustlatex-engine`
 - **Cycles budget:** 5 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit 84806c3, 117 tests)
 
-### M7: Font Handling & Real Character Widths — IN PROGRESS
+### M7: Font Handling & Real Character Widths ✅ COMPLETE
 Implement font metrics support so the typesetting engine uses accurate character widths instead of the 6pt-per-character approximation.
 
-**Scope (focused on what's achievable without full TFM parsing):**
-- Add a `FontMetrics` trait to `rustlatex-engine` with method `char_width(ch: char) -> f64`
-- Implement a `StandardFontMetrics` struct with hardcoded metrics for the **Computer Modern Roman 10pt** font (the default LaTeX font). Use the well-known character widths from CM fonts (available from TeX documentation / TFM data). Focus on ASCII printable characters.
-- Replace the existing `char_width()` stub function (6pt per char) with `StandardFontMetrics::char_width()`
-- Update `translate_node()` to use `FontMetrics` for computing text widths
-- Add a `metrics` parameter to `translate_node()` or thread it through `Engine::typeset()`
-- **Do NOT implement TFM file parsing** — hardcode CM10 metrics as a `HashMap<char, f64>` or array
+- **Deliverables:** `FontMetrics` trait, `StandardFontMetrics` (CM Roman 10pt hardcoded), `translate_node_with_metrics()`, Engine uses real metrics, 14 new tests
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit a283d5c, 131 tests total)
 
-**Deliverables:**
-- `FontMetrics` trait with `char_width(ch: char) -> f64` and `space_width() -> f64`
-- `StandardFontMetrics` struct (CM Roman 10pt, hardcoded) implementing `FontMetrics`
-- `Engine` updated to use `StandardFontMetrics` by default
-- `translate_node()` takes a `&dyn FontMetrics` parameter
-- 10+ new tests verifying accurate widths for common characters
-- All 117 existing tests continue to pass
+### M8: PDF Backend (Real Output) — IN PROGRESS
+Generate real, viewable PDF output using the `pdf-writer` crate (Rust). The PDF backend must take the `Vec<Page>` from the engine and emit a real PDF file (not a stub).
 
-- **Cycles budget:** 4
+**Scope:**
+- Add `pdf-writer = "0.9"` dependency to `rustlatex-pdf/Cargo.toml`
+- Replace the stub `PdfWriter::write()` with real PDF 1.7 output
+- Embed a **Type 1 / Base-14 font** (Helvetica or Courier) — no subsetting needed for base-14 fonts
+- Render each page's `box_lines` to PDF content streams, positioning text using `Tf`/`Tj`/`Td` operators
+- Handle page dimensions (A4: 595×842pt), margins (hardcoded)
+- The CLI should write the PDF bytes to a `.pdf` file (update `main.rs` to output file)
+- 5+ new tests verifying: non-empty output, valid PDF header (`%PDF`), page count matches, text present in stream
+- All 131 existing tests continue to pass
+
+- **Cycles budget:** 5
 - **Status:** 🔄 In Progress
-
-### M8: PDF Backend (Real Output)
-- Generate real PDF 1.5 output using `pdf-writer` crate
-- Embed a base 14 font (Helvetica/Times) — no subsetting yet
-- Render text to PDF content streams using correct glyph positioning
-- Produce a viewable PDF from a simple `.tex` document
-
-- **Cycles budget:** 6
-- **Status:** Pending
 
 ### M9: Knuth-Plass Line Breaking
 - Implement the full Knuth-Plass algorithm (§813–§890 of TeX: The Program)
