@@ -27,6 +27,7 @@ Binary-identical output requires:
 - **Cycle 20-22 (M5):** M5 completed in 1 implementation cycle + 1 verification. Ares implemented math AST nodes directly (Superscript, Subscript, Fraction, Radical, MathGroup). Apollo verified 90 total tests pass, CI clean.
 - **Cycle 23-25 (M6):** M6 completed in 1 implementation cycle + 1 verification. Leo implemented BoxNode enum (6 variants), AST→BoxList translator, greedy line breaking, and updated Engine::typeset(). Apollo verified 117 tests pass, CI clean.
 - **Cycle 26-28 (M7):** M7 completed in 1 implementation cycle + 1 verification. Leo implemented FontMetrics trait, StandardFontMetrics struct (CM Roman 10pt), translate_node_with_metrics(), Engine uses StandardFontMetrics by default. Apollo verified 131 tests pass, CI clean.
+- **Cycle 29-33 (M8):** M8 completed in 1 implementation cycle + 1 verification. Leo implemented real PDF backend: pdf-writer 0.9, A4 page layout, Base-14 Helvetica font, BoxNode rendering to PDF content streams, CLI writes .pdf file. Apollo verified 138 tests pass, CI clean.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
@@ -122,30 +123,37 @@ Implement font metrics support so the typesetting engine uses accurate character
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit a283d5c, 131 tests total)
 
-### M8: PDF Backend (Real Output) — IN PROGRESS
-Generate real, viewable PDF output using the `pdf-writer` crate (Rust). The PDF backend must take the `Vec<Page>` from the engine and emit a real PDF file (not a stub).
+### M8: PDF Backend (Real Output) ✅ COMPLETE
+Generate real, viewable PDF output using the `pdf-writer` crate (Rust).
+
+- **Deliverables:** Real PDF 1.7 output, A4 pages, Base-14 Helvetica, BoxNode→PDF rendering, CLI writes .pdf file, 8 PDF tests
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit faecd86, 138 tests total)
+
+### M9: Knuth-Plass Line Breaking — IN PROGRESS
+Replace the greedy `break_into_lines()` with the Knuth-Plass optimal line-breaking algorithm. This algorithm minimizes total "badness" across all line breaks simultaneously.
 
 **Scope:**
-- Add `pdf-writer = "0.9"` dependency to `rustlatex-pdf/Cargo.toml`
-- Replace the stub `PdfWriter::write()` with real PDF 1.7 output
-- Embed a **Type 1 / Base-14 font** (Helvetica or Courier) — no subsetting needed for base-14 fonts
-- Render each page's `box_lines` to PDF content streams, positioning text using `Tf`/`Tj`/`Td` operators
-- Handle page dimensions (A4: 595×842pt), margins (hardcoded)
-- The CLI should write the PDF bytes to a `.pdf` file (update `main.rs` to output file)
-- 5+ new tests verifying: non-empty output, valid PDF header (`%PDF`), page count matches, text present in stream
-- All 131 existing tests continue to pass
+- `LineBreaker` trait with `break_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>>`
+- `GreedyLineBreaker` — existing algorithm refactored to implement the trait
+- `KnuthPlassLineBreaker` — full DP-based optimal line breaking:
+  - Feasibility check: stretch/shrink bounds (badness ≤ 10000)
+  - Demerits computation: line-fit demerits + consecutive hyphen penalties
+  - DP over breakpoints: find the minimum total demerits path
+  - Handle `\tolerance` parameter (hardcoded to 200 initially) and `\pretolerance` (100)
+  - Infinite penalty at non-break points, finite penalty at glue items
+- Engine switches to `KnuthPlassLineBreaker` by default
+- Greedy line breaker remains available as a fallback (it's tested)
+- 15+ new tests:
+  - Single-line paragraph (no breaks needed)
+  - Multi-line paragraph where KP gives better (more even) breaks than greedy
+  - Paragraph where KP matches greedy (simple case)
+  - Paragraph with penalties (forced/prohibited breaks via `Penalty`)
+  - Test the `LineBreaker` trait dispatch
+  - All 138 existing tests continue to pass
 
-- **Cycles budget:** 5
+- **Cycles budget:** 6
 - **Status:** 🔄 In Progress
-
-### M9: Knuth-Plass Line Breaking
-- Implement the full Knuth-Plass algorithm (§813–§890 of TeX: The Program)
-- Replace greedy line breaking with optimal line breaking
-- Handle hyphenation (simple rules first)
-- Handle `\tolerance`, `\pretolerance` parameters
-
-- **Cycles budget:** 8
-- **Status:** Pending
 
 ### M10: Integration & Binary-Identity Testing
 - End-to-end test with real `.tex` documents
