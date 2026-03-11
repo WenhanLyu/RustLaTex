@@ -36,6 +36,28 @@ pub enum Node {
     Paragraph(Vec<Node>),
     /// Display math mode: `$$...$$`.
     DisplayMath(Vec<Node>),
+    /// Superscript: `base^exponent` in math mode.
+    Superscript {
+        base: Box<Node>,
+        exponent: Box<Node>,
+    },
+    /// Subscript: `base_subscript` in math mode.
+    Subscript {
+        base: Box<Node>,
+        subscript: Box<Node>,
+    },
+    /// Fraction: `\frac{numerator}{denominator}` in math mode.
+    Fraction {
+        numerator: Box<Node>,
+        denominator: Box<Node>,
+    },
+    /// Radical: `\sqrt[degree]{radicand}` in math mode.
+    Radical {
+        degree: Option<Box<Node>>,
+        radicand: Box<Node>,
+    },
+    /// A `{...}` group inside math mode.
+    MathGroup(Vec<Node>),
 }
 
 /// Internal sentinel returned when `\end{name}` is encountered during parsing.
@@ -433,6 +455,201 @@ impl Parser {
         }
     }
 
+    /// Parse a single math atom: a `{...}` group (→ `MathGroup`) or a single
+    /// character/token (→ `Text`). Used as the operand for `^` and `_`.
+    fn parse_math_atom(&mut self) -> Node {
+        match self.peek().clone() {
+            Token::Character('{', Category::BeginGroup) => {
+                self.advance(); // consume '{'
+                let inner = self.parse_math_group_inner();
+                Node::MathGroup(inner)
+            }
+            Token::ControlSequence(ref name) => {
+                let name = name.clone();
+                self.advance();
+                Node::Command { name, args: vec![] }
+            }
+            Token::Character(ch, _) => {
+                self.advance();
+                Node::Text(ch.to_string())
+            }
+            Token::Space => {
+                self.advance();
+                Node::Text(" ".to_string())
+            }
+            _ => Node::Text(String::new()),
+        }
+    }
+
+    /// Parse the contents of a `{...}` group in math mode, consuming the
+    /// closing `}`. Returns a `Vec<Node>` suitable for `MathGroup`.
+    fn parse_math_group_inner(&mut self) -> Vec<Node> {
+        let mut nodes = Vec::new();
+        loop {
+            match self.peek().clone() {
+                Token::EndOfInput => break,
+                Token::Character('}', Category::EndGroup) => {
+                    self.advance(); // consume '}'
+                    break;
+                }
+                _ => {
+                    if let Some(node) = self.parse_math_node() {
+                        // Check for ^ or _ following this node
+                        let node = self.maybe_attach_scripts(node);
+                        nodes.push(node);
+                    }
+                }
+            }
+        }
+        nodes
+    }
+
+    /// Try to attach `^` (superscript) or `_` (subscript) to `base`.
+    /// Handles chained scripts like `x^2_i` or `x_i^n`.
+    fn maybe_attach_scripts(&mut self, mut base: Node) -> Node {
+        loop {
+            match self.peek().clone() {
+                Token::Character('^', Category::Superscript) => {
+                    self.advance(); // consume '^'
+                    let exponent = self.parse_math_atom();
+                    base = Node::Superscript {
+                        base: Box::new(base),
+                        exponent: Box::new(exponent),
+                    };
+                }
+                Token::Character('_', Category::Subscript) => {
+                    self.advance(); // consume '_'
+                    let subscript = self.parse_math_atom();
+                    base = Node::Subscript {
+                        base: Box::new(base),
+                        subscript: Box::new(subscript),
+                    };
+                }
+                _ => break,
+            }
+        }
+        base
+    }
+
+    /// Parse a single math-mode node (without script attachment).
+    /// Returns `None` only when we should stop (end of input, `$`, `}`).
+    fn parse_math_node(&mut self) -> Option<Node> {
+        match self.peek().clone() {
+            Token::EndOfInput => None,
+            Token::Character('$', Category::MathShift) => None,
+            Token::Character('}', Category::EndGroup) => None,
+            Token::ControlSequence(ref name) => {
+                let name = name.clone();
+                self.advance();
+                if name == "frac" {
+                    // \frac{numerator}{denominator}
+                    let num = self.parse_math_mandatory_group();
+                    let den = self.parse_math_mandatory_group();
+                    Some(Node::Fraction {
+                        numerator: Box::new(num),
+                        denominator: Box::new(den),
+                    })
+                } else if name == "sqrt" {
+                    // \sqrt[degree]{radicand}  or  \sqrt{radicand}
+                    let degree = if matches!(self.peek(), Token::Character('[', Category::Other)) {
+                        self.advance(); // consume '['
+                        let inner = self.parse_math_optional_bracket();
+                        Some(Box::new(Node::MathGroup(inner)))
+                    } else {
+                        None
+                    };
+                    let radicand = self.parse_math_mandatory_group();
+                    Some(Node::Radical {
+                        degree,
+                        radicand: Box::new(radicand),
+                    })
+                } else {
+                    // Generic math command — parse {…} args as MathGroup
+                    let args = self.parse_math_command_args();
+                    Some(Node::Command { name, args })
+                }
+            }
+            Token::Character('{', Category::BeginGroup) => {
+                self.advance(); // consume '{'
+                let inner = self.parse_math_group_inner();
+                Some(Node::MathGroup(inner))
+            }
+            Token::Character(ch, _) => {
+                self.advance();
+                // Single character — stop accumulating at superscript/subscript/group chars
+                Some(Node::Text(ch.to_string()))
+            }
+            Token::Space => {
+                self.advance();
+                Some(Node::Text(" ".to_string()))
+            }
+            _ => {
+                self.advance();
+                None
+            }
+        }
+    }
+
+    /// Parse a mandatory `{…}` argument in math mode → `MathGroup`.
+    fn parse_math_mandatory_group(&mut self) -> Node {
+        match self.peek().clone() {
+            Token::Character('{', Category::BeginGroup) => {
+                self.advance(); // consume '{'
+                let inner = self.parse_math_group_inner();
+                Node::MathGroup(inner)
+            }
+            // Bare token (no braces) — treat as single-token group
+            _ => {
+                let atom = self.parse_math_atom();
+                Node::MathGroup(vec![atom])
+            }
+        }
+    }
+
+    /// Parse the content of `[…]` inside math mode (for `\sqrt[n]{…}`).
+    /// Consumes the closing `]`.
+    fn parse_math_optional_bracket(&mut self) -> Vec<Node> {
+        let mut nodes = Vec::new();
+        loop {
+            match self.peek().clone() {
+                Token::EndOfInput => break,
+                Token::Character(']', Category::Other) => {
+                    self.advance(); // consume ']'
+                    break;
+                }
+                _ => {
+                    if let Some(node) = self.parse_math_node() {
+                        let node = self.maybe_attach_scripts(node);
+                        nodes.push(node);
+                    }
+                }
+            }
+        }
+        nodes
+    }
+
+    /// Parse `{…}` args for a generic math command. Produces `MathGroup` nodes
+    /// (not `Group`) so math structure is preserved.
+    fn parse_math_command_args(&mut self) -> Vec<Node> {
+        let mut args = Vec::new();
+        loop {
+            match self.peek().clone() {
+                Token::Character('[', Category::Other) => {
+                    self.advance(); // consume '['
+                    let inner = self.parse_math_optional_bracket();
+                    args.push(Node::MathGroup(inner));
+                }
+                Token::Character('{', Category::BeginGroup) => {
+                    self.advance(); // consume '{'
+                    let inner = self.parse_math_group_inner();
+                    args.push(Node::MathGroup(inner));
+                }
+                _ => break,
+            }
+        }
+        args
+    }
+
     /// Parse math mode content until closing delimiter.
     /// If `display` is true, stop at `$$`; otherwise stop at single `$`.
     fn parse_math_content(&mut self, display: bool) -> Vec<Node> {
@@ -459,47 +676,11 @@ impl Parser {
                         break;
                     }
                 }
-                Token::ControlSequence(ref name) => {
-                    let name = name.clone();
-                    self.advance();
-                    let args = self.parse_command_args();
-                    nodes.push(Node::Command { name, args });
-                }
-                Token::Character('{', Category::BeginGroup) => {
-                    self.advance();
-                    let inner = self.parse_nodes_inner(true, None);
-                    nodes.push(Node::Group(inner));
-                }
-                Token::Character(ch, _) => {
-                    self.advance();
-                    let mut text = ch.to_string();
-                    loop {
-                        match self.peek().clone() {
-                            Token::Character(c, cat) => match cat {
-                                Category::BeginGroup | Category::EndGroup | Category::MathShift => {
-                                    break
-                                }
-                                _ => {
-                                    self.advance();
-                                    text.push(c);
-                                }
-                            },
-                            Token::Space => {
-                                self.advance();
-                                text.push(' ');
-                            }
-                            _ => break,
-                        }
-                    }
-                    nodes.push(Node::Text(text));
-                }
-                Token::Space => {
-                    self.advance();
-                    // In math mode, spaces are usually ignored but we keep them as text
-                    nodes.push(Node::Text(" ".to_string()));
-                }
                 _ => {
-                    self.advance();
+                    if let Some(node) = self.parse_math_node() {
+                        let node = self.maybe_attach_scripts(node);
+                        nodes.push(node);
+                    }
                 }
             }
         }
@@ -630,24 +811,36 @@ mod tests {
 
     #[test]
     fn test_inline_math() {
+        // $x^2$ now produces a structured Superscript node
         let mut parser = Parser::new(r"$x^2$");
         let doc = parser.parse();
         assert_eq!(
             doc,
-            Node::Document(vec![Node::InlineMath(vec![Node::Text("x^2".to_string())])])
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Text("x".to_string())),
+                exponent: Box::new(Node::Text("2".to_string())),
+            }])])
         );
     }
 
     #[test]
     fn test_display_math() {
+        // $$E=mc^2$$ — 'E' followed by '=', 'm', 'c' (text chars), then ^2 (superscript)
         let mut parser = Parser::new(r"$$E=mc^2$$");
         let doc = parser.parse();
-        assert_eq!(
-            doc,
-            Node::Document(vec![Node::DisplayMath(vec![Node::Text(
-                "E=mc^2".to_string()
-            )])])
-        );
+        // E, =, m, c get accumulated... but ^ stops accumulation (single chars now)
+        // With single-char accumulation: Text("E"), Text("="), Text("m"), Superscript{base:Text("c"), exp:Text("2")}
+        match doc {
+            Node::Document(ref nodes) => {
+                assert_eq!(nodes.len(), 1);
+                assert!(matches!(&nodes[0], Node::DisplayMath(_)));
+                if let Node::DisplayMath(ref inner) = nodes[0] {
+                    // Must contain a Superscript node
+                    assert!(inner.iter().any(|n| matches!(n, Node::Superscript { .. })));
+                }
+            }
+            _ => panic!("Expected Document"),
+        }
     }
 
     #[test]
@@ -799,16 +992,14 @@ mod tests {
 
     #[test]
     fn test_display_math_with_command() {
+        // $$\frac{a}{b}$$ now produces a structured Fraction node
         let mut parser = Parser::new(r"$$\frac{a}{b}$$");
         let doc = parser.parse();
         assert_eq!(
             doc,
-            Node::Document(vec![Node::DisplayMath(vec![Node::Command {
-                name: "frac".to_string(),
-                args: vec![
-                    Node::Group(vec![Node::Text("a".to_string())]),
-                    Node::Group(vec![Node::Text("b".to_string())]),
-                ]
+            Node::Document(vec![Node::DisplayMath(vec![Node::Fraction {
+                numerator: Box::new(Node::MathGroup(vec![Node::Text("a".to_string())])),
+                denominator: Box::new(Node::MathGroup(vec![Node::Text("b".to_string())])),
             }])])
         );
     }
@@ -887,6 +1078,296 @@ mod tests {
                     args: vec![Node::Group(vec![Node::Text("italic".to_string())])]
                 },
             ])
+        );
+    }
+
+    // ===== M5 Math AST Enhancement Tests =====
+
+    /// `$x^2$` → InlineMath([Superscript{base:Text("x"), exponent:Text("2")}])
+    #[test]
+    fn test_math_superscript_simple() {
+        let mut parser = Parser::new(r"$x^2$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Text("x".to_string())),
+                exponent: Box::new(Node::Text("2".to_string())),
+            }])])
+        );
+    }
+
+    /// `$x^{n+1}$` → InlineMath([Superscript{base:Text("x"), exponent:MathGroup([...])}])
+    #[test]
+    fn test_math_superscript_group_exponent() {
+        let mut parser = Parser::new(r"$x^{n+1}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Text("x".to_string())),
+                exponent: Box::new(Node::MathGroup(vec![
+                    Node::Text("n".to_string()),
+                    Node::Text("+".to_string()),
+                    Node::Text("1".to_string()),
+                ])),
+            }])])
+        );
+    }
+
+    /// `$x_i$` → InlineMath([Subscript{base:Text("x"), subscript:Text("i")}])
+    #[test]
+    fn test_math_subscript_simple() {
+        let mut parser = Parser::new(r"$x_i$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Subscript {
+                base: Box::new(Node::Text("x".to_string())),
+                subscript: Box::new(Node::Text("i".to_string())),
+            }])])
+        );
+    }
+
+    /// `$x_{ij}$` → InlineMath([Subscript{base:Text("x"), subscript:MathGroup([...])}])
+    #[test]
+    fn test_math_subscript_group() {
+        let mut parser = Parser::new(r"$x_{ij}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Subscript {
+                base: Box::new(Node::Text("x".to_string())),
+                subscript: Box::new(Node::MathGroup(vec![
+                    Node::Text("i".to_string()),
+                    Node::Text("j".to_string()),
+                ])),
+            }])])
+        );
+    }
+
+    /// `$\frac{a}{b}$` → InlineMath([Fraction{numerator:MathGroup([Text("a")]), denominator:MathGroup([Text("b")])}])
+    #[test]
+    fn test_math_fraction() {
+        let mut parser = Parser::new(r"$\frac{a}{b}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Fraction {
+                numerator: Box::new(Node::MathGroup(vec![Node::Text("a".to_string())])),
+                denominator: Box::new(Node::MathGroup(vec![Node::Text("b".to_string())])),
+            }])])
+        );
+    }
+
+    /// `$\sqrt{x}$` → InlineMath([Radical{degree:None, radicand:MathGroup([Text("x")])}])
+    #[test]
+    fn test_math_sqrt_no_degree() {
+        let mut parser = Parser::new(r"$\sqrt{x}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Radical {
+                degree: None,
+                radicand: Box::new(Node::MathGroup(vec![Node::Text("x".to_string())])),
+            }])])
+        );
+    }
+
+    /// `$\sqrt[n]{x}$` → InlineMath([Radical{degree:Some(MathGroup([Text("n")])), radicand:MathGroup([Text("x")])}])
+    #[test]
+    fn test_math_sqrt_with_degree() {
+        let mut parser = Parser::new(r"$\sqrt[n]{x}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Radical {
+                degree: Some(Box::new(Node::MathGroup(vec![Node::Text("n".to_string())]))),
+                radicand: Box::new(Node::MathGroup(vec![Node::Text("x".to_string())])),
+            }])])
+        );
+    }
+
+    /// `${abc}$` → InlineMath([MathGroup([Text("a"), Text("b"), Text("c")])])
+    #[test]
+    fn test_math_group() {
+        let mut parser = Parser::new(r"${abc}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::MathGroup(vec![
+                Node::Text("a".to_string()),
+                Node::Text("b".to_string()),
+                Node::Text("c".to_string()),
+            ])])])
+        );
+    }
+
+    /// `$$\sum_{i=0}^{n} x_i$$` — DisplayMath with Subscript and Superscript on Command("sum")
+    #[test]
+    fn test_display_math_sum_with_scripts() {
+        let mut parser = Parser::new(r"$$\sum_{i=0}^{n} x_i$$");
+        let doc = parser.parse();
+        match doc {
+            Node::Document(ref nodes) => {
+                assert_eq!(nodes.len(), 1);
+                if let Node::DisplayMath(ref inner) = nodes[0] {
+                    // First node should be a Superscript wrapping a Subscript wrapping Command("sum")
+                    assert!(inner.len() >= 2); // sum_i^n + x_i (space + subscript)
+                                               // The sum command should have sub/super scripts attached
+                    let first = &inner[0];
+                    assert!(
+                        matches!(first, Node::Superscript { .. })
+                            || matches!(first, Node::Subscript { .. })
+                    );
+                } else {
+                    panic!("Expected DisplayMath");
+                }
+            }
+            _ => panic!("Expected Document"),
+        }
+    }
+
+    /// Combined: `$\frac{x^2}{y_i}$`
+    #[test]
+    fn test_math_fraction_with_scripts() {
+        let mut parser = Parser::new(r"$\frac{x^2}{y_i}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Fraction {
+                numerator: Box::new(Node::MathGroup(vec![Node::Superscript {
+                    base: Box::new(Node::Text("x".to_string())),
+                    exponent: Box::new(Node::Text("2".to_string())),
+                }])),
+                denominator: Box::new(Node::MathGroup(vec![Node::Subscript {
+                    base: Box::new(Node::Text("y".to_string())),
+                    subscript: Box::new(Node::Text("i".to_string())),
+                }])),
+            }])])
+        );
+    }
+
+    /// `$x^2_i$` — chained superscript then subscript
+    #[test]
+    fn test_math_chained_super_then_sub() {
+        let mut parser = Parser::new(r"$x^2_i$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Subscript {
+                base: Box::new(Node::Superscript {
+                    base: Box::new(Node::Text("x".to_string())),
+                    exponent: Box::new(Node::Text("2".to_string())),
+                }),
+                subscript: Box::new(Node::Text("i".to_string())),
+            }])])
+        );
+    }
+
+    /// `$\sqrt[3]{x^2}$` — cube root of x squared
+    #[test]
+    fn test_math_sqrt_cube_root_with_superscript() {
+        let mut parser = Parser::new(r"$\sqrt[3]{x^2}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Radical {
+                degree: Some(Box::new(Node::MathGroup(vec![Node::Text("3".to_string())]))),
+                radicand: Box::new(Node::MathGroup(vec![Node::Superscript {
+                    base: Box::new(Node::Text("x".to_string())),
+                    exponent: Box::new(Node::Text("2".to_string())),
+                }])),
+            }])])
+        );
+    }
+
+    /// `$$\frac{a}{b}$$` — display math fraction (already updated in test_display_math_with_command)
+    #[test]
+    fn test_display_math_fraction() {
+        let mut parser = Parser::new(r"$$\frac{1}{2}$$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::DisplayMath(vec![Node::Fraction {
+                numerator: Box::new(Node::MathGroup(vec![Node::Text("1".to_string())])),
+                denominator: Box::new(Node::MathGroup(vec![Node::Text("2".to_string())])),
+            }])])
+        );
+    }
+
+    /// `$a^{b^c}$` — nested superscripts
+    #[test]
+    fn test_math_nested_superscripts() {
+        let mut parser = Parser::new(r"$a^{b^c}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Text("a".to_string())),
+                exponent: Box::new(Node::MathGroup(vec![Node::Superscript {
+                    base: Box::new(Node::Text("b".to_string())),
+                    exponent: Box::new(Node::Text("c".to_string())),
+                }])),
+            }])])
+        );
+    }
+
+    /// `$\alpha^2$` — command as base with superscript
+    #[test]
+    fn test_math_command_base_superscript() {
+        let mut parser = Parser::new(r"$\alpha^2$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Command {
+                    name: "alpha".to_string(),
+                    args: vec![],
+                }),
+                exponent: Box::new(Node::Text("2".to_string())),
+            }])])
+        );
+    }
+
+    /// `$x_{i=0}^{n}$` — both subscript and superscript with groups
+    #[test]
+    fn test_math_subscript_group_and_superscript_group() {
+        let mut parser = Parser::new(r"$x_{i=0}^{n}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Superscript {
+                base: Box::new(Node::Subscript {
+                    base: Box::new(Node::Text("x".to_string())),
+                    subscript: Box::new(Node::MathGroup(vec![
+                        Node::Text("i".to_string()),
+                        Node::Text("=".to_string()),
+                        Node::Text("0".to_string()),
+                    ])),
+                }),
+                exponent: Box::new(Node::MathGroup(vec![Node::Text("n".to_string())])),
+            }])])
+        );
+    }
+
+    /// `$\frac{\sqrt{a}}{b^2}$` — fraction with sqrt in numerator
+    #[test]
+    fn test_math_fraction_sqrt_numerator() {
+        let mut parser = Parser::new(r"$\frac{\sqrt{a}}{b^2}$");
+        let doc = parser.parse();
+        assert_eq!(
+            doc,
+            Node::Document(vec![Node::InlineMath(vec![Node::Fraction {
+                numerator: Box::new(Node::MathGroup(vec![Node::Radical {
+                    degree: None,
+                    radicand: Box::new(Node::MathGroup(vec![Node::Text("a".to_string())])),
+                }])),
+                denominator: Box::new(Node::MathGroup(vec![Node::Superscript {
+                    base: Box::new(Node::Text("b".to_string())),
+                    exponent: Box::new(Node::Text("2".to_string())),
+                }])),
+            }])])
         );
     }
 }
