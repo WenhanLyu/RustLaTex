@@ -1,11 +1,8 @@
 //! `rustlatex-engine` — LaTeX typesetting engine
 //!
 //! This crate implements the typesetting engine that transforms an AST into
-//! a laid-out document using TeX's box/glue model. It will eventually
-//! implement Knuth-Plass line breaking, page breaking, and the full TeX
-//! typesetting algorithms.
-//!
-//! Currently implements a basic box/glue IR with greedy line breaking.
+//! a laid-out document using TeX's box/glue model. It implements both a greedy
+//! line-breaking algorithm and the Knuth-Plass optimal line-breaking algorithm.
 
 use rustlatex_parser::Node;
 
@@ -310,6 +307,368 @@ fn strip_glue(mut items: Vec<BoxNode>) -> Vec<BoxNode> {
     items
 }
 
+// ===== Line Breaker Trait and Implementations =====
+
+/// Trait for line-breaking algorithms.
+pub trait LineBreaker {
+    /// Break a list of box/glue items into lines of at most `hsize` points wide.
+    fn break_lines(&self, items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>>;
+}
+
+/// Greedy line-breaking algorithm that wraps at the first opportunity.
+///
+/// Walks the list of box/glue items, accumulating items into lines. When
+/// adding a `Text` or `Kern` item would exceed `hsize`, breaks at the last
+/// glue position.
+pub struct GreedyLineBreaker;
+
+impl GreedyLineBreaker {
+    /// Create a new `GreedyLineBreaker`.
+    pub fn new() -> Self {
+        GreedyLineBreaker
+    }
+}
+
+impl Default for GreedyLineBreaker {
+    fn default() -> Self {
+        GreedyLineBreaker::new()
+    }
+}
+
+impl LineBreaker for GreedyLineBreaker {
+    fn break_lines(&self, items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
+        break_into_lines(items, hsize)
+    }
+}
+
+/// Knuth-Plass optimal line-breaking algorithm.
+///
+/// Uses dynamic programming to find the sequence of breakpoints that minimizes
+/// total demerits across all lines. Glue items are feasible breakpoints;
+/// penalty items can force or prevent breaks.
+///
+/// Parameters:
+/// - `tolerance`: Maximum badness (default 200). Lines with badness > tolerance
+///   are rejected unless no other option exists.
+pub struct KnuthPlassLineBreaker {
+    /// Maximum allowed badness for a line (default 200).
+    pub tolerance: i32,
+}
+
+impl KnuthPlassLineBreaker {
+    /// Create a new `KnuthPlassLineBreaker` with default tolerance of 200.
+    pub fn new() -> Self {
+        KnuthPlassLineBreaker { tolerance: 200 }
+    }
+}
+
+impl Default for KnuthPlassLineBreaker {
+    fn default() -> Self {
+        KnuthPlassLineBreaker::new()
+    }
+}
+
+/// Compute the natural width, total stretch, and total shrink of a slice of items.
+fn measure_items(items: &[BoxNode]) -> (f64, f64, f64) {
+    let mut width = 0.0_f64;
+    let mut stretch = 0.0_f64;
+    let mut shrink = 0.0_f64;
+    for item in items {
+        match item {
+            BoxNode::Text { width: w, .. } => width += w,
+            BoxNode::Kern { amount } => width += amount,
+            BoxNode::Glue {
+                natural,
+                stretch: s,
+                shrink: sh,
+            } => {
+                width += natural;
+                stretch += s;
+                shrink += sh;
+            }
+            _ => {}
+        }
+    }
+    (width, stretch, shrink)
+}
+
+/// Compute the adjustment ratio `r` for a line segment.
+///
+/// `r = (hsize - natural_width) / stretch_or_shrink`
+/// Returns `None` if the line cannot be set at all (too wide with no shrink).
+fn adjustment_ratio(natural_width: f64, stretch: f64, shrink: f64, hsize: f64) -> Option<f64> {
+    let diff = hsize - natural_width;
+    if diff.abs() < f64::EPSILON {
+        Some(0.0)
+    } else if diff > 0.0 {
+        // Need to stretch
+        if stretch > 0.0 {
+            Some(diff / stretch)
+        } else {
+            // Can't stretch, but line is underfull — use very large ratio
+            Some(f64::INFINITY)
+        }
+    } else {
+        // Need to shrink
+        if shrink > 0.0 {
+            Some(diff / shrink) // will be negative
+        } else {
+            // Can't shrink and line is overfull — infeasible
+            None
+        }
+    }
+}
+
+/// Compute badness from adjustment ratio `r`.
+///
+/// `b = min(100 * |r|^3, 10000)`
+fn compute_badness(r: f64) -> f64 {
+    if r.is_infinite() {
+        10000.0
+    } else {
+        (100.0 * r.abs().powi(3)).min(10000.0)
+    }
+}
+
+/// Compute demerits for a line with badness `b` and optional penalty `p`.
+///
+/// For a penalty breakpoint: `d = (1 + b)^2 + p^2`
+/// For a glue breakpoint: `d = (1 + b)^2`
+fn compute_demerits(badness: f64, penalty: Option<i32>) -> f64 {
+    let b_part = (1.0 + badness).powi(2);
+    let p_part = penalty.map_or(0.0, |p| (p as f64).powi(2));
+    b_part + p_part
+}
+
+impl LineBreaker for KnuthPlassLineBreaker {
+    fn break_lines(&self, items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
+        if items.is_empty() {
+            return vec![];
+        }
+
+        let n = items.len();
+
+        // Collect breakpoint candidates: (position, penalty_value)
+        //
+        // A breakpoint at position `pos`:
+        //   - Glue: the line ends BEFORE this glue (at `pos`), the next line
+        //     starts AFTER this glue (at `pos + 1`).
+        //   - Penalty: the line ends at `pos` (the penalty itself has 0 width),
+        //     the next line starts at `pos + 1`.
+        //
+        // We add a synthetic end sentinel at position `n` to represent "end of text".
+        let mut breakpoints: Vec<(usize, Option<i32>)> = Vec::new();
+
+        for (i, item) in items.iter().enumerate() {
+            match item {
+                BoxNode::Glue { .. } => {
+                    // Glue is a feasible breakpoint only if preceded by a box item
+                    let preceded_by_box = items[..i].iter().rev().any(|x| {
+                        matches!(
+                            x,
+                            BoxNode::Text { .. } | BoxNode::Kern { .. } | BoxNode::HBox { .. }
+                        )
+                    });
+                    if preceded_by_box {
+                        breakpoints.push((i, None));
+                    }
+                }
+                BoxNode::Penalty { value } => {
+                    if *value != 10000 {
+                        // 10000 = prohibited; everything else is a breakpoint candidate
+                        breakpoints.push((i, Some(*value)));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Add end sentinel (position n = past end of items)
+        breakpoints.push((n, None));
+
+        let num_bp = breakpoints.len();
+        let inf = f64::INFINITY;
+
+        // DP over breakpoints:
+        //
+        // We use a "previous breakpoints" encoding:
+        //   - Index num_bp (virtual) represents the start of the paragraph.
+        //   - dp[j] = minimum total demerits to break the paragraph up to breakpoints[j].
+        //   - prev[j] = the index of the previous breakpoint (or num_bp for "start").
+        //
+        // For breakpoint j with position bp_j:
+        //   The line content is items[line_start..bp_j], where:
+        //     line_start = 0 if previous = start
+        //     line_start = bp_prev + 1 if previous = breakpoints[prev]
+        //
+        // The sentinel at position n is the "last line" — for it, the last line
+        // gets 0 additional demerits (underfull last lines are OK).
+
+        let mut dp = vec![inf; num_bp + 1]; // dp[num_bp] = 0 (virtual start)
+        let mut prev_arr = vec![num_bp; num_bp + 1]; // prev_arr[j] = index of prev bp
+
+        dp[num_bp] = 0.0; // cost of being at the start is 0
+
+        for j in 0..num_bp {
+            let (bp_j, bp_pen_j) = breakpoints[j];
+            let forced_j = bp_pen_j == Some(-10000);
+            let is_sentinel = bp_j == n;
+
+            // Consider all previous active nodes (breakpoints i < j, plus start = num_bp)
+            let mut candidates: Vec<usize> = (0..j).collect();
+            candidates.push(num_bp); // the virtual start node
+
+            for &prev_idx in &candidates {
+                let prev_cost = dp[prev_idx];
+                if prev_cost >= inf {
+                    continue; // previous node unreachable
+                }
+
+                // Compute the line content range
+                let line_start = if prev_idx == num_bp {
+                    0 // start of paragraph
+                } else {
+                    breakpoints[prev_idx].0 + 1 // after the previous break item
+                };
+                let line_end = bp_j;
+
+                if line_start > line_end {
+                    continue;
+                }
+
+                // Check: if the line content contains a forced break penalty (-10000),
+                // this combination is invalid (the forced break must be respected).
+                let line_items_slice = &items[line_start..line_end];
+                let contains_forced_break = line_items_slice
+                    .iter()
+                    .any(|x| matches!(x, BoxNode::Penalty { value } if *value == -10000));
+                if contains_forced_break {
+                    continue; // Cannot bridge over a forced break
+                }
+
+                // Measure the line for adjustment ratio purposes.
+                //
+                // In TeX's KP algorithm, the adjustment ratio for a line broken at
+                // a glue item includes the glue's own stretch and shrink.
+                // The glue at the break position is consumed (not rendered) but its
+                // stretch/shrink capacities contribute to the line's flexibility.
+                //
+                // Strategy: measure items[line_start..bp_j] for boxes/kerns,
+                // plus include the break glue's stretch/shrink if bp is glue.
+                // Natural width = sum of all box/kern/glue widths in slice
+                let (nat_w_base, stretch_base, shrink_base) = measure_items(line_items_slice);
+
+                // Add the break glue's contribution (if it's a glue breakpoint)
+                let (nat_w, stretch, shrink) = if bp_pen_j.is_none() && bp_j < n {
+                    if let Some(BoxNode::Glue {
+                        natural: g_nat,
+                        stretch: g_str,
+                        shrink: g_shr,
+                    }) = items.get(bp_j)
+                    {
+                        (
+                            nat_w_base + g_nat,
+                            stretch_base + g_str,
+                            shrink_base + g_shr,
+                        )
+                    } else {
+                        (nat_w_base, stretch_base, shrink_base)
+                    }
+                } else {
+                    (nat_w_base, stretch_base, shrink_base)
+                };
+
+                // Compute the cost of this line
+                let line_demerits = if is_sentinel {
+                    // The last line: underfull is fine (0 demerits), but overfull is still
+                    // infeasible if it exceeds the shrink limit.
+                    let ratio = adjustment_ratio(nat_w, stretch, shrink, hsize);
+                    match ratio {
+                        None => continue,                // overfull with no shrink → infeasible
+                        Some(r) if r < -1.0 => continue, // over-shrunk → infeasible
+                        _ => 0.0,                        // underfull or perfect → 0 demerits
+                    }
+                } else if forced_j {
+                    // Forced break: accept regardless of width, but add penalty² cost
+                    let pen = bp_pen_j.unwrap_or(0) as f64;
+                    pen * pen
+                } else {
+                    // Normal line: compute adjustment ratio and badness
+                    let ratio = match adjustment_ratio(nat_w, stretch, shrink, hsize) {
+                        None => continue, // overfull, no shrink → infeasible
+                        Some(r) => r,
+                    };
+                    if ratio < -1.0 {
+                        continue; // over-shrunk → infeasible
+                    }
+                    let badness = compute_badness(ratio);
+                    if badness > self.tolerance as f64 {
+                        continue; // too bad → reject
+                    }
+                    compute_demerits(badness, bp_pen_j)
+                };
+
+                let total_cost = prev_cost + line_demerits;
+                if total_cost < dp[j] {
+                    dp[j] = total_cost;
+                    prev_arr[j] = prev_idx;
+                }
+            }
+        }
+
+        // The end sentinel is always the last breakpoint
+        let end_bp = num_bp - 1;
+
+        if dp[end_bp] >= inf {
+            // No feasible solution — fall back to greedy
+            return break_into_lines(items, hsize);
+        }
+
+        // Backtrack to find the optimal sequence of breakpoints
+        let mut bp_sequence: Vec<usize> = Vec::new();
+        let mut cur = end_bp;
+        loop {
+            bp_sequence.push(cur);
+            let p = prev_arr[cur];
+            if p == num_bp {
+                // Reached the virtual start
+                break;
+            }
+            cur = p;
+        }
+        bp_sequence.reverse();
+
+        // Extract lines from the breakpoint sequence
+        let mut lines: Vec<Vec<BoxNode>> = Vec::new();
+        let mut line_start = 0usize;
+
+        for &bp_idx in &bp_sequence {
+            let (bp_pos, _) = breakpoints[bp_idx];
+            let line_end = bp_pos; // items[line_start..line_end]
+
+            if line_start <= line_end && line_end <= n {
+                let line = strip_glue(items[line_start..line_end].to_vec());
+                if !line.is_empty() {
+                    lines.push(line);
+                }
+            }
+
+            // Next line starts after the break item (glue or penalty)
+            line_start = if bp_pos < n { bp_pos + 1 } else { n };
+        }
+
+        if lines.is_empty() {
+            // Fallback: single line with everything stripped
+            let line = strip_glue(items.to_vec());
+            if !line.is_empty() {
+                return vec![line];
+            }
+        }
+
+        lines
+    }
+}
+
 /// A laid-out page ready for PDF rendering.
 #[derive(Debug)]
 pub struct Page {
@@ -335,12 +694,13 @@ impl Engine {
 
     /// Typeset the document and return pages.
     ///
-    /// Translates the AST to box/glue items, performs greedy line breaking,
+    /// Translates the AST to box/glue items, performs Knuth-Plass optimal line breaking,
     /// and packages the result into pages. Uses `StandardFontMetrics` (CM Roman 10pt).
     pub fn typeset(&self) -> Vec<Page> {
         let metrics = StandardFontMetrics;
         let items = translate_node_with_metrics(&self.document, &metrics);
-        let lines = break_into_lines(&items, 345.0);
+        let breaker = KnuthPlassLineBreaker::new();
+        let lines = breaker.break_lines(&items, 345.0);
         let content = format!("(stub) document node: {:?}", self.document);
         vec![Page {
             number: 1,
@@ -1051,5 +1411,381 @@ mod tests {
     fn test_font_metrics_trait_string_width_empty() {
         let m = StandardFontMetrics;
         assert!((m.string_width("") - 0.0).abs() < f64::EPSILON);
+    }
+
+    // ===== KnuthPlass Line Breaker Tests =====
+
+    fn make_glue() -> BoxNode {
+        BoxNode::Glue {
+            natural: 5.0,
+            stretch: 2.0,
+            shrink: 1.0,
+        }
+    }
+
+    fn make_text(width: f64) -> BoxNode {
+        BoxNode::Text {
+            text: "w".repeat((width as usize).max(1)),
+            width,
+        }
+    }
+
+    #[test]
+    fn test_kp_empty_items() {
+        let kp = KnuthPlassLineBreaker::new();
+        let lines = kp.break_lines(&[], 100.0);
+        assert!(lines.is_empty(), "Empty items should produce no lines");
+    }
+
+    #[test]
+    fn test_kp_single_item_text() {
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![make_text(40.0)];
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(lines.len(), 1, "Single item should produce one line");
+    }
+
+    #[test]
+    fn test_kp_single_line_no_break() {
+        // "hello world" at hsize=345 — both words fit on one line
+        let kp = KnuthPlassLineBreaker::new();
+        let m = StandardFontMetrics;
+        let items = vec![
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: m.string_width("hello"),
+            },
+            BoxNode::Glue {
+                natural: 3.33,
+                stretch: 1.67,
+                shrink: 1.11,
+            },
+            BoxNode::Text {
+                text: "world".to_string(),
+                width: m.string_width("world"),
+            },
+        ];
+        let lines = kp.break_lines(&items, 345.0);
+        assert_eq!(lines.len(), 1, "Short text should fit on one line");
+    }
+
+    #[test]
+    fn test_kp_two_line_break() {
+        // Two words each 60pt wide, hsize=100. They can't both fit → two lines.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![make_text(60.0), make_glue(), make_text(60.0)];
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(lines.len(), 2, "Two wide words should produce two lines");
+    }
+
+    #[test]
+    fn test_kp_forced_break() {
+        // A penalty of -10000 forces a line break at that position.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![
+            make_text(20.0),
+            BoxNode::Penalty { value: -10000 },
+            make_text(20.0),
+        ];
+        // Even though both words fit on one line, the forced break splits them.
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(lines.len(), 2, "Forced penalty -10000 must create a break");
+    }
+
+    #[test]
+    fn test_kp_prohibited_break() {
+        // A penalty of +10000 prevents a break at glue between the words.
+        // We put: word(30) + glue + prohibited(10000) + word(30) — the glue
+        // is the only break candidate but the prohibited penalty follows it.
+        // Actually, penalty 10000 is inserted between items — it IS the break point.
+        // With value=10000, we skip it as a breakpoint, so the line should not break there.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![
+            make_text(30.0),
+            BoxNode::Penalty { value: 10000 }, // prohibited — no break here
+            make_text(30.0),
+        ];
+        // Both words fit (30+30=60 < 100), and no valid breakpoints between them.
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "Prohibited penalty 10000 should prevent break"
+        );
+    }
+
+    #[test]
+    fn test_kp_matches_greedy_simple() {
+        // For a simple paragraph with natural breaks, KP should produce
+        // the same number of lines as greedy.
+        let kp = KnuthPlassLineBreaker::new();
+        let greedy = GreedyLineBreaker::new();
+
+        // Three words of 60pt each, hsize=100 — forces breaks every word.
+        let items = vec![
+            make_text(60.0),
+            make_glue(),
+            make_text(60.0),
+            make_glue(),
+            make_text(60.0),
+        ];
+        let kp_lines = kp.break_lines(&items, 100.0);
+        let greedy_lines = greedy.break_lines(&items, 100.0);
+        assert_eq!(
+            kp_lines.len(),
+            greedy_lines.len(),
+            "KP and greedy should agree on obviously-forced breaks"
+        );
+    }
+
+    #[test]
+    fn test_kp_better_than_greedy() {
+        // Four words of 40pt each, glue of 5pt natural, hsize=100.
+        // Natural widths: 40+5+40=85 for two words (fits), 40+5+40+5+40=130 (doesn't).
+        // Greedy: line1=[40,5,40]=85, line2=[40,5,40]=85 (2 lines)
+        // KP: should also give 2 lines of equal width — no advantage here, but
+        // both should produce exactly 2 lines and the same content.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![
+            make_text(40.0),
+            make_glue(),
+            make_text(40.0),
+            make_glue(),
+            make_text(40.0),
+            make_glue(),
+            make_text(40.0),
+        ];
+        let kp_lines = kp.break_lines(&items, 100.0);
+        // Should produce 2 lines (2 words per line)
+        assert_eq!(
+            kp_lines.len(),
+            2,
+            "KP should produce 2 lines for 4×40pt words with hsize=100"
+        );
+        // Each line should have at least one Text node
+        for (i, line) in kp_lines.iter().enumerate() {
+            let has_text = line.iter().any(|n| matches!(n, BoxNode::Text { .. }));
+            assert!(has_text, "Line {} should contain text", i);
+        }
+    }
+
+    #[test]
+    fn test_greedy_linebreaker_trait() {
+        // GreedyLineBreaker implements LineBreaker and matches break_into_lines()
+        let greedy = GreedyLineBreaker::new();
+        let items = vec![
+            make_text(60.0),
+            make_glue(),
+            make_text(60.0),
+            make_glue(),
+            make_text(60.0),
+        ];
+        let trait_result = greedy.break_lines(&items, 100.0);
+        let direct_result = break_into_lines(&items, 100.0);
+        assert_eq!(
+            trait_result.len(),
+            direct_result.len(),
+            "GreedyLineBreaker trait result must match break_into_lines()"
+        );
+    }
+
+    #[test]
+    fn test_kp_single_glue_only() {
+        // Only a glue item — no boxes to precede it, so no breakpoints.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![BoxNode::Glue {
+            natural: 5.0,
+            stretch: 2.0,
+            shrink: 1.0,
+        }];
+        // Glue with no preceding box → no breakpoints, returns single (empty) line
+        // strip_glue will strip the glue, so lines should be empty.
+        let lines = kp.break_lines(&items, 100.0);
+        // Either empty vec or one empty line stripped — both acceptable
+        for line in &lines {
+            assert!(
+                !line.is_empty(),
+                "Non-empty lines should contain actual content"
+            );
+        }
+    }
+
+    #[test]
+    fn test_kp_many_words_fit_on_one_line() {
+        // Many small words that all fit on one line — KP returns one line.
+        let kp = KnuthPlassLineBreaker::new();
+        let mut items = Vec::new();
+        // 10 words of 5pt each with 2pt glue = 10*5 + 9*2 = 68pt < 100pt
+        for i in 0..10 {
+            if i > 0 {
+                items.push(BoxNode::Glue {
+                    natural: 2.0,
+                    stretch: 1.0,
+                    shrink: 0.5,
+                });
+            }
+            items.push(make_text(5.0));
+        }
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(lines.len(), 1, "All words fitting should produce one line");
+    }
+
+    #[test]
+    fn test_kp_every_word_too_wide_falls_back() {
+        // Words wider than hsize with no stretch/shrink — every line is infeasible.
+        // KP should fall back to greedy.
+        let kp = KnuthPlassLineBreaker::new();
+        let greedy = GreedyLineBreaker::new();
+        let items = vec![
+            make_text(120.0), // wider than hsize=100
+            make_glue(),
+            make_text(120.0),
+        ];
+        let kp_lines = kp.break_lines(&items, 100.0);
+        let greedy_lines = greedy.break_lines(&items, 100.0);
+        // Both should produce the same result (greedy fallback)
+        assert_eq!(
+            kp_lines.len(),
+            greedy_lines.len(),
+            "KP should fall back to greedy for infeasible lines"
+        );
+    }
+
+    #[test]
+    fn test_kp_forced_break_in_middle_of_many_words() {
+        // A forced break in the middle of a long sequence.
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![
+            make_text(20.0),
+            make_glue(),
+            make_text(20.0),
+            BoxNode::Penalty { value: -10000 }, // force break here
+            make_text(20.0),
+            make_glue(),
+            make_text(20.0),
+        ];
+        let lines = kp.break_lines(&items, 200.0);
+        // The forced break splits into at least 2 sections
+        assert!(
+            lines.len() >= 2,
+            "Forced break should produce at least 2 lines"
+        );
+    }
+
+    #[test]
+    fn test_kp_three_lines() {
+        // 9 words of 40pt each, glue 5pt, hsize=100.
+        // Each pair of words (40+5+40=85) fits; triple (40+5+40+5+40=130) doesn't.
+        // Should produce (at least) 3 lines for 6 words.
+        let kp = KnuthPlassLineBreaker::new();
+        let mut items = Vec::new();
+        for i in 0..6 {
+            if i > 0 {
+                items.push(make_glue());
+            }
+            items.push(make_text(40.0));
+        }
+        let lines = kp.break_lines(&items, 100.0);
+        assert!(
+            lines.len() >= 3,
+            "6 words of 40pt with hsize=100 should need ≥3 lines"
+        );
+    }
+
+    #[test]
+    fn test_kp_adjustment_ratio_helpers() {
+        // Test the helper functions directly
+        // ratio = (hsize - nat_w) / stretch_or_shrink
+        // Perfect fit: ratio = 0
+        let r = adjustment_ratio(100.0, 10.0, 5.0, 100.0);
+        assert_eq!(r, Some(0.0));
+
+        // Need to stretch: (110 - 100) / 10 = 1.0
+        let r = adjustment_ratio(100.0, 10.0, 5.0, 110.0);
+        assert!((r.unwrap() - 1.0).abs() < f64::EPSILON);
+
+        // Need to shrink: (90 - 100) / 5 = -2.0
+        let r = adjustment_ratio(100.0, 10.0, 5.0, 90.0);
+        assert!((r.unwrap() - (-2.0)).abs() < f64::EPSILON);
+
+        // Can't shrink, overfull: None
+        let r = adjustment_ratio(100.0, 10.0, 0.0, 90.0);
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn test_kp_badness_helpers() {
+        // b = 100 * |r|^3, capped at 10000
+        assert!((compute_badness(0.0) - 0.0).abs() < f64::EPSILON);
+        assert!((compute_badness(1.0) - 100.0).abs() < f64::EPSILON);
+        assert!((compute_badness(2.0) - 800.0).abs() < f64::EPSILON);
+        // Cap at 10000
+        assert!((compute_badness(10.0) - 10000.0).abs() < f64::EPSILON);
+        assert!((compute_badness(f64::INFINITY) - 10000.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_kp_demerits_helpers() {
+        // d = (1 + b)^2 for glue breakpoints
+        let d = compute_demerits(0.0, None);
+        assert!((d - 1.0).abs() < f64::EPSILON);
+
+        let d = compute_demerits(9.0, None);
+        assert!((d - 100.0).abs() < f64::EPSILON); // (1+9)^2 = 100
+
+        // d = (1 + b)^2 + p^2 for penalty breakpoints
+        let d = compute_demerits(0.0, Some(10));
+        assert!((d - (1.0 + 100.0)).abs() < f64::EPSILON); // 1 + 100 = 101
+
+        let d = compute_demerits(9.0, Some(0));
+        assert!((d - 100.0).abs() < f64::EPSILON); // (1+9)^2 + 0 = 100
+    }
+
+    #[test]
+    fn test_kp_engine_uses_kp() {
+        // Engine::typeset() should use KP internally (not greedy).
+        // Verify it still produces valid output.
+        let mut parser =
+            rustlatex_parser::Parser::new("The quick brown fox jumps over the lazy dog");
+        let doc = parser.parse();
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert_eq!(pages.len(), 1);
+        assert!(!pages[0].box_lines.is_empty());
+    }
+
+    #[test]
+    fn test_kp_penalty_in_sequence() {
+        // Mix of glue and penalty breakpoints
+        let kp = KnuthPlassLineBreaker::new();
+        let items = vec![
+            make_text(30.0),
+            make_glue(),
+            make_text(30.0),
+            BoxNode::Penalty { value: 50 }, // soft penalty
+            make_text(30.0),
+            make_glue(),
+            make_text(30.0),
+        ];
+        // Total natural: 30+5+30+0+30+5+30=130 > 100, so must break somewhere
+        let lines = kp.break_lines(&items, 100.0);
+        assert!(!lines.is_empty(), "Should produce at least one line");
+        // Verify no line exceeds hsize significantly (allowing for glue stretch)
+        for line in &lines {
+            let width: f64 = line
+                .iter()
+                .map(|n| match n {
+                    BoxNode::Text { width, .. } => *width,
+                    BoxNode::Kern { amount } => *amount,
+                    BoxNode::Glue { natural, .. } => *natural,
+                    _ => 0.0,
+                })
+                .sum();
+            assert!(
+                width <= 150.0,
+                "No line should be excessively wide, got {}",
+                width
+            );
+        }
     }
 }
