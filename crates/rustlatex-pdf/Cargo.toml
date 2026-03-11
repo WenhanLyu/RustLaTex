@@ -6,3 +6,4 @@ description = "PDF backend for RustLaTex"
 
 [dependencies]
 rustlatex-engine = { path = "../rustlatex-engine" }
+pdf-writer = "0.9"

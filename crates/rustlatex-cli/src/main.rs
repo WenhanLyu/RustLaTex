@@ -10,6 +10,7 @@
 
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::process;
 
 use rustlatex_engine::Engine;
@@ -62,17 +63,29 @@ fn main() {
     println!("      AST root: {:?}", ast);
 
     // Stage 3: Engine + PDF
-    println!("[3/3] Typesetting and generating PDF (stub)...");
+    println!("[3/3] Typesetting and generating PDF...");
     let engine = Engine::new(ast);
     let pages = engine.typeset();
     let writer = PdfWriter::new();
-    let _pdf = writer.write(&pages);
+    let pdf = writer.write(&pages);
     println!("      {} page(s) typeset.", pages.len());
 
-    println!();
-    println!(
-        "Done. (PDF output is currently a stub — future milestones will write real PDF files.)"
-    );
+    // Derive output filename: replace .tex extension with .pdf, or append .pdf
+    let input = Path::new(input_path);
+    let basename = input.file_stem().unwrap_or_else(|| input.as_ref());
+    let pdf_filename = format!("{}.pdf", basename.to_string_lossy());
+
+    // Write PDF bytes to file
+    match fs::write(&pdf_filename, &pdf.bytes) {
+        Ok(()) => {
+            println!();
+            println!("PDF written to {}", pdf_filename);
+        }
+        Err(e) => {
+            eprintln!("Error: cannot write '{}': {}", pdf_filename, e);
+            process::exit(1);
+        }
+    }
 
     process::exit(0);
 }
