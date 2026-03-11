@@ -173,7 +173,10 @@ mod tests {
     #[test]
     fn test_control_sequence() {
         let mut lexer = Lexer::new(r"\hello world");
-        assert_eq!(lexer.next_token(), Token::ControlSequence("hello".to_string()));
+        assert_eq!(
+            lexer.next_token(),
+            Token::ControlSequence("hello".to_string())
+        );
         assert_eq!(lexer.next_token(), Token::Character('w', Category::Letter));
     }
 
@@ -198,7 +201,10 @@ mod tests {
         let src = r"\documentclass{article}";
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize();
-        assert_eq!(tokens[0], Token::ControlSequence("documentclass".to_string()));
+        assert_eq!(
+            tokens[0],
+            Token::ControlSequence("documentclass".to_string())
+        );
         assert_eq!(tokens[1], Token::Character('{', Category::BeginGroup));
     }
 

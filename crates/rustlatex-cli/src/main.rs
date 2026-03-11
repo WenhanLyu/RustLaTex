@@ -49,7 +49,10 @@ fn main() {
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize();
     // Exclude EndOfInput token from count
-    let token_count = tokens.iter().filter(|t| **t != rustlatex_lexer::Token::EndOfInput).count();
+    let token_count = tokens
+        .iter()
+        .filter(|t| **t != rustlatex_lexer::Token::EndOfInput)
+        .count();
     println!("      {} token(s) produced.", token_count);
 
     // Stage 2: Parser
@@ -67,7 +70,9 @@ fn main() {
     println!("      {} page(s) typeset.", pages.len());
 
     println!();
-    println!("Done. (PDF output is currently a stub — future milestones will write real PDF files.)");
+    println!(
+        "Done. (PDF output is currently a stub — future milestones will write real PDF files.)"
+    );
 
     process::exit(0);
 }
