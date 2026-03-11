@@ -104,6 +104,11 @@ impl Parser {
                     }
                     nodes.push(Node::Text(text));
                 }
+                // Handle new token variants (Space, Par, Parameter, Active)
+                // by advancing past them so the parser doesn't get stuck.
+                _ => {
+                    self.advance();
+                }
             }
         }
 
