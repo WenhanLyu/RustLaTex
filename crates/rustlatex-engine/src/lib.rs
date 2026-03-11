@@ -32,7 +32,7 @@ pub enum BoxNode {
     VBox { width: f64, content: Vec<BoxNode> },
 }
 
-// ===== Font Metrics Trait and CM Roman 10pt Implementation =====
+// ===== Font Metrics Trait and Helvetica Implementation =====
 
 /// Trait providing font metric information for typesetting.
 pub trait FontMetrics {
@@ -48,38 +48,44 @@ pub trait FontMetrics {
     }
 }
 
-/// Font metrics for Computer Modern Roman 10pt (cmr10), based on TFM data.
+/// Font metrics using Helvetica Base-14 character widths (from AFM data, glyph units / 100).
+///
+/// Temporary: Helvetica Base-14 widths used to match PDF backend font (which renders Helvetica).
+/// Real TeX font embedding (CM Roman TFM → Type1/OTF) is planned for M11.
 pub struct StandardFontMetrics;
 
 impl FontMetrics for StandardFontMetrics {
     fn char_width(&self, ch: char) -> f64 {
+        // Helvetica AFM widths at 10pt (glyph units / 100)
         match ch {
-            'a' => 5.00,
+            // Lowercase
+            'a' => 5.56,
             'b' => 5.56,
-            'c' => 4.44,
+            'c' => 5.00,
             'd' => 5.56,
-            'e' => 4.44,
-            'f' => 3.33,
-            'g' => 5.00,
-            'h' => 6.94,
-            'i' => 2.78,
-            'j' => 3.06,
-            'k' => 5.56,
-            'l' => 2.78,
+            'e' => 5.56,
+            'f' => 2.78,
+            'g' => 5.56,
+            'h' => 5.56,
+            'i' => 2.22,
+            'j' => 2.22,
+            'k' => 5.00,
+            'l' => 2.22,
             'm' => 8.33,
             'n' => 5.56,
-            'o' => 5.00,
+            'o' => 5.56,
             'p' => 5.56,
-            'q' => 5.28,
-            'r' => 3.92,
-            's' => 3.89,
-            't' => 3.89,
-            'u' => 6.94,
-            'v' => 5.28,
-            'w' => 7.50,
-            'x' => 5.28,
-            'y' => 5.28,
-            'z' => 4.44,
+            'q' => 5.56,
+            'r' => 3.33,
+            's' => 5.00,
+            't' => 2.78,
+            'u' => 5.56,
+            'v' => 5.00,
+            'w' => 7.22,
+            'x' => 5.00,
+            'y' => 5.56,
+            'z' => 5.00,
+            // Uppercase
             'A' => 7.22,
             'B' => 6.67,
             'C' => 6.67,
@@ -99,26 +105,28 @@ impl FontMetrics for StandardFontMetrics {
             'Q' => 7.78,
             'R' => 6.94,
             'S' => 5.56,
-            'T' => 6.67,
+            'T' => 6.11,
             'U' => 7.22,
             'V' => 7.22,
             'W' => 9.44,
-            'X' => 6.94,
+            'X' => 7.22,
             'Y' => 7.22,
-            'Z' => 6.11,
+            'Z' => 6.67,
+            // Digits
             '0'..='9' => 5.56,
             _ => 6.0,
         }
     }
 
     fn space_width(&self) -> f64 {
-        3.33
+        // Helvetica space width (from AFM: 278 / 100 = 2.78pt)
+        2.78
     }
 }
 
 /// Character width in points — backward-compatible function.
 ///
-/// Computes the total width of a string using CM Roman 10pt metrics
+/// Computes the total width of a string using Helvetica metrics
 /// by summing the width of each individual character.
 pub fn char_width(s: &str) -> f64 {
     let metrics = StandardFontMetrics;
@@ -1038,9 +1046,9 @@ mod tests {
 
     #[test]
     fn test_char_width() {
-        // 'a' = 5.00 in CM10
-        assert!((char_width("a") - 5.00).abs() < 0.01);
-        // 'hello' = h+e+l+l+o = 6.94+4.44+2.78+2.78+5.00 = 21.94
+        // 'a' = 5.56 in Helvetica
+        assert!((char_width("a") - 5.56).abs() < 0.01);
+        // char_width uses same StandardFontMetrics as cm10_width helper
         assert!((char_width("hello") - cm10_width("hello")).abs() < f64::EPSILON);
         // empty string
         assert!((char_width("") - 0.0).abs() < f64::EPSILON);
@@ -1050,7 +1058,7 @@ mod tests {
 
     #[test]
     fn test_break_into_lines_short_text() {
-        // "hello world" fits in one line with CM10 widths (21.94 + 24.76 < 345)
+        // "hello world" fits in one line with Helvetica widths (21.12 + 23.89 < 345)
         let items = vec![
             BoxNode::Text {
                 text: "hello".to_string(),
@@ -1253,7 +1261,8 @@ mod tests {
     #[test]
     fn test_cm10_lowercase_a() {
         let m = StandardFontMetrics;
-        assert!((m.char_width('a') - 5.00).abs() < 0.01);
+        // Helvetica a = 5.56pt
+        assert!((m.char_width('a') - 5.56).abs() < 0.01);
     }
 
     #[test]
@@ -1275,19 +1284,25 @@ mod tests {
     #[test]
     fn test_cm10_i_and_l_are_narrow() {
         let m = StandardFontMetrics;
-        assert!((m.char_width('i') - 2.78).abs() < 0.01);
-        assert!((m.char_width('l') - 2.78).abs() < 0.01);
+        // Helvetica i = 2.22pt, l = 2.22pt
+        assert!((m.char_width('i') - 2.22).abs() < 0.01);
+        assert!((m.char_width('l') - 2.22).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_different_chars_different_widths() {
         let m = StandardFontMetrics;
-        // These pairs should have different widths
+        // These pairs should have different widths (Helvetica metrics)
+        // m=8.33, i=2.22 → diff > 1.0 ✓
         assert!((m.char_width('m') - m.char_width('i')).abs() > 1.0);
+        // w=7.22, l=2.22 → diff > 1.0 ✓
         assert!((m.char_width('w') - m.char_width('l')).abs() > 1.0);
+        // h=5.56, f=2.78 → diff > 1.0 ✓
         assert!((m.char_width('h') - m.char_width('f')).abs() > 1.0);
+        // b=5.56, c=5.00 → diff = 0.56 > 0.5 ✓
         assert!((m.char_width('b') - m.char_width('c')).abs() > 0.5);
-        assert!((m.char_width('d') - m.char_width('e')).abs() > 0.5);
+        // r=3.33, t=2.78 → diff = 0.55 > 0.5 ✓ (d=e=5.56 in Helvetica, use r vs t instead)
+        assert!((m.char_width('r') - m.char_width('t')).abs() > 0.5);
     }
 
     #[test]
@@ -1297,14 +1312,15 @@ mod tests {
         assert!(m.char_width('A') > m.char_width('a'));
         assert!(m.char_width('B') > m.char_width('b'));
         assert!(m.char_width('D') > m.char_width('d'));
-        assert!(m.char_width('H') > m.char_width('h')); // H=7.22 > h=6.94
+        assert!(m.char_width('H') > m.char_width('h')); // H=7.22 > h=5.56 (Helvetica)
         assert!(m.char_width('W') > m.char_width('w'));
     }
 
     #[test]
     fn test_cm10_space_width() {
         let m = StandardFontMetrics;
-        assert!((m.space_width() - 3.33).abs() < 0.01);
+        // Helvetica space = 2.78pt (AFM: 278/100)
+        assert!((m.space_width() - 2.78).abs() < 0.01);
     }
 
     #[test]
@@ -1323,16 +1339,16 @@ mod tests {
     #[test]
     fn test_cm10_string_width_hello() {
         let m = StandardFontMetrics;
-        // hello: h(6.94) + e(4.44) + l(2.78) + l(2.78) + o(5.00) = 21.94
-        let expected = 6.94 + 4.44 + 2.78 + 2.78 + 5.00;
+        // hello (Helvetica): h(5.56) + e(5.56) + l(2.22) + l(2.22) + o(5.56) = 21.12
+        let expected = 5.56 + 5.56 + 2.22 + 2.22 + 5.56;
         assert!((m.string_width("hello") - expected).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_string_width_world() {
         let m = StandardFontMetrics;
-        // world: w(7.50) + o(5.00) + r(3.92) + l(2.78) + d(5.56) = 24.76
-        let expected = 7.50 + 5.00 + 3.92 + 2.78 + 5.56;
+        // world (Helvetica): w(7.22) + o(5.56) + r(3.33) + l(2.22) + d(5.56) = 23.89
+        let expected = 7.22 + 5.56 + 3.33 + 2.22 + 5.56;
         assert!((m.string_width("world") - expected).abs() < 0.01);
     }
 
@@ -1347,7 +1363,8 @@ mod tests {
     #[test]
     fn test_cm10_w_is_wide() {
         let m = StandardFontMetrics;
-        assert!((m.char_width('w') - 7.50).abs() < 0.01);
+        // Helvetica w = 7.22pt
+        assert!((m.char_width('w') - 7.22).abs() < 0.01);
     }
 
     #[test]
