@@ -47,6 +47,7 @@ mod tests {
         let pages = vec![Page {
             number: 1,
             content: "test".to_string(),
+            box_lines: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
