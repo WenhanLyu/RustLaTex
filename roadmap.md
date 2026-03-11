@@ -38,6 +38,8 @@ Binary-identical output requires:
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
 - **Font resources available:** cmr10.afm at `/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/matplotlib/mpl-data/fonts/afm/cmr10.afm` and cmr10.pfb at `/System/Volumes/Data/Users/wenhanlyu/.local/lib/python2.7/site-packages/matplotlib/tests/cmr10.pfb` — both available for M11 font embedding.
 - **pdflatex not installed:** M12 binary-identity testing requires installing pdflatex. Consider Homebrew install or alternative before starting M12.
+- **Cycle 52-54 (M14):** M14 completed in 1 implementation cycle. Leo delivered itemize/enumerate rendering with bullet/number prefixes, 20pt indentation, inter-item glue, 17 new tests. CI green, 248 total tests pass.
+- **GhostScript available:** `gs` at /opt/homebrew/bin/gs (v10.06.0) — can render PDFs to PNG for visual validation. Use this for M15 integration tests.
 
 ## Milestones
 
@@ -191,37 +193,45 @@ Replace the `(math)` placeholder with actual rendered text representations of in
 - **Cycles budget:** 6
 - **Status:** ✅ Complete — verified by Apollo (commit 0464a28, 231 tests total)
 
-### M14: List Rendering (itemize/enumerate with bullets/numbers)
+### M14: List Rendering (itemize/enumerate with bullets/numbers) ✅ COMPLETE
 Implement proper visual rendering of LaTeX list environments in the engine.
 
-**Scope in `rustlatex-engine`:**
-- `Node::Environment { name: "itemize", content, .. }` → render each `\item` as a bullet point ("•") prefix + indented text
-- `Node::Environment { name: "enumerate", content, .. }` → render each `\item` as a numbered prefix ("1.", "2.", etc.) + indented text
-- Each item is indented by 20pt (left indent via a Kern node)
-- The bullet/number and item text on the same line
-- Items separated by a small inter-item glue (4pt natural)
-- Before/after the whole list: paragraph glue (6pt)
-- `\item` `Command` nodes inside list environments are the list item delimiters
+- **Deliverables:** itemize/enumerate rendering with bullet/number prefixes, 20pt indentation, inter-item glue, list glue before/after; 17 new list tests
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by CI (commit 02a7722, 248 tests total)
 
-**Tests (15+):**
-- Test `itemize` produces bullet "•" prefix for each item
-- Test `enumerate` produces "1.", "2.", "3." prefixes
-- Test list items are indented (have a `Kern{amount:20.0}` before each item)
-- Test multiple items in a single list
-- Test nested list environments work (list inside list)
-- Test list with surrounding paragraph text
-- All 231 existing tests continue to pass
-
-- **Cycles budget:** 4
-- **Status:** Pending
-
-### M15: Integration & Visual Quality Testing (gs-based)
+### M15: GhostScript Integration Tests + Visual Smoke Tests
 - Use GhostScript (`gs`) to render our output PDFs to images
 - Run our compiler on all example .tex files and verify they produce valid, non-empty PDFs
 - Add integration test: compile each example, render with gs, verify PNG is non-empty
 - Note: pdflatex comparison deferred (requires sudo install)
 
+- **Cycles budget:** 4
+- **Status:** Pending
+
+### M16: Text Alignment, Hyphenation & Justified Output
+- Implement proper text justification (left, right, center, full justify)
+- Basic automatic hyphenation support using a simple pattern-based approach
+- `\centering`, `\raggedright`, `\raggedleft` commands
+- Better word-spacing adjustment for fully justified paragraphs
 - **Cycles budget:** 6
+- **Status:** Pending
+
+### M17: Tables (tabular environment)
+- Implement `\begin{tabular}{lrc}` with column spec parsing
+- Cell content rendering with alignment (l/r/c)
+- Column separators (vertical rules `|`)
+- Horizontal rules (`\hline`, `\toprule`, `\midrule`, `\bottomrule`)
+- Multi-column spans via `\multicolumn`
+- **Cycles budget:** 8
+- **Status:** Pending
+
+### M18: Figures & Cross-References
+- Figure environment (`\begin{figure}`)
+- `\label` / `\ref` / `\pageref` cross-reference system
+- Automatic figure/table numbering
+- Caption rendering (`\caption{...}`)
+- **Cycles budget:** 8
 - **Status:** Pending
 
 ---
