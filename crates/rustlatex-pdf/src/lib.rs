@@ -246,9 +246,12 @@ impl PdfWriter {
 
                 for node in line {
                     match node {
-                        BoxNode::Text { text, width } => {
-                            // Move to current_x position using Td relative positioning
-                            // We already set the text matrix, so use show
+                        BoxNode::Text {
+                            text,
+                            width,
+                            font_size,
+                        } => {
+                            content.set_font(Name(b"F1"), *font_size as f32);
                             let escaped = pdf_escape(text);
                             content.show(Str(&escaped));
                             current_x += *width as f32;
@@ -322,6 +325,7 @@ mod tests {
                 BoxNode::Text {
                     text: "Hello".to_string(),
                     width: 25.0,
+                    font_size: 10.0,
                 },
                 BoxNode::Glue {
                     natural: 3.33,
@@ -331,6 +335,7 @@ mod tests {
                 BoxNode::Text {
                     text: "world".to_string(),
                     width: 24.76,
+                    font_size: 10.0,
                 },
             ]],
         }];
@@ -349,6 +354,7 @@ mod tests {
             box_lines: vec![vec![BoxNode::Text {
                 text: "Hello".to_string(),
                 width: 25.0,
+                font_size: 10.0,
             }]],
         }];
         let writer = PdfWriter::new();
@@ -369,6 +375,7 @@ mod tests {
                 box_lines: vec![vec![BoxNode::Text {
                     text: "First".to_string(),
                     width: 20.0,
+                    font_size: 10.0,
                 }]],
             },
             EnginePage {
@@ -377,6 +384,7 @@ mod tests {
                 box_lines: vec![vec![BoxNode::Text {
                     text: "Second".to_string(),
                     width: 30.0,
+                    font_size: 10.0,
                 }]],
             },
         ];
@@ -420,6 +428,7 @@ mod tests {
             box_lines: vec![vec![BoxNode::Text {
                 text: "test".to_string(),
                 width: 20.0,
+                font_size: 10.0,
             }]],
         }];
         let writer = PdfWriter::new();
@@ -599,6 +608,7 @@ mod tests {
             box_lines: vec![vec![BoxNode::Text {
                 text: "sample".to_string(),
                 width: 30.0,
+                font_size: 10.0,
             }]],
         }];
         let writer = PdfWriter::new();

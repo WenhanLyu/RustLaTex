@@ -10,7 +10,11 @@ use rustlatex_parser::Node;
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoxNode {
     /// A run of text with a computed width (in points).
-    Text { text: String, width: f64 },
+    Text {
+        text: String,
+        width: f64,
+        font_size: f64,
+    },
     /// Inter-word glue with natural width, stretchability, and shrinkability.
     Glue {
         natural: f64,
@@ -151,14 +155,23 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 result.push(BoxNode::Text {
                     text: word.to_string(),
                     width: metrics.string_width(word),
+                    font_size: 10.0,
                 });
             }
             result
         }
-        Node::Paragraph(nodes) => nodes
-            .iter()
-            .flat_map(|n| translate_node_with_metrics(n, metrics))
-            .collect(),
+        Node::Paragraph(nodes) => {
+            let mut result: Vec<BoxNode> = nodes
+                .iter()
+                .flat_map(|n| translate_node_with_metrics(n, metrics))
+                .collect();
+            result.push(BoxNode::Glue {
+                natural: 6.0,
+                stretch: 2.0,
+                shrink: 0.0,
+            });
+            result
+        }
         Node::Command { name, args } => {
             match name.as_str() {
                 "textbf" | "textit" | "emph" => {
@@ -167,6 +180,62 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         .flat_map(|n| translate_node_with_metrics(n, metrics))
                         .collect()
                 }
+                "section" | "subsection" | "subsubsection" => {
+                    let font_size = match name.as_str() {
+                        "section" => 14.0_f64,
+                        "subsection" => 12.0_f64,
+                        _ => 11.0_f64, // subsubsection
+                    };
+                    // Extract title from first argument (which is a Group node)
+                    let title = if let Some(arg) = args.first() {
+                        match arg {
+                            Node::Group(nodes) => nodes
+                                .iter()
+                                .filter_map(|n| {
+                                    if let Node::Text(t) = n {
+                                        Some(t.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                            Node::Text(t) => t.clone(),
+                            _ => String::new(),
+                        }
+                    } else {
+                        String::new()
+                    };
+                    let width = metrics.string_width(&title);
+                    vec![
+                        BoxNode::Kern { amount: 12.0 },
+                        BoxNode::Text {
+                            text: title,
+                            width,
+                            font_size,
+                        },
+                        BoxNode::Kern { amount: 6.0 },
+                    ]
+                }
+                "LaTeX" => vec![BoxNode::Text {
+                    text: "LaTeX".to_string(),
+                    width: metrics.string_width("LaTeX"),
+                    font_size: 10.0,
+                }],
+                "TeX" => vec![BoxNode::Text {
+                    text: "TeX".to_string(),
+                    width: metrics.string_width("TeX"),
+                    font_size: 10.0,
+                }],
+                "today" => {
+                    let date_str = "January 1, 2025".to_string();
+                    vec![BoxNode::Text {
+                        text: date_str.clone(),
+                        width: metrics.string_width(&date_str),
+                        font_size: 10.0,
+                    }]
+                }
+                "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
                 _ => {
                     // Unknown commands → skip
                     vec![]
@@ -181,6 +250,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             vec![BoxNode::Text {
                 text: "(math)".to_string(),
                 width: 20.0,
+                font_size: 10.0,
             }]
         }
         Node::Group(nodes) => nodes
@@ -704,17 +774,49 @@ impl Engine {
     ///
     /// Translates the AST to box/glue items, performs Knuth-Plass optimal line breaking,
     /// and packages the result into pages. Uses `StandardFontMetrics` (CM Roman 10pt).
+    /// Splits into multiple pages when accumulated line height exceeds `vsize` (700pt).
     pub fn typeset(&self) -> Vec<Page> {
         let metrics = StandardFontMetrics;
         let items = translate_node_with_metrics(&self.document, &metrics);
         let breaker = KnuthPlassLineBreaker::new();
-        let lines = breaker.break_lines(&items, 345.0);
+        let all_lines = breaker.break_lines(&items, 345.0);
         let content = format!("(stub) document node: {:?}", self.document);
-        vec![Page {
-            number: 1,
-            content,
-            box_lines: lines,
-        }]
+
+        let vsize = 700.0_f64;
+        let line_height = 12.0_f64;
+        let mut pages: Vec<Page> = Vec::new();
+        let mut current_page_lines: Vec<Vec<BoxNode>> = Vec::new();
+        let mut accumulated_height = 0.0_f64;
+
+        for line in all_lines {
+            if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
+                pages.push(Page {
+                    number: pages.len() + 1,
+                    content: content.clone(),
+                    box_lines: current_page_lines,
+                });
+                current_page_lines = Vec::new();
+                accumulated_height = 0.0;
+            }
+            current_page_lines.push(line);
+            accumulated_height += line_height;
+        }
+        if !current_page_lines.is_empty() {
+            pages.push(Page {
+                number: pages.len() + 1,
+                content: content.clone(),
+                box_lines: current_page_lines,
+            });
+        }
+        if pages.is_empty() {
+            // Always return at least one page for backward compatibility
+            pages.push(Page {
+                number: 1,
+                content,
+                box_lines: vec![],
+            });
+        }
+        pages
     }
 }
 
@@ -747,8 +849,9 @@ mod tests {
         let node = BoxNode::Text {
             text: "hello".to_string(),
             width: w,
+            font_size: 10.0,
         };
-        if let BoxNode::Text { text, width } = &node {
+        if let BoxNode::Text { text, width, .. } = &node {
             assert_eq!(text, "hello");
             assert!((width - w).abs() < f64::EPSILON);
         } else {
@@ -806,6 +909,7 @@ mod tests {
             content: vec![BoxNode::Text {
                 text: "hi".to_string(),
                 width: 12.0,
+                font_size: 10.0,
             }],
         };
         if let BoxNode::HBox {
@@ -831,6 +935,7 @@ mod tests {
             content: vec![BoxNode::Text {
                 text: "line".to_string(),
                 width: 24.0,
+                font_size: 10.0,
             }],
         };
         if let BoxNode::VBox { width, content } = &node {
@@ -854,7 +959,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "hello".to_string(),
-                width: cm10_width("hello")
+                width: cm10_width("hello"),
+                font_size: 10.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -863,7 +969,8 @@ mod tests {
             items[2],
             BoxNode::Text {
                 text: "world".to_string(),
-                width: cm10_width("world")
+                width: cm10_width("world"),
+                font_size: 10.0,
             }
         );
     }
@@ -877,14 +984,16 @@ mod tests {
         let items = translate_node(&node);
         // "one two" → Text("one"), Glue, Text("two")
         // "three" → Text("three")
-        // total: 4 items
-        assert_eq!(items.len(), 4);
+        // + paragraph spacing Glue
+        // total: 5 items
+        assert_eq!(items.len(), 5);
         // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "one".to_string(),
-                width: cm10_width("one")
+                width: cm10_width("one"),
+                font_size: 10.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -893,7 +1002,8 @@ mod tests {
             items[2],
             BoxNode::Text {
                 text: "two".to_string(),
-                width: cm10_width("two")
+                width: cm10_width("two"),
+                font_size: 10.0,
             }
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
@@ -901,7 +1011,8 @@ mod tests {
             items[3],
             BoxNode::Text {
                 text: "three".to_string(),
-                width: cm10_width("three")
+                width: cm10_width("three"),
+                font_size: 10.0,
             }
         );
     }
@@ -915,7 +1026,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "(math)".to_string(),
-                width: 20.0
+                width: 20.0,
+                font_size: 10.0,
             }
         );
     }
@@ -929,7 +1041,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "(math)".to_string(),
-                width: 20.0
+                width: 20.0,
+                font_size: 10.0,
             }
         );
     }
@@ -944,7 +1057,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "inside".to_string(),
-                width: cm10_width("inside")
+                width: cm10_width("inside"),
+                font_size: 10.0,
             }
         );
     }
@@ -963,7 +1077,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "bold".to_string(),
-                width: cm10_width("bold")
+                width: cm10_width("bold"),
+                font_size: 10.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -972,7 +1087,8 @@ mod tests {
             items[2],
             BoxNode::Text {
                 text: "text".to_string(),
-                width: cm10_width("text")
+                width: cm10_width("text"),
+                font_size: 10.0,
             }
         );
     }
@@ -992,7 +1108,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "content".to_string(),
-                width: cm10_width("content")
+                width: cm10_width("content"),
+                font_size: 10.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -1001,7 +1118,8 @@ mod tests {
             items[2],
             BoxNode::Text {
                 text: "here".to_string(),
-                width: cm10_width("here")
+                width: cm10_width("here"),
+                font_size: 10.0,
             }
         );
     }
@@ -1029,7 +1147,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "first".to_string(),
-                width: cm10_width("first")
+                width: cm10_width("first"),
+                font_size: 10.0,
             }
         );
         // second: s+e+c+o+n+d = 3.89+4.44+4.44+5.00+5.56+5.56 = 28.89
@@ -1037,7 +1156,8 @@ mod tests {
             items[1],
             BoxNode::Text {
                 text: "second".to_string(),
-                width: cm10_width("second")
+                width: cm10_width("second"),
+                font_size: 10.0,
             }
         );
     }
@@ -1063,6 +1183,7 @@ mod tests {
             BoxNode::Text {
                 text: "hello".to_string(),
                 width: cm10_width("hello"),
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1072,6 +1193,7 @@ mod tests {
             BoxNode::Text {
                 text: "world".to_string(),
                 width: cm10_width("world"),
+                font_size: 10.0,
             },
         ];
         let lines = break_into_lines(&items, 345.0);
@@ -1089,6 +1211,7 @@ mod tests {
             BoxNode::Text {
                 text: "aaaaaaaaaa".to_string(),
                 width: 60.0,
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1098,6 +1221,7 @@ mod tests {
             BoxNode::Text {
                 text: "bbbbbbbbbb".to_string(),
                 width: 60.0,
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1107,6 +1231,7 @@ mod tests {
             BoxNode::Text {
                 text: "cccccccccc".to_string(),
                 width: 60.0,
+                font_size: 10.0,
             },
         ];
         let lines = break_into_lines(&items, 100.0);
@@ -1131,6 +1256,7 @@ mod tests {
             BoxNode::Text {
                 text: "aaa".to_string(),
                 width: 50.0,
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1140,6 +1266,7 @@ mod tests {
             BoxNode::Text {
                 text: "bbb".to_string(),
                 width: 50.0,
+                font_size: 10.0,
             },
         ];
         // hsize=100, 50 + 50 = 100, fits exactly
@@ -1214,7 +1341,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "italic".to_string(),
-                width: cm10_width("italic")
+                width: cm10_width("italic"),
+                font_size: 10.0,
             }
         );
     }
@@ -1232,7 +1360,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "emphasized".to_string(),
-                width: cm10_width("emphasized")
+                width: cm10_width("emphasized"),
+                font_size: 10.0,
             }
         );
     }
@@ -1243,6 +1372,7 @@ mod tests {
             BoxNode::Text {
                 text: "word".to_string(),
                 width: 60.0,
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1405,7 +1535,8 @@ mod tests {
             items[0],
             BoxNode::Text {
                 text: "ab".to_string(),
-                width: 20.0
+                width: 20.0,
+                font_size: 10.0,
             }
         );
         // Glue should use FixedMetrics space_width = 5.0
@@ -1419,7 +1550,8 @@ mod tests {
             items[2],
             BoxNode::Text {
                 text: "cd".to_string(),
-                width: 20.0
+                width: 20.0,
+                font_size: 10.0,
             }
         );
     }
@@ -1444,6 +1576,7 @@ mod tests {
         BoxNode::Text {
             text: "w".repeat((width as usize).max(1)),
             width,
+            font_size: 10.0,
         }
     }
 
@@ -1471,6 +1604,7 @@ mod tests {
             BoxNode::Text {
                 text: "hello".to_string(),
                 width: m.string_width("hello"),
+                font_size: 10.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -1480,6 +1614,7 @@ mod tests {
             BoxNode::Text {
                 text: "world".to_string(),
                 width: m.string_width("world"),
+                font_size: 10.0,
             },
         ];
         let lines = kp.break_lines(&items, 345.0);
@@ -1804,5 +1939,277 @@ mod tests {
                 width
             );
         }
+    }
+
+    // ===== M12: Document Structure Rendering Tests =====
+
+    #[test]
+    fn test_boxnode_text_has_font_size() {
+        let node = BoxNode::Text {
+            text: "hello".to_string(),
+            width: 20.0,
+            font_size: 10.0,
+        };
+        if let BoxNode::Text { font_size, .. } = node {
+            assert_eq!(font_size, 10.0);
+        } else {
+            panic!("Expected Text node");
+        }
+    }
+
+    #[test]
+    fn test_section_command_produces_large_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_14pt = nodes.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 14.0).abs() < 0.001),
+        );
+        assert!(has_14pt, "Expected 14pt text for section");
+    }
+
+    #[test]
+    fn test_subsection_produces_12pt_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_12pt = nodes.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 12.0).abs() < 0.001),
+        );
+        assert!(has_12pt);
+    }
+
+    #[test]
+    fn test_subsubsection_produces_11pt_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub2".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_11pt = nodes.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 11.0).abs() < 0.001),
+        );
+        assert!(has_11pt);
+    }
+
+    #[test]
+    fn test_paragraph_spacing_adds_glue() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_glue = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 6.0).abs() < 0.001));
+        assert!(has_glue, "Expected paragraph spacing glue");
+    }
+
+    #[test]
+    fn test_multipage_layout_splits_pages() {
+        // Create enough text to exceed 700pt (at 12pt/line, ~58+ lines needed)
+        // Use long repeated text that will wrap to many lines within one paragraph
+        let long_text = "The quick brown fox jumps over the lazy dog and then runs around the field again and again. ".repeat(50);
+        let doc = Node::Document(vec![Node::Paragraph(vec![Node::Text(long_text)])]);
+        let engine = Engine::new(doc);
+        let result = engine.typeset();
+        assert!(result.len() >= 2, "Expected 2+ pages, got {}", result.len());
+    }
+
+    #[test]
+    fn test_latex_command_expands_to_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_latex = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "LaTeX"));
+        assert!(has_latex, "Expected LaTeX text node");
+    }
+
+    #[test]
+    fn test_tex_command_expands_to_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "TeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_tex = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "TeX"));
+        assert!(has_tex);
+    }
+
+    #[test]
+    fn test_today_command_produces_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "today".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_date = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("January")));
+        assert!(has_date, "Expected date text from \\today");
+    }
+
+    #[test]
+    fn test_newline_forces_break() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "\\".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_penalty = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000));
+        assert!(has_penalty);
+    }
+
+    #[test]
+    fn test_newline_command_forces_break() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "newline".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_penalty = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000));
+        assert!(has_penalty);
+    }
+
+    #[test]
+    fn test_section_has_vertical_kern_before() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("X".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001)
+        );
+    }
+
+    #[test]
+    fn test_section_has_vertical_kern_after() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("X".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001)
+        );
+    }
+
+    #[test]
+    fn test_subsection_kern_before() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("X".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001)
+        );
+    }
+
+    #[test]
+    fn test_default_font_size_is_10() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Text("hello".to_string());
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let all_10pt = nodes.iter().all(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                (*font_size - 10.0).abs() < 0.001
+            } else {
+                true
+            }
+        });
+        assert!(all_10pt);
+    }
+
+    #[test]
+    fn test_multipage_layout_first_page_not_empty() {
+        let long_text = "The quick brown fox jumps over the lazy dog and then runs around the field again and again. ".repeat(50);
+        let doc = Node::Document(vec![Node::Paragraph(vec![Node::Text(long_text)])]);
+        let engine = Engine::new(doc);
+        let result = engine.typeset();
+        assert!(!result.is_empty());
+        assert!(!result[0].box_lines.is_empty());
+    }
+
+    #[test]
+    fn test_font_size_propagated_to_nodes() {
+        let doc = Node::Document(vec![Node::Paragraph(vec![Node::Text("test".to_string())])]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        for page in &pages {
+            for line in &page.box_lines {
+                for node in line {
+                    if let BoxNode::Text { font_size, .. } = node {
+                        assert!(*font_size > 0.0, "font_size must be positive");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_section_title_text_content() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_title = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "Introduction"));
+        assert!(has_title, "Section should contain title text");
+    }
+
+    #[test]
+    fn test_section_produces_three_nodes() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Should produce: Kern(12.0), Text(title), Kern(6.0)
+        assert_eq!(
+            nodes.len(),
+            3,
+            "Section should produce exactly 3 nodes (kern, text, kern)"
+        );
+    }
+
+    #[test]
+    fn test_empty_document_produces_one_page() {
+        let doc = Node::Document(vec![]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert_eq!(
+            pages.len(),
+            1,
+            "Empty document should still produce one page"
+        );
     }
 }
