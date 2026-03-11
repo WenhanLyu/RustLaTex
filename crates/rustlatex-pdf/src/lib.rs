@@ -16,6 +16,7 @@ pub struct PdfOutput {
 }
 
 /// The PDF writer converts typeset pages into PDF bytes.
+#[derive(Default)]
 pub struct PdfWriter;
 
 impl PdfWriter {
@@ -39,11 +40,6 @@ impl PdfWriter {
     }
 }
 
-impl Default for PdfWriter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[cfg(test)]
 mod tests {

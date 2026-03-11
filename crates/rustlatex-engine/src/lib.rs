@@ -42,7 +42,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustlatex_parser::{Node, Parser};
+    use rustlatex_parser::Parser;
 
     #[test]
     fn test_engine_stub() {
