@@ -1,0 +1,15 @@
+[package]
+name = "rustlatex-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for RustLaTex"
+
+[[bin]]
+name = "rustlatex"
+path = "src/main.rs"
+
+[dependencies]
+rustlatex-lexer = { path = "../rustlatex-lexer" }
+rustlatex-parser = { path = "../rustlatex-parser" }
+rustlatex-engine = { path = "../rustlatex-engine" }
+rustlatex-pdf = { path = "../rustlatex-pdf" }

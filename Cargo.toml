@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/rustlatex-lexer",
+    "crates/rustlatex-parser",
+    "crates/rustlatex-engine",
+    "crates/rustlatex-pdf",
+    "crates/rustlatex-cli",
+]
+resolver = "2"

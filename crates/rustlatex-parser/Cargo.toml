@@ -1,0 +1,8 @@
+[package]
+name = "rustlatex-parser"
+version = "0.1.0"
+edition = "2021"
+description = "LaTeX AST parser for RustLaTex"
+
+[dependencies]
+rustlatex-lexer = { path = "../rustlatex-lexer" }

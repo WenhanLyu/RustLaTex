@@ -1,0 +1,8 @@
+[package]
+name = "rustlatex-pdf"
+version = "0.1.0"
+edition = "2021"
+description = "PDF backend for RustLaTex"
+
+[dependencies]
+rustlatex-engine = { path = "../rustlatex-engine" }
