@@ -12,10 +12,7 @@ pub enum Node {
     /// A LaTeX document containing a sequence of nodes.
     Document(Vec<Node>),
     /// A control sequence command with optional argument nodes.
-    Command {
-        name: String,
-        args: Vec<Node>,
-    },
+    Command { name: String, args: Vec<Node> },
     /// A group delimited by `{` and `}`.
     Group(Vec<Node>),
     /// Plain text content.
@@ -45,7 +42,11 @@ impl Parser {
 
     /// Advance past the current token and return it.
     fn advance(&mut self) -> Token {
-        let tok = self.tokens.get(self.pos).cloned().unwrap_or(Token::EndOfInput);
+        let tok = self
+            .tokens
+            .get(self.pos)
+            .cloned()
+            .unwrap_or(Token::EndOfInput);
         self.pos += 1;
         tok
     }
@@ -138,10 +139,7 @@ mod tests {
     fn test_parse_text() {
         let mut parser = Parser::new("Hello");
         let doc = parser.parse();
-        assert_eq!(
-            doc,
-            Node::Document(vec![Node::Text("Hello".to_string())])
-        );
+        assert_eq!(doc, Node::Document(vec![Node::Text("Hello".to_string())]));
     }
 
     #[test]

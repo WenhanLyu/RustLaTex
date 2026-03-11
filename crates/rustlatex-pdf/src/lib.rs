@@ -30,16 +30,12 @@ impl PdfWriter {
     /// This is currently a stub that returns a minimal placeholder.
     pub fn write(&self, pages: &[Page]) -> PdfOutput {
         // Stub: return a comment describing the pages
-        let content = format!(
-            "%% RustLaTex PDF stub — {} page(s)\n",
-            pages.len()
-        );
+        let content = format!("%% RustLaTex PDF stub — {} page(s)\n", pages.len());
         PdfOutput {
             bytes: content.into_bytes(),
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -48,7 +44,10 @@ mod tests {
 
     #[test]
     fn test_pdf_writer_stub() {
-        let pages = vec![Page { number: 1, content: "test".to_string() }];
+        let pages = vec![Page {
+            number: 1,
+            content: "test".to_string(),
+        }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
         assert!(!output.bytes.is_empty());
