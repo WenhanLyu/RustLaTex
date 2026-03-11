@@ -31,7 +31,8 @@ Binary-identical output requires:
 - **Cycle 34-38 (M9):** M9 completed in 1 implementation cycle + 1 verification. Ares implemented Knuth-Plass DP line-breaking: LineBreaker trait, GreedyLineBreaker, KnuthPlassLineBreaker (O(n²) DP, badness/demerits, tolerance=200), 19 new tests. Apollo verified 157 tests pass, CI clean.
 - **Cycle 39-41 (M10):** M10 completed in 1 implementation cycle + 1 verification. Ares implemented integration tests (20 tests, 4 .tex corpus files), Helvetica metric alignment, CLI error handling. Apollo verified 182 tests pass, CI clean.
 - **Cycle 42-45 (M11):** M11 completed in 1 implementation cycle + 1 verification. Ares embedded cmr10.pfb (Type1 font), updated StandardFontMetrics to CM Roman AFM widths, added Type1 font dict+descriptor+file to PDF. Apollo verified 196 tests pass, CI clean.
-- **Cycle 46-49 (M12):** M12 completed in 1 implementation cycle (verification pending). Leo delivered font_size field on BoxNode::Text, section/subsection at 14/12/11pt with kerns, paragraph spacing, multi-page layout, \LaTeX/\TeX/\today expansion, forced breaks. 20 new engine tests, 216 total tests pass.
+- **Cycle 46-49 (M12):** M12 completed in 1 implementation cycle + 1 verification. Leo delivered font_size field on BoxNode::Text, section/subsection at 14/12/11pt with kerns, paragraph spacing, multi-page layout, \LaTeX/\TeX/\today expansion, forced breaks. 20 new engine tests, 216 total tests pass.
+- **Cycle 50-51 (M13):** M13 completed in 1 implementation cycle + 1 verification. Ares delivered math_node_to_text(), Greek letters/math operators, inline/display math rendering (no more "(math)" placeholder). 15 new tests, 231 total tests pass.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9). M10 focuses on integration quality and font consistency before binary-identity work. M11 embeds real CM Type1 fonts. M12 targets document structure rendering (sections, spacing, multi-page layout).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
@@ -188,14 +189,39 @@ Replace the `(math)` placeholder with actual rendered text representations of in
 - All 216 existing tests continue to pass
 
 - **Cycles budget:** 6
+- **Status:** ✅ Complete — verified by Apollo (commit 0464a28, 231 tests total)
+
+### M14: List Rendering (itemize/enumerate with bullets/numbers)
+Implement proper visual rendering of LaTeX list environments in the engine.
+
+**Scope in `rustlatex-engine`:**
+- `Node::Environment { name: "itemize", content, .. }` → render each `\item` as a bullet point ("•") prefix + indented text
+- `Node::Environment { name: "enumerate", content, .. }` → render each `\item` as a numbered prefix ("1.", "2.", etc.) + indented text
+- Each item is indented by 20pt (left indent via a Kern node)
+- The bullet/number and item text on the same line
+- Items separated by a small inter-item glue (4pt natural)
+- Before/after the whole list: paragraph glue (6pt)
+- `\item` `Command` nodes inside list environments are the list item delimiters
+
+**Tests (15+):**
+- Test `itemize` produces bullet "•" prefix for each item
+- Test `enumerate` produces "1.", "2.", "3." prefixes
+- Test list items are indented (have a `Kern{amount:20.0}` before each item)
+- Test multiple items in a single list
+- Test nested list environments work (list inside list)
+- Test list with surrounding paragraph text
+- All 231 existing tests continue to pass
+
+- **Cycles budget:** 4
 - **Status:** Pending
 
-### M14: Integration & Visual Quality Testing
-- Install pdflatex via MacTeX/BasicTeX (`brew install --cask basictex`)
-- End-to-end visual comparison: render both PDFs to images (with `gs` or `convert`) and compute pixel diff
-- Fix layout differences until output is visually close
+### M15: Integration & Visual Quality Testing (gs-based)
+- Use GhostScript (`gs`) to render our output PDFs to images
+- Run our compiler on all example .tex files and verify they produce valid, non-empty PDFs
+- Add integration test: compile each example, render with gs, verify PNG is non-empty
+- Note: pdflatex comparison deferred (requires sudo install)
 
-- **Cycles budget:** 10
+- **Cycles budget:** 6
 - **Status:** Pending
 
 ---
