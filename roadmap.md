@@ -23,6 +23,7 @@ Binary-identical output requires:
 - **Cycle 1-4 (M1):** M1 completed in 3 cycles (under budget). The workspace setup was well-understood, Ares's team executed efficiently. Leo was hired mid-milestone to fix CI/fmt issues.
 - **Cycle 5-6 (M2):** M2 completed in 2 cycles (under budget of 4). Leo delivered the full lexer implementation with all 16 catcodes, mutable catcode table, 28 tests, parameter tokens, active chars, comment handling, and Par handling. Apollo verified all checks pass (34 tests total).
 - **Cycle 7-12 (M3):** M3 completed in 2 implementation cycles + 1 verification. Leo delivered the full parser upgrade: Environment, Paragraph, DisplayMath nodes, argument/optional arg parsing, 22 tests total. Apollo verified all 52 tests pass, CI clean.
+- **Cycle 13-19 (M4):** M4 completed in 2 implementation cycles + 1 verification (with 1 fix round). Leo delivered MacroTable, \def, \newcommand, \renewcommand, \let, \if/\ifx/\ifnum conditionals, 21 new tests. Apollo verified all 73 tests pass, CI clean.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 
@@ -54,27 +55,32 @@ Parse tokenized input into an AST representing:
 - **Cycles budget:** 5 | **Cycles actual:** 2
 - **Status:** ✅ Complete — verified by Apollo (commit b03889f, 52 tests)
 
-### M4: Macro Expansion Engine — IN PROGRESS
+### M4: Macro Expansion Engine ✅ COMPLETE
 Implement TeX macro expansion in `rustlatex-parser`:
 - `\def`, `\newcommand`, `\renewcommand`
 - `\let` alias creation
 - Conditional expansion: `\if`, `\ifx`, `\ifnum`, `\else`, `\fi`
 - MacroTable with parameter substitution (#1..#9)
 - Integration with existing Parser: expand macros before/during AST construction
-- 15+ new tests covering all features
+- 21 new tests covering all features
+
+- **Cycles budget:** 5 | **Cycles actual:** 3
+- **Status:** ✅ Complete — verified by Apollo (commit 8da83d2, 73 tests total)
+
+### M5: Math Mode AST Enhancement — IN PROGRESS
+Enhance the math mode parser in `rustlatex-parser` to produce structured AST nodes instead of raw text:
+- `Superscript(base, exp)` — AST node for `x^2`, `x^{2n}`
+- `Subscript(base, sub)` — AST node for `x_i`, `x_{ij}`
+- `Fraction { numerator, denominator }` — AST node for `\frac{a}{b}`
+- `Radical { degree, radicand }` — AST node for `\sqrt{x}`, `\sqrt[n]{x}`
+- `MathCommand { name, args }` — for `\sum`, `\int`, `\prod`, `\lim`, etc.
+- `MathGroup(Vec<Node>)` — for `{...}` groups inside math
+- Math-mode text: `\text{...}` — embed text in math
+- 15+ new tests for all math AST nodes
+- All existing 73 tests must continue to pass
 
 - **Cycles budget:** 5
-- **Status:** 🔄 In Progress (M4 starting now)
-
-### M5: Math Mode Support
-Implement math typesetting:
-- Inline and display math parsing
-- Basic math commands: `\frac`, `\sqrt`, `\sum`, `\int`
-- Subscripts and superscripts
-- Math font handling
-
-- **Cycles budget:** 5
-- **Status:** Pending
+- **Status:** 🔄 In Progress
 
 ### M6: TeX Box/Glue Typesetting Engine
 Implement TeX's typesetting model:
