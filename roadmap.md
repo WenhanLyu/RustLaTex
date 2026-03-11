@@ -25,6 +25,7 @@ Binary-identical output requires:
 - **Cycle 7-12 (M3):** M3 completed in 2 implementation cycles + 1 verification. Leo delivered the full parser upgrade: Environment, Paragraph, DisplayMath nodes, argument/optional arg parsing, 22 tests total. Apollo verified all 52 tests pass, CI clean.
 - **Cycle 13-19 (M4):** M4 completed in 2 implementation cycles + 1 verification (with 1 fix round). Leo delivered MacroTable, \def, \newcommand, \renewcommand, \let, \if/\ifx/\ifnum conditionals, 21 new tests. Apollo verified all 73 tests pass, CI clean.
 - **Cycle 20-22 (M5):** M5 completed in 1 implementation cycle + 1 verification. Ares implemented math AST nodes directly (Superscript, Subscript, Fraction, Radical, MathGroup). Apollo verified 90 total tests pass, CI clean.
+- **Cycle 23-25 (M6):** M6 completed in 1 implementation cycle + 1 verification. Leo implemented BoxNode enum (6 variants), AST→BoxList translator, greedy line breaking, and updated Engine::typeset(). Apollo verified 117 tests pass, CI clean.
 - **Strategy:** "Binary identical" is extremely ambitious. The right approach is: get basic output working first (M2-M5), then progressively harden toward binary identity (M6-M9).
 - **Worker sizing:** Single-task assignments per worker work well. Keep milestones tight and verifiable. Leo (high model) can deliver large focused tasks in a single cycle.
 - **M6 approach:** Box/glue engine is complex — break it into: M6 (box/glue data model + AST→boxes translator), M7 (font metrics + TFM), M8 (PDF backend), M9 (Knuth-Plass + integration). This ensures steady progress without overloading a single milestone.
@@ -77,7 +78,7 @@ Enhance the math mode parser in `rustlatex-parser` to produce structured AST nod
 - **Cycles budget:** 5 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (90 tests total)
 
-### M6: Box/Glue Data Model & AST→BoxList Translator — IN PROGRESS
+### M6: Box/Glue Data Model & AST→BoxList Translator ✅ COMPLETE
 Implement the typesetting IR (intermediate representation) in `rustlatex-engine`:
 
 **Box/Glue data model:**
@@ -110,17 +111,30 @@ Implement the typesetting IR (intermediate representation) in `rustlatex-engine`
 - Test multi-paragraph documents produce multiple paragraph groups
 - All existing 90 tests continue to pass
 
-- **Cycles budget:** 5
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 84806c3, 117 tests)
+
+### M7: Font Handling & Real Character Widths — IN PROGRESS
+Implement font metrics support so the typesetting engine uses accurate character widths instead of the 6pt-per-character approximation.
+
+**Scope (focused on what's achievable without full TFM parsing):**
+- Add a `FontMetrics` trait to `rustlatex-engine` with method `char_width(ch: char) -> f64`
+- Implement a `StandardFontMetrics` struct with hardcoded metrics for the **Computer Modern Roman 10pt** font (the default LaTeX font). Use the well-known character widths from CM fonts (available from TeX documentation / TFM data). Focus on ASCII printable characters.
+- Replace the existing `char_width()` stub function (6pt per char) with `StandardFontMetrics::char_width()`
+- Update `translate_node()` to use `FontMetrics` for computing text widths
+- Add a `metrics` parameter to `translate_node()` or thread it through `Engine::typeset()`
+- **Do NOT implement TFM file parsing** — hardcode CM10 metrics as a `HashMap<char, f64>` or array
+
+**Deliverables:**
+- `FontMetrics` trait with `char_width(ch: char) -> f64` and `space_width() -> f64`
+- `StandardFontMetrics` struct (CM Roman 10pt, hardcoded) implementing `FontMetrics`
+- `Engine` updated to use `StandardFontMetrics` by default
+- `translate_node()` takes a `&dyn FontMetrics` parameter
+- 10+ new tests verifying accurate widths for common characters
+- All 117 existing tests continue to pass
+
+- **Cycles budget:** 4
 - **Status:** 🔄 In Progress
-
-### M7: Font Handling & Metrics
-- Load and interpret TFM (TeX Font Metric) files
-- Handle font families, sizes, encodings
-- Kern pairs and ligatures
-- Integrate metrics into engine for accurate character widths
-
-- **Cycles budget:** 5
-- **Status:** Pending
 
 ### M8: PDF Backend (Real Output)
 - Generate real PDF 1.5 output using `pdf-writer` crate
