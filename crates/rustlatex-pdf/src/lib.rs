@@ -2,8 +2,9 @@
 //!
 //! This crate takes the typeset pages produced by `rustlatex-engine` and
 //! emits PDF output. It produces valid PDF files using the `pdf-writer` crate
-//! with Base-14 Helvetica font on A4 pages.
+//! with Computer Modern Roman 10pt (CM Roman) Type1 font embedded on A4 pages.
 
+use pdf_writer::types::FontFlags;
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
 use rustlatex_engine::{BoxNode, Page as EnginePage};
 
@@ -53,7 +54,7 @@ impl PdfWriter {
     /// Produces a valid PDF document with:
     /// - Document catalog and page tree
     /// - A4 page size (595 × 842 pt), 50pt margins
-    /// - Base-14 Helvetica font at 10pt
+    /// - Computer Modern Roman 10pt (CM Roman) Type1 font embedded at 10pt
     /// - Text rendered from box_lines, top-to-bottom
     pub fn write(&self, pages: &[EnginePage]) -> PdfOutput {
         // If no pages, produce a valid PDF with zero pages
@@ -62,13 +63,17 @@ impl PdfWriter {
         // Allocate Ref IDs:
         // 1 = catalog
         // 2 = page tree
-        // 3 = font (Helvetica Type1)
+        // 3 = font file stream (cmr10.pfb, embedded Type1)
+        // 4 = font dictionary (CMR10 Type1)
+        // 5 = font descriptor
         // For each page i (0-indexed):
-        //   4 + i*2     = page object
-        //   4 + i*2 + 1 = content stream
+        //   6 + i*2     = page object
+        //   6 + i*2 + 1 = content stream
         let catalog_id = Ref::new(1);
         let page_tree_id = Ref::new(2);
-        let font_id = Ref::new(3);
+        let font_file_id = Ref::new(3);
+        let font_id = Ref::new(4);
+        let font_descriptor_id = Ref::new(5);
 
         let mut pdf = Pdf::new();
 
@@ -77,7 +82,7 @@ impl PdfWriter {
 
         // Collect page Refs
         let page_refs: Vec<Ref> = (0..page_count)
-            .map(|i| Ref::new((4 + i * 2) as i32))
+            .map(|i| Ref::new((6 + i * 2) as i32))
             .collect();
 
         // Page tree
@@ -85,8 +90,130 @@ impl PdfWriter {
             .kids(page_refs.iter().copied())
             .count(page_count as i32);
 
-        // Font: Helvetica (Base-14, no embedding needed)
-        pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
+        // Embed the cmr10.pfb Type1 font file stream
+        let font_bytes: &[u8] = include_bytes!("../fonts/cmr10.pfb");
+        pdf.stream(font_file_id, font_bytes);
+
+        // Font descriptor for CMR10
+        pdf.font_descriptor(font_descriptor_id)
+            .name(Name(b"CMR10"))
+            .flags(FontFlags::SERIF | FontFlags::NON_SYMBOLIC)
+            .bbox(Rect::new(-40.0, -250.0, 1009.0, 969.0))
+            .italic_angle(0.0)
+            .ascent(694.4)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(50.0)
+            .font_file(font_file_id);
+
+        // CM Roman 10pt widths for chars 32-126 (95 entries), in glyph units (WX values)
+        // Derived from cmr10 AFM data
+        let cmr10_widths: Vec<f32> = vec![
+            333.333,  // 32 space
+            277.778,  // 33 !
+            500.0,    // 34 "
+            833.333,  // 35 #
+            500.0,    // 36 $
+            833.333,  // 37 %
+            777.778,  // 38 &
+            277.778,  // 39 '
+            388.889,  // 40 (
+            388.889,  // 41 )
+            500.0,    // 42 *
+            777.778,  // 43 +
+            277.778,  // 44 ,
+            333.333,  // 45 -
+            277.778,  // 46 .
+            500.0,    // 47 /
+            500.0,    // 48 0
+            500.0,    // 49 1
+            500.0,    // 50 2
+            500.0,    // 51 3
+            500.0,    // 52 4
+            500.0,    // 53 5
+            500.0,    // 54 6
+            500.0,    // 55 7
+            500.0,    // 56 8
+            500.0,    // 57 9
+            277.778,  // 58 :
+            277.778,  // 59 ;
+            277.778,  // 60 <
+            777.778,  // 61 =
+            472.222,  // 62 >
+            472.222,  // 63 ?
+            777.778,  // 64 @
+            750.0,    // 65 A
+            708.333,  // 66 B
+            722.222,  // 67 C
+            763.889,  // 68 D
+            680.556,  // 69 E
+            652.778,  // 70 F
+            784.722,  // 71 G
+            750.0,    // 72 H
+            361.111,  // 73 I
+            513.889,  // 74 J
+            777.778,  // 75 K
+            625.0,    // 76 L
+            916.667,  // 77 M
+            750.0,    // 78 N
+            777.778,  // 79 O
+            680.556,  // 80 P
+            777.778,  // 81 Q
+            736.111,  // 82 R
+            555.556,  // 83 S
+            722.222,  // 84 T
+            750.0,    // 85 U
+            750.0,    // 86 V
+            1027.778, // 87 W
+            750.0,    // 88 X
+            750.0,    // 89 Y
+            611.111,  // 90 Z
+            277.778,  // 91 [
+            500.0,    // 92 backslash
+            277.778,  // 93 ]
+            500.0,    // 94 ^
+            277.778,  // 95 _
+            277.778,  // 96 `
+            500.0,    // 97 a
+            555.556,  // 98 b
+            444.444,  // 99 c
+            555.556,  // 100 d
+            444.444,  // 101 e
+            305.556,  // 102 f
+            500.0,    // 103 g
+            555.556,  // 104 h
+            277.778,  // 105 i
+            305.556,  // 106 j
+            527.778,  // 107 k
+            277.778,  // 108 l
+            833.333,  // 109 m
+            555.556,  // 110 n
+            500.0,    // 111 o
+            555.556,  // 112 p
+            527.778,  // 113 q
+            391.667,  // 114 r
+            394.444,  // 115 s
+            388.889,  // 116 t
+            555.556,  // 117 u
+            527.778,  // 118 v
+            722.222,  // 119 w
+            527.778,  // 120 x
+            527.778,  // 121 y
+            444.444,  // 122 z
+            319.444,  // 123 {
+            319.444,  // 124 |
+            319.444,  // 125 }
+            319.444,  // 126 ~
+        ];
+
+        // Type1 font dictionary with embedded CMR10
+        pdf.type1_font(font_id)
+            .base_font(Name(b"CMR10"))
+            .first_char(32)
+            .last_char(126)
+            .widths(cmr10_widths)
+            .font_descriptor(font_descriptor_id)
+            .encoding_predefined(Name(b"StandardEncoding"));
 
         // A4 dimensions
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
@@ -101,8 +228,8 @@ impl PdfWriter {
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
-            let page_id = Ref::new((4 + i * 2) as i32);
-            let content_id = Ref::new((4 + i * 2 + 1) as i32);
+            let page_id = Ref::new((6 + i * 2) as i32);
+            let content_id = Ref::new((6 + i * 2 + 1) as i32);
 
             // Build content stream
             let mut content = Content::new();
@@ -171,7 +298,7 @@ impl PdfWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustlatex_engine::{BoxNode, Page as EnginePage};
+    use rustlatex_engine::{BoxNode, FontMetrics, Page as EnginePage, StandardFontMetrics};
 
     #[test]
     fn test_pdf_header_starts_with_pdf() {
@@ -286,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pdf_contains_helvetica() {
+    fn test_pdf_contains_cmr10() {
         let pages = vec![EnginePage {
             number: 1,
             content: "test".to_string(),
@@ -298,9 +425,198 @@ mod tests {
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
         let text = String::from_utf8_lossy(&output.bytes);
+        assert!(text.contains("CMR10"), "PDF should reference CMR10 font");
+    }
+
+    // === New CM Roman metric tests ===
+
+    #[test]
+    fn test_cm_roman_space_width() {
+        let metrics = StandardFontMetrics;
+        let sw = metrics.space_width();
         assert!(
-            text.contains("Helvetica"),
-            "PDF should reference Helvetica font"
+            (sw - 3.333).abs() < 0.001,
+            "CM Roman space width should be 3.333pt, got {}",
+            sw
+        );
+    }
+
+    #[test]
+    fn test_cm_roman_char_a() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width('a');
+        assert!(
+            (w - 5.000).abs() < 0.001,
+            "CM Roman 'a' width should be 5.000pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_cm_roman_char_W_wide() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width('W');
+        assert!(
+            (w - 10.278).abs() < 0.001,
+            "CM Roman 'W' width should be 10.278pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_cm_roman_char_i_narrow() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width('i');
+        assert!(
+            (w - 2.778).abs() < 0.001,
+            "CM Roman 'i' width should be 2.778pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_cm_roman_digit_width() {
+        let metrics = StandardFontMetrics;
+        for d in '0'..='9' {
+            let w = metrics.char_width(d);
+            assert!(
+                (w - 5.000).abs() < 0.001,
+                "CM Roman digit '{}' width should be 5.000pt, got {}",
+                d,
+                w
+            );
+        }
+    }
+
+    #[test]
+    fn test_pdf_contains_font_descriptor() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "test".to_string(),
+            box_lines: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let text = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            text.contains("FontDescriptor"),
+            "PDF should contain FontDescriptor"
+        );
+    }
+
+    #[test]
+    fn test_pdf_contains_font_file() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "test".to_string(),
+            box_lines: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let text = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            text.contains("FontFile"),
+            "PDF should reference embedded FontFile (cmr10.pfb)"
+        );
+    }
+
+    #[test]
+    fn test_pdf_contains_standard_encoding() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "test".to_string(),
+            box_lines: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let text = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            text.contains("StandardEncoding"),
+            "PDF should reference StandardEncoding"
+        );
+    }
+
+    #[test]
+    fn test_pdf_contains_type1_subtype() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "test".to_string(),
+            box_lines: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let text = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            text.contains("Type1"),
+            "PDF should contain Type1 font subtype"
+        );
+    }
+
+    #[test]
+    fn test_pdf_font_embedded_bytes_present() {
+        // The embedded font bytes should make the PDF significantly larger
+        let pages: Vec<EnginePage> = vec![];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // With font embedding, PDF should be >35000 bytes (cmr10.pfb is 35752 bytes)
+        assert!(
+            output.bytes.len() > 35000,
+            "PDF with embedded font should be >35KB, got {} bytes",
+            output.bytes.len()
+        );
+    }
+
+    #[test]
+    fn test_cm_roman_multiple_char_widths() {
+        let metrics = StandardFontMetrics;
+        // Check a sample of CM Roman widths
+        assert!((metrics.char_width('b') - 5.556).abs() < 0.001);
+        assert!((metrics.char_width('c') - 4.444).abs() < 0.001);
+        assert!((metrics.char_width('m') - 8.333).abs() < 0.001);
+        assert!((metrics.char_width('f') - 3.056).abs() < 0.001);
+        assert!((metrics.char_width('A') - 7.500).abs() < 0.001);
+        assert!((metrics.char_width('M') - 9.167).abs() < 0.001);
+        assert!((metrics.char_width('Z') - 6.111).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cm_roman_string_width() {
+        let metrics = StandardFontMetrics;
+        // "Hi" = H(7.500) + i(2.778) = 10.278
+        let w = metrics.string_width("Hi");
+        assert!(
+            (w - 10.278).abs() < 0.001,
+            "string_width('Hi') should be 10.278, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_pdf_output_is_bytes() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "sample".to_string(),
+            box_lines: vec![vec![BoxNode::Text {
+                text: "sample".to_string(),
+                width: 30.0,
+            }]],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // PdfOutput.bytes should be valid PDF
+        assert!(!output.bytes.is_empty());
+        assert_eq!(&output.bytes[0..4], b"%PDF");
+    }
+
+    #[test]
+    fn test_cm_roman_default_fallback() {
+        let metrics = StandardFontMetrics;
+        // Non-ASCII chars fall back to 5.000
+        let w = metrics.char_width('é');
+        assert!(
+            (w - 5.000).abs() < 0.001,
+            "Default fallback width should be 5.000pt, got {}",
+            w
         );
     }
 }

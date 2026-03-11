@@ -32,7 +32,7 @@ pub enum BoxNode {
     VBox { width: f64, content: Vec<BoxNode> },
 }
 
-// ===== Font Metrics Trait and Helvetica Implementation =====
+// ===== Font Metrics Trait and CM Roman Implementation =====
 
 /// Trait providing font metric information for typesetting.
 pub trait FontMetrics {
@@ -48,85 +48,85 @@ pub trait FontMetrics {
     }
 }
 
-/// Font metrics using Helvetica Base-14 character widths (from AFM data, glyph units / 100).
+/// Font metrics using Computer Modern Roman 10pt (CM Roman) AFM widths (WX / 100 = pt at 10pt).
 ///
-/// Temporary: Helvetica Base-14 widths used to match PDF backend font (which renders Helvetica).
-/// Real TeX font embedding (CM Roman TFM → Type1/OTF) is planned for M11.
+/// Character widths derived from CM Roman (cmr10) AFM data for accurate typesetting
+/// that matches the embedded Type1 font in the PDF backend.
 pub struct StandardFontMetrics;
 
 impl FontMetrics for StandardFontMetrics {
     fn char_width(&self, ch: char) -> f64 {
-        // Helvetica AFM widths at 10pt (glyph units / 100)
+        // CM Roman 10pt AFM widths (WX / 100 = pt at 10pt)
         match ch {
             // Lowercase
-            'a' => 5.56,
-            'b' => 5.56,
-            'c' => 5.00,
-            'd' => 5.56,
-            'e' => 5.56,
-            'f' => 2.78,
-            'g' => 5.56,
-            'h' => 5.56,
-            'i' => 2.22,
-            'j' => 2.22,
-            'k' => 5.00,
-            'l' => 2.22,
-            'm' => 8.33,
-            'n' => 5.56,
-            'o' => 5.56,
-            'p' => 5.56,
-            'q' => 5.56,
-            'r' => 3.33,
-            's' => 5.00,
-            't' => 2.78,
-            'u' => 5.56,
-            'v' => 5.00,
-            'w' => 7.22,
-            'x' => 5.00,
-            'y' => 5.56,
-            'z' => 5.00,
+            'a' => 5.000,
+            'b' => 5.556,
+            'c' => 4.444,
+            'd' => 5.556,
+            'e' => 4.444,
+            'f' => 3.056,
+            'g' => 5.000,
+            'h' => 5.556,
+            'i' => 2.778,
+            'j' => 3.056,
+            'k' => 5.278,
+            'l' => 2.778,
+            'm' => 8.333,
+            'n' => 5.556,
+            'o' => 5.000,
+            'p' => 5.556,
+            'q' => 5.278,
+            'r' => 3.917,
+            's' => 3.944,
+            't' => 3.889,
+            'u' => 5.556,
+            'v' => 5.278,
+            'w' => 7.222,
+            'x' => 5.278,
+            'y' => 5.278,
+            'z' => 4.444,
             // Uppercase
-            'A' => 7.22,
-            'B' => 6.67,
-            'C' => 6.67,
-            'D' => 7.22,
-            'E' => 6.11,
-            'F' => 5.56,
-            'G' => 7.22,
-            'H' => 7.22,
-            'I' => 2.78,
-            'J' => 3.89,
-            'K' => 7.22,
-            'L' => 6.11,
-            'M' => 8.33,
-            'N' => 7.22,
-            'O' => 7.78,
-            'P' => 6.11,
-            'Q' => 7.78,
-            'R' => 6.94,
-            'S' => 5.56,
-            'T' => 6.11,
-            'U' => 7.22,
-            'V' => 7.22,
-            'W' => 9.44,
-            'X' => 7.22,
-            'Y' => 7.22,
-            'Z' => 6.67,
+            'A' => 7.500,
+            'B' => 7.083,
+            'C' => 7.222,
+            'D' => 7.639,
+            'E' => 6.806,
+            'F' => 6.528,
+            'G' => 7.847,
+            'H' => 7.500,
+            'I' => 3.611,
+            'J' => 5.139,
+            'K' => 7.778,
+            'L' => 6.250,
+            'M' => 9.167,
+            'N' => 7.500,
+            'O' => 7.778,
+            'P' => 6.806,
+            'Q' => 7.778,
+            'R' => 7.361,
+            'S' => 5.556,
+            'T' => 7.222,
+            'U' => 7.500,
+            'V' => 7.500,
+            'W' => 10.278,
+            'X' => 7.500,
+            'Y' => 7.500,
+            'Z' => 6.111,
             // Digits
-            '0'..='9' => 5.56,
-            _ => 6.0,
+            '0'..='9' => 5.000,
+            _ => 5.000,
         }
     }
 
     fn space_width(&self) -> f64 {
-        // Helvetica space width (from AFM: 278 / 100 = 2.78pt)
-        2.78
+        // CM Roman space width (from AFM: WX=333.333 / 100 = 3.333pt)
+        3.333
     }
 }
 
 /// Character width in points — backward-compatible function.
 ///
-/// Computes the total width of a string using Helvetica metrics
+/// Computes the total width of a string using CM Roman metrics
 /// by summing the width of each individual character.
 pub fn char_width(s: &str) -> f64 {
     let metrics = StandardFontMetrics;
@@ -1046,8 +1046,8 @@ mod tests {
 
     #[test]
     fn test_char_width() {
-        // 'a' = 5.56 in Helvetica
-        assert!((char_width("a") - 5.56).abs() < 0.01);
+        // 'a' = 5.000 in CM Roman
+        assert!((char_width("a") - 5.000).abs() < 0.01);
         // char_width uses same StandardFontMetrics as cm10_width helper
         assert!((char_width("hello") - cm10_width("hello")).abs() < f64::EPSILON);
         // empty string
@@ -1261,8 +1261,8 @@ mod tests {
     #[test]
     fn test_cm10_lowercase_a() {
         let m = StandardFontMetrics;
-        // Helvetica a = 5.56pt
-        assert!((m.char_width('a') - 5.56).abs() < 0.01);
+        // CM Roman a = 5.000pt
+        assert!((m.char_width('a') - 5.000).abs() < 0.01);
     }
 
     #[test]
@@ -1284,25 +1284,25 @@ mod tests {
     #[test]
     fn test_cm10_i_and_l_are_narrow() {
         let m = StandardFontMetrics;
-        // Helvetica i = 2.22pt, l = 2.22pt
-        assert!((m.char_width('i') - 2.22).abs() < 0.01);
-        assert!((m.char_width('l') - 2.22).abs() < 0.01);
+        // CM Roman i = 2.778pt, l = 2.778pt
+        assert!((m.char_width('i') - 2.778).abs() < 0.01);
+        assert!((m.char_width('l') - 2.778).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_different_chars_different_widths() {
         let m = StandardFontMetrics;
-        // These pairs should have different widths (Helvetica metrics)
-        // m=8.33, i=2.22 → diff > 1.0 ✓
+        // These pairs should have different widths (CM Roman metrics)
+        // m=8.333, i=2.778 → diff > 1.0 ✓
         assert!((m.char_width('m') - m.char_width('i')).abs() > 1.0);
-        // w=7.22, l=2.22 → diff > 1.0 ✓
+        // w=7.222, l=2.778 → diff > 1.0 ✓
         assert!((m.char_width('w') - m.char_width('l')).abs() > 1.0);
-        // h=5.56, f=2.78 → diff > 1.0 ✓
+        // h=5.556, f=3.056 → diff > 1.0 ✓
         assert!((m.char_width('h') - m.char_width('f')).abs() > 1.0);
-        // b=5.56, c=5.00 → diff = 0.56 > 0.5 ✓
+        // b=5.556, c=4.444 → diff = 1.112 > 0.5 ✓
         assert!((m.char_width('b') - m.char_width('c')).abs() > 0.5);
-        // r=3.33, t=2.78 → diff = 0.55 > 0.5 ✓ (d=e=5.56 in Helvetica, use r vs t instead)
-        assert!((m.char_width('r') - m.char_width('t')).abs() > 0.5);
+        // r=3.917, t=3.889 → diff is small, use k vs i instead: k=5.278, i=2.778 → diff > 1.0
+        assert!((m.char_width('k') - m.char_width('i')).abs() > 1.0);
     }
 
     #[test]
@@ -1319,18 +1319,18 @@ mod tests {
     #[test]
     fn test_cm10_space_width() {
         let m = StandardFontMetrics;
-        // Helvetica space = 2.78pt (AFM: 278/100)
-        assert!((m.space_width() - 2.78).abs() < 0.01);
+        // CM Roman space = 3.333pt (AFM WX=333.333 / 100)
+        assert!((m.space_width() - 3.333).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_digit_widths() {
         let m = StandardFontMetrics;
-        // All digits should be 5.56pt (monospaced digits in CM)
+        // All digits should be 5.000pt in CM Roman
         for ch in '0'..='9' {
             assert!(
-                (m.char_width(ch) - 5.56).abs() < 0.01,
-                "Digit '{}' should be 5.56pt",
+                (m.char_width(ch) - 5.000).abs() < 0.01,
+                "Digit '{}' should be 5.000pt",
                 ch
             );
         }
@@ -1339,39 +1339,39 @@ mod tests {
     #[test]
     fn test_cm10_string_width_hello() {
         let m = StandardFontMetrics;
-        // hello (Helvetica): h(5.56) + e(5.56) + l(2.22) + l(2.22) + o(5.56) = 21.12
-        let expected = 5.56 + 5.56 + 2.22 + 2.22 + 5.56;
+        // hello (CM Roman): h(5.556) + e(4.444) + l(2.778) + l(2.778) + o(5.000) = 20.556
+        let expected = 5.556 + 4.444 + 2.778 + 2.778 + 5.000;
         assert!((m.string_width("hello") - expected).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_string_width_world() {
         let m = StandardFontMetrics;
-        // world (Helvetica): w(7.22) + o(5.56) + r(3.33) + l(2.22) + d(5.56) = 23.89
-        let expected = 7.22 + 5.56 + 3.33 + 2.22 + 5.56;
+        // world (CM Roman): w(7.222) + o(5.000) + r(3.917) + l(2.778) + d(5.556) = 24.473
+        let expected = 7.222 + 5.000 + 3.917 + 2.778 + 5.556;
         assert!((m.string_width("world") - expected).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_unknown_char_default() {
         let m = StandardFontMetrics;
-        // Unknown characters should default to 6.0pt
-        assert!((m.char_width('€') - 6.0).abs() < 0.01);
-        assert!((m.char_width('→') - 6.0).abs() < 0.01);
+        // Unknown characters should default to 5.000pt in CM Roman
+        assert!((m.char_width('€') - 5.000).abs() < 0.01);
+        assert!((m.char_width('→') - 5.000).abs() < 0.01);
     }
 
     #[test]
     fn test_cm10_w_is_wide() {
         let m = StandardFontMetrics;
-        // Helvetica w = 7.22pt
-        assert!((m.char_width('w') - 7.22).abs() < 0.01);
+        // CM Roman w = 7.222pt
+        assert!((m.char_width('w') - 7.222).abs() < 0.01);
     }
 
     #[test]
     #[allow(non_snake_case)]
     fn test_cm10_uppercase_W_widest() {
         let m = StandardFontMetrics;
-        assert!((m.char_width('W') - 9.44).abs() < 0.01);
+        assert!((m.char_width('W') - 10.278).abs() < 0.01);
         // W should be wider than all other uppercase letters
         for ch in 'A'..='Z' {
             if ch != 'W' {
