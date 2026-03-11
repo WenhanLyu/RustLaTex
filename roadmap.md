@@ -44,6 +44,8 @@ Binary-identical output requires:
 - **M16 scope:** Focus on text alignment in PDF backend (justify/center/raggedright). Justification requires computing inter-word spacing adjustments per line. The KP line breaker already computes break points — the PDF renderer needs to use the adjustment ratios. Add \centering, \raggedright, \raggedleft command support in the engine. Keep hyphenation simple (pattern-based prefix suffix, Aho-Corasick not needed).
 - **Cycle 58-62 (M16):** M16 completed in 1 implementation cycle + 1 verification. Leo delivered Alignment enum (Justify/Center/RaggedRight/RaggedLeft), AlignmentMarker BoxNode variant, OutputLine struct, \centering/\raggedright/\raggedleft/center-environment support, PDF per-line x-offset computation. 19 new tests, 283 total tests pass, CI green.
 - **M17 scope:** Tables (tabular environment). tabular column spec parsing (l/r/c/|), \hline rules, cell content rendering, & column separator, \multicolumn support. Engine must produce table box layout. PDF backend must render table cells with proper alignment and column widths.
+- **Cycle 58-62 (M17):** M17 completed in 1 implementation cycle. Leo delivered tabular environment: column spec parsing (l/r/c ignoring |), row splitting at \\, cell splitting at &, \hline as BoxNode::Rule, PDF backend renders Rule as filled rect. 17 new tests, 300 total tests pass, CI green.
+- **M18 scope:** Figures & Cross-References. \begin{figure} environment with placeholder rendering, \label/\ref/\pageref system (resolve references in two passes), automatic figure/section/table numbering, \caption rendering. Keep implementation practical: collect labels in first pass, substitute refs in second pass.
 
 ## Milestones
 
@@ -224,22 +226,29 @@ Implement proper visual rendering of LaTeX list environments in the engine.
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit ed1ece8, 283 tests total)
 
-### M17: Tables (tabular environment)
+### M17: Tables (tabular environment) ✅ COMPLETE
 - Implement `\begin{tabular}{lrc}` with column spec parsing
 - Cell content rendering with alignment (l/r/c)
 - Column separators (vertical rules `|`)
 - Horizontal rules (`\hline`)
-- 15+ new tests covering column spec parsing, cell rendering, hline, multi-column documents
+- 17 new tests covering column spec parsing, cell rendering, hline, multi-column documents
 - All 283 existing tests continue to pass
-- **Cycles budget:** 6
-- **Status:** Pending
+
+- **Cycles budget:** 6 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by CI (commit f35e77e, 300 tests total)
 
 ### M18: Figures & Cross-References
-- Figure environment (`\begin{figure}`)
-- `\label` / `\ref` / `\pageref` cross-reference system
-- Automatic figure/table numbering
-- Caption rendering (`\caption{...}`)
-- **Cycles budget:** 8
+Implement a practical label/reference system and figure environment:
+- Figure environment: `\begin{figure}...\end{figure}` renders as a boxed region with caption
+- `\caption{text}` inside figure: renders "Figure N: text" where N is auto-incremented
+- `\label{key}` command: registers a label (figure number or section number) in a label table
+- `\ref{key}` command: resolves to the associated number (e.g., "2" for figure 2)
+- `\pageref{key}` command: resolves to the page number (e.g., "1")
+- Section numbering: `\section` auto-increments a counter; `\label` after section captures that counter
+- Two-pass rendering: first pass collects labels, second pass substitutes `\ref` values
+- 15+ new tests: figure rendering, caption numbering, \label/\ref resolution, section ref
+- All 300 existing tests continue to pass
+- **Cycles budget:** 6
 - **Status:** Pending
 
 ---
