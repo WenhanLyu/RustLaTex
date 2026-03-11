@@ -35,16 +35,102 @@ pub enum BoxNode {
     VBox { width: f64, content: Vec<BoxNode> },
 }
 
-/// Character width in points (10pt font, 6pt per char).
-pub fn char_width(s: &str) -> f64 {
-    s.len() as f64 * 6.0
+// ===== Font Metrics Trait and CM Roman 10pt Implementation =====
+
+/// Trait providing font metric information for typesetting.
+pub trait FontMetrics {
+    /// Return the width of a single character in points.
+    fn char_width(&self, ch: char) -> f64;
+
+    /// Return the width of a space in points.
+    fn space_width(&self) -> f64;
+
+    /// Return the total width of a string by summing individual character widths.
+    fn string_width(&self, s: &str) -> f64 {
+        s.chars().map(|ch| self.char_width(ch)).sum()
+    }
 }
 
-/// Translate a parser AST node into a flat list of box/glue items.
+/// Font metrics for Computer Modern Roman 10pt (cmr10), based on TFM data.
+pub struct StandardFontMetrics;
+
+impl FontMetrics for StandardFontMetrics {
+    fn char_width(&self, ch: char) -> f64 {
+        match ch {
+            'a' => 5.00,
+            'b' => 5.56,
+            'c' => 4.44,
+            'd' => 5.56,
+            'e' => 4.44,
+            'f' => 3.33,
+            'g' => 5.00,
+            'h' => 6.94,
+            'i' => 2.78,
+            'j' => 3.06,
+            'k' => 5.56,
+            'l' => 2.78,
+            'm' => 8.33,
+            'n' => 5.56,
+            'o' => 5.00,
+            'p' => 5.56,
+            'q' => 5.28,
+            'r' => 3.92,
+            's' => 3.89,
+            't' => 3.89,
+            'u' => 6.94,
+            'v' => 5.28,
+            'w' => 7.50,
+            'x' => 5.28,
+            'y' => 5.28,
+            'z' => 4.44,
+            'A' => 7.22,
+            'B' => 6.67,
+            'C' => 6.67,
+            'D' => 7.22,
+            'E' => 6.11,
+            'F' => 5.56,
+            'G' => 7.22,
+            'H' => 7.22,
+            'I' => 2.78,
+            'J' => 3.89,
+            'K' => 7.22,
+            'L' => 6.11,
+            'M' => 8.33,
+            'N' => 7.22,
+            'O' => 7.78,
+            'P' => 6.11,
+            'Q' => 7.78,
+            'R' => 6.94,
+            'S' => 5.56,
+            'T' => 6.67,
+            'U' => 7.22,
+            'V' => 7.22,
+            'W' => 9.44,
+            'X' => 6.94,
+            'Y' => 7.22,
+            'Z' => 6.11,
+            '0'..='9' => 5.56,
+            _ => 6.0,
+        }
+    }
+
+    fn space_width(&self) -> f64 {
+        3.33
+    }
+}
+
+/// Character width in points — backward-compatible function.
 ///
-/// This converts the high-level AST into the low-level typesetting IR that
-/// the line-breaking algorithm operates on.
-pub fn translate_node(node: &Node) -> Vec<BoxNode> {
+/// Computes the total width of a string using CM Roman 10pt metrics
+/// by summing the width of each individual character.
+pub fn char_width(s: &str) -> f64 {
+    let metrics = StandardFontMetrics;
+    metrics.string_width(s)
+}
+
+/// Translate a parser AST node into a flat list of box/glue items,
+/// using the provided font metrics.
+pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Vec<BoxNode> {
     match node {
         Node::Text(s) => {
             let mut result = Vec::new();
@@ -52,24 +138,29 @@ pub fn translate_node(node: &Node) -> Vec<BoxNode> {
             for (i, word) in words.iter().enumerate() {
                 if i > 0 {
                     result.push(BoxNode::Glue {
-                        natural: 3.33,
+                        natural: metrics.space_width(),
                         stretch: 1.67,
                         shrink: 1.11,
                     });
                 }
                 result.push(BoxNode::Text {
                     text: word.to_string(),
-                    width: char_width(word),
+                    width: metrics.string_width(word),
                 });
             }
             result
         }
-        Node::Paragraph(nodes) => nodes.iter().flat_map(translate_node).collect(),
+        Node::Paragraph(nodes) => nodes
+            .iter()
+            .flat_map(|n| translate_node_with_metrics(n, metrics))
+            .collect(),
         Node::Command { name, args } => {
             match name.as_str() {
                 "textbf" | "textit" | "emph" => {
                     // For known formatting commands, translate their arguments
-                    args.iter().flat_map(translate_node).collect()
+                    args.iter()
+                        .flat_map(|n| translate_node_with_metrics(n, metrics))
+                        .collect()
                 }
                 _ => {
                     // Unknown commands → skip
@@ -77,19 +168,36 @@ pub fn translate_node(node: &Node) -> Vec<BoxNode> {
                 }
             }
         }
-        Node::Environment { content, .. } => content.iter().flat_map(translate_node).collect(),
+        Node::Environment { content, .. } => content
+            .iter()
+            .flat_map(|n| translate_node_with_metrics(n, metrics))
+            .collect(),
         Node::InlineMath(_) | Node::DisplayMath(_) => {
             vec![BoxNode::Text {
                 text: "(math)".to_string(),
                 width: 20.0,
             }]
         }
-        Node::Group(nodes) => nodes.iter().flat_map(translate_node).collect(),
-        Node::Document(nodes) => nodes.iter().flat_map(translate_node).collect(),
+        Node::Group(nodes) => nodes
+            .iter()
+            .flat_map(|n| translate_node_with_metrics(n, metrics))
+            .collect(),
+        Node::Document(nodes) => nodes
+            .iter()
+            .flat_map(|n| translate_node_with_metrics(n, metrics))
+            .collect(),
         // Other node types (Superscript, Subscript, Fraction, Radical, MathGroup) are only
         // found inside math mode, which we already handle above.
         _ => vec![],
     }
+}
+
+/// Translate a parser AST node into a flat list of box/glue items.
+///
+/// This converts the high-level AST into the low-level typesetting IR that
+/// the line-breaking algorithm operates on. Uses CM Roman 10pt metrics by default.
+pub fn translate_node(node: &Node) -> Vec<BoxNode> {
+    translate_node_with_metrics(node, &StandardFontMetrics)
 }
 
 /// Greedy line-breaking algorithm.
@@ -228,9 +336,10 @@ impl Engine {
     /// Typeset the document and return pages.
     ///
     /// Translates the AST to box/glue items, performs greedy line breaking,
-    /// and packages the result into pages.
+    /// and packages the result into pages. Uses `StandardFontMetrics` (CM Roman 10pt).
     pub fn typeset(&self) -> Vec<Page> {
-        let items = translate_node(&self.document);
+        let metrics = StandardFontMetrics;
+        let items = translate_node_with_metrics(&self.document, &metrics);
         let lines = break_into_lines(&items, 345.0);
         let content = format!("(stub) document node: {:?}", self.document);
         vec![Page {
@@ -246,6 +355,12 @@ mod tests {
     use super::*;
     use rustlatex_parser::Parser;
 
+    // Helper: compute CM10 width for a word
+    fn cm10_width(s: &str) -> f64 {
+        let metrics = StandardFontMetrics;
+        metrics.string_width(s)
+    }
+
     #[test]
     fn test_engine_stub() {
         let mut parser = Parser::new(r"\documentclass{article}");
@@ -260,13 +375,14 @@ mod tests {
 
     #[test]
     fn test_boxnode_text_construction() {
+        let w = cm10_width("hello");
         let node = BoxNode::Text {
             text: "hello".to_string(),
-            width: 30.0,
+            width: w,
         };
         if let BoxNode::Text { text, width } = &node {
             assert_eq!(text, "hello");
-            assert!((width - 30.0).abs() < f64::EPSILON);
+            assert!((width - w).abs() < f64::EPSILON);
         } else {
             panic!("Expected BoxNode::Text");
         }
@@ -365,19 +481,21 @@ mod tests {
         let items = translate_node(&node);
         // Should be: Text("hello"), Glue, Text("world")
         assert_eq!(items.len(), 3);
+        // hello: h+e+l+l+o = 6.94+4.44+2.78+2.78+5.00 = 21.94
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "hello".to_string(),
-                width: 30.0
+                width: cm10_width("hello")
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
+        // world: w+o+r+l+d = 7.50+5.00+3.92+2.78+5.56 = 24.76
         assert_eq!(
             items[2],
             BoxNode::Text {
                 text: "world".to_string(),
-                width: 30.0
+                width: cm10_width("world")
             }
         );
     }
@@ -393,26 +511,29 @@ mod tests {
         // "three" → Text("three")
         // total: 4 items
         assert_eq!(items.len(), 4);
+        // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "one".to_string(),
-                width: 18.0
+                width: cm10_width("one")
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
+        // two: t+w+o = 3.89+7.50+5.00 = 16.39
         assert_eq!(
             items[2],
             BoxNode::Text {
                 text: "two".to_string(),
-                width: 18.0
+                width: cm10_width("two")
             }
         );
+        // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
         assert_eq!(
             items[3],
             BoxNode::Text {
                 text: "three".to_string(),
-                width: 30.0
+                width: cm10_width("three")
             }
         );
     }
@@ -450,11 +571,12 @@ mod tests {
         let node = Node::Group(vec![Node::Text("inside".to_string())]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
+        // inside: i+n+s+i+d+e = 2.78+5.56+3.89+2.78+5.56+4.44 = 25.01
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "inside".to_string(),
-                width: 36.0
+                width: cm10_width("inside")
             }
         );
     }
@@ -468,19 +590,21 @@ mod tests {
         let items = translate_node(&node);
         // "bold text" → Text("bold"), Glue, Text("text")
         assert_eq!(items.len(), 3);
+        // bold: b+o+l+d = 5.56+5.00+2.78+5.56 = 18.90
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "bold".to_string(),
-                width: 24.0
+                width: cm10_width("bold")
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
+        // text: t+e+x+t = 3.89+4.44+5.28+3.89 = 17.50
         assert_eq!(
             items[2],
             BoxNode::Text {
                 text: "text".to_string(),
-                width: 24.0
+                width: cm10_width("text")
             }
         );
     }
@@ -495,19 +619,21 @@ mod tests {
         let items = translate_node(&node);
         // "content here" → Text("content"), Glue, Text("here")
         assert_eq!(items.len(), 3);
+        // content: c+o+n+t+e+n+t = 4.44+5.00+5.56+3.89+4.44+5.56+3.89 = 32.78
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "content".to_string(),
-                width: 42.0
+                width: cm10_width("content")
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
+        // here: h+e+r+e = 6.94+4.44+3.92+4.44 = 19.74
         assert_eq!(
             items[2],
             BoxNode::Text {
                 text: "here".to_string(),
-                width: 24.0
+                width: cm10_width("here")
             }
         );
     }
@@ -530,28 +656,33 @@ mod tests {
         ]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 2);
+        // first: f+i+r+s+t = 3.33+2.78+3.92+3.89+3.89 = 17.81
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "first".to_string(),
-                width: 30.0
+                width: cm10_width("first")
             }
         );
+        // second: s+e+c+o+n+d = 3.89+4.44+4.44+5.00+5.56+5.56 = 28.89
         assert_eq!(
             items[1],
             BoxNode::Text {
                 text: "second".to_string(),
-                width: 36.0
+                width: cm10_width("second")
             }
         );
     }
 
-    // ===== char_width tests =====
+    // ===== char_width tests (backward compat string-based function) =====
 
     #[test]
     fn test_char_width() {
-        assert!((char_width("a") - 6.0).abs() < f64::EPSILON);
-        assert!((char_width("hello") - 30.0).abs() < f64::EPSILON);
+        // 'a' = 5.00 in CM10
+        assert!((char_width("a") - 5.00).abs() < 0.01);
+        // 'hello' = h+e+l+l+o = 6.94+4.44+2.78+2.78+5.00 = 21.94
+        assert!((char_width("hello") - cm10_width("hello")).abs() < f64::EPSILON);
+        // empty string
         assert!((char_width("") - 0.0).abs() < f64::EPSILON);
     }
 
@@ -559,11 +690,11 @@ mod tests {
 
     #[test]
     fn test_break_into_lines_short_text() {
-        // "hello world" fits in one line (30 + 30 = 60 < 345)
+        // "hello world" fits in one line with CM10 widths (21.94 + 24.76 < 345)
         let items = vec![
             BoxNode::Text {
                 text: "hello".to_string(),
-                width: 30.0,
+                width: cm10_width("hello"),
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -572,7 +703,7 @@ mod tests {
             },
             BoxNode::Text {
                 text: "world".to_string(),
-                width: 30.0,
+                width: cm10_width("world"),
             },
         ];
         let lines = break_into_lines(&items, 345.0);
@@ -710,11 +841,12 @@ mod tests {
         };
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
+        // italic: i+t+a+l+i+c = 2.78+3.89+5.00+2.78+2.78+4.44 = 21.67
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "italic".to_string(),
-                width: 36.0
+                width: cm10_width("italic")
             }
         );
     }
@@ -727,11 +859,12 @@ mod tests {
         };
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
+        // emphasized: e+m+p+h+a+s+i+z+e+d = 4.44+8.33+5.56+6.94+5.00+3.89+2.78+4.44+4.44+5.56 = 51.38
         assert_eq!(
             items[0],
             BoxNode::Text {
                 text: "emphasized".to_string(),
-                width: 60.0
+                width: cm10_width("emphasized")
             }
         );
     }
@@ -753,5 +886,170 @@ mod tests {
         // 60 + 50 = 110 > 100 → should break at glue
         let lines = break_into_lines(&items, 100.0);
         assert_eq!(lines.len(), 2);
+    }
+
+    // ===== CM10 Font Metrics Tests =====
+
+    #[test]
+    fn test_cm10_lowercase_a() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('a') - 5.00).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_lowercase_m_is_widest_lowercase() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('m') - 8.33).abs() < 0.01);
+        // m should be wider than any other lowercase letter
+        for ch in 'a'..='z' {
+            if ch != 'm' {
+                assert!(
+                    m.char_width('m') > m.char_width(ch),
+                    "'m' should be wider than '{}'",
+                    ch
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_cm10_i_and_l_are_narrow() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('i') - 2.78).abs() < 0.01);
+        assert!((m.char_width('l') - 2.78).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_different_chars_different_widths() {
+        let m = StandardFontMetrics;
+        // These pairs should have different widths
+        assert!((m.char_width('m') - m.char_width('i')).abs() > 1.0);
+        assert!((m.char_width('w') - m.char_width('l')).abs() > 1.0);
+        assert!((m.char_width('h') - m.char_width('f')).abs() > 1.0);
+        assert!((m.char_width('b') - m.char_width('c')).abs() > 0.5);
+        assert!((m.char_width('d') - m.char_width('e')).abs() > 0.5);
+    }
+
+    #[test]
+    fn test_cm10_uppercase_generally_wider_than_lowercase() {
+        let m = StandardFontMetrics;
+        // Most uppercase letters are wider than their lowercase counterparts
+        assert!(m.char_width('A') > m.char_width('a'));
+        assert!(m.char_width('B') > m.char_width('b'));
+        assert!(m.char_width('D') > m.char_width('d'));
+        assert!(m.char_width('H') > m.char_width('h')); // H=7.22 > h=6.94
+        assert!(m.char_width('W') > m.char_width('w'));
+    }
+
+    #[test]
+    fn test_cm10_space_width() {
+        let m = StandardFontMetrics;
+        assert!((m.space_width() - 3.33).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_digit_widths() {
+        let m = StandardFontMetrics;
+        // All digits should be 5.56pt (monospaced digits in CM)
+        for ch in '0'..='9' {
+            assert!(
+                (m.char_width(ch) - 5.56).abs() < 0.01,
+                "Digit '{}' should be 5.56pt",
+                ch
+            );
+        }
+    }
+
+    #[test]
+    fn test_cm10_string_width_hello() {
+        let m = StandardFontMetrics;
+        // hello: h(6.94) + e(4.44) + l(2.78) + l(2.78) + o(5.00) = 21.94
+        let expected = 6.94 + 4.44 + 2.78 + 2.78 + 5.00;
+        assert!((m.string_width("hello") - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_string_width_world() {
+        let m = StandardFontMetrics;
+        // world: w(7.50) + o(5.00) + r(3.92) + l(2.78) + d(5.56) = 24.76
+        let expected = 7.50 + 5.00 + 3.92 + 2.78 + 5.56;
+        assert!((m.string_width("world") - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_unknown_char_default() {
+        let m = StandardFontMetrics;
+        // Unknown characters should default to 6.0pt
+        assert!((m.char_width('€') - 6.0).abs() < 0.01);
+        assert!((m.char_width('→') - 6.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cm10_w_is_wide() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('w') - 7.50).abs() < 0.01);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_cm10_uppercase_W_widest() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('W') - 9.44).abs() < 0.01);
+        // W should be wider than all other uppercase letters
+        for ch in 'A'..='Z' {
+            if ch != 'W' {
+                assert!(
+                    m.char_width('W') > m.char_width(ch),
+                    "'W' should be wider than '{}'",
+                    ch
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_translate_node_with_metrics_uses_custom_metrics() {
+        // Create a simple custom font metrics for testing
+        struct FixedMetrics;
+        impl FontMetrics for FixedMetrics {
+            fn char_width(&self, _ch: char) -> f64 {
+                10.0
+            }
+            fn space_width(&self) -> f64 {
+                5.0
+            }
+        }
+
+        let node = Node::Text("ab cd".to_string());
+        let items = translate_node_with_metrics(&node, &FixedMetrics);
+        assert_eq!(items.len(), 3);
+        // "ab" = 2 chars × 10.0 = 20.0
+        assert_eq!(
+            items[0],
+            BoxNode::Text {
+                text: "ab".to_string(),
+                width: 20.0
+            }
+        );
+        // Glue should use FixedMetrics space_width = 5.0
+        if let BoxNode::Glue { natural, .. } = &items[1] {
+            assert!((natural - 5.0).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected Glue");
+        }
+        // "cd" = 2 chars × 10.0 = 20.0
+        assert_eq!(
+            items[2],
+            BoxNode::Text {
+                text: "cd".to_string(),
+                width: 20.0
+            }
+        );
+    }
+
+    #[test]
+    fn test_font_metrics_trait_string_width_empty() {
+        let m = StandardFontMetrics;
+        assert!((m.string_width("") - 0.0).abs() < f64::EPSILON);
     }
 }
