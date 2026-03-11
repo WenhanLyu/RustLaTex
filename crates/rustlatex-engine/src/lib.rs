@@ -389,10 +389,86 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 }
             }
         }
-        Node::Environment { content, .. } => content
-            .iter()
-            .flat_map(|n| translate_node_with_metrics(n, metrics))
-            .collect(),
+        Node::Environment { name, content, .. } => {
+            match name.as_str() {
+                "itemize" | "enumerate" => {
+                    let is_enumerate = name == "enumerate";
+                    // Split content at \item boundaries
+                    let mut items: Vec<Vec<&Node>> = Vec::new();
+                    let mut current: Option<Vec<&Node>> = None;
+                    for node in content {
+                        if matches!(node, Node::Command { name: cmd_name, args } if cmd_name == "item" && args.is_empty())
+                        {
+                            // Close previous item and start new one
+                            if let Some(prev) = current.take() {
+                                items.push(prev);
+                            }
+                            current = Some(Vec::new());
+                        } else if let Some(ref mut cur) = current {
+                            cur.push(node);
+                        }
+                        // Content before first \item — skip
+                    }
+                    if let Some(last) = current {
+                        items.push(last);
+                    }
+
+                    let mut result = Vec::new();
+                    // Before list: paragraph glue
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 2.0,
+                        shrink: 0.0,
+                    });
+
+                    for (i, item_nodes) in items.iter().enumerate() {
+                        // Inter-item glue (not before first item)
+                        if i > 0 {
+                            result.push(BoxNode::Glue {
+                                natural: 4.0,
+                                stretch: 0.5,
+                                shrink: 0.5,
+                            });
+                        }
+                        // Indentation kern
+                        result.push(BoxNode::Kern { amount: 20.0 });
+                        // Label prefix
+                        if is_enumerate {
+                            let label = format!("{}. ", i + 1);
+                            result.push(BoxNode::Text {
+                                width: 12.0,
+                                text: label,
+                                font_size: 10.0,
+                            });
+                        } else {
+                            result.push(BoxNode::Text {
+                                text: "• ".to_string(),
+                                width: 7.0,
+                                font_size: 10.0,
+                            });
+                        }
+                        // Item content
+                        for node in item_nodes {
+                            let mut translated = translate_node_with_metrics(node, metrics);
+                            result.append(&mut translated);
+                        }
+                    }
+
+                    // After list: paragraph glue
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 2.0,
+                        shrink: 0.0,
+                    });
+
+                    result
+                }
+                _ => content
+                    .iter()
+                    .flat_map(|n| translate_node_with_metrics(n, metrics))
+                    .collect(),
+            }
+        }
         Node::InlineMath(nodes) => {
             let text: String = nodes.iter().map(math_node_to_text).collect();
             vec![BoxNode::Text {
@@ -2719,6 +2795,295 @@ mod tests {
             );
         } else {
             panic!("Expected BoxNode::Text");
+        }
+    }
+
+    // ===== M14: List rendering tests =====
+
+    fn make_itemize(items: Vec<Vec<Node>>) -> Node {
+        let mut content = Vec::new();
+        for item_nodes in items {
+            content.push(Node::Command {
+                name: "item".to_string(),
+                args: vec![],
+            });
+            content.extend(item_nodes);
+        }
+        Node::Environment {
+            name: "itemize".to_string(),
+            options: None,
+            content,
+        }
+    }
+
+    fn make_enumerate(items: Vec<Vec<Node>>) -> Node {
+        let mut content = Vec::new();
+        for item_nodes in items {
+            content.push(Node::Command {
+                name: "item".to_string(),
+                args: vec![],
+            });
+            content.extend(item_nodes);
+        }
+        Node::Environment {
+            name: "enumerate".to_string(),
+            options: None,
+            content,
+        }
+    }
+
+    #[test]
+    fn test_itemize_produces_bullet_prefix() {
+        let node = make_itemize(vec![vec![Node::Text("apple".to_string())]]);
+        let items = translate_node(&node);
+        let has_bullet = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
+        assert!(has_bullet, "Expected a bullet • prefix in itemize output");
+    }
+
+    #[test]
+    fn test_enumerate_produces_numbered_prefix() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("first".to_string())],
+            vec![Node::Text("second".to_string())],
+            vec![Node::Text("third".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_1 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("1.")));
+        let has_2 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("2.")));
+        let has_3 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("3.")));
+        assert!(has_1, "Expected '1.' in enumerate output");
+        assert!(has_2, "Expected '2.' in enumerate output");
+        assert!(has_3, "Expected '3.' in enumerate output");
+    }
+
+    #[test]
+    fn test_itemize_item_has_indentation() {
+        let node = make_itemize(vec![vec![Node::Text("apple".to_string())]]);
+        let items = translate_node(&node);
+        let has_kern = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+        );
+        assert!(has_kern, "Expected Kern(20.0) indentation in itemize");
+    }
+
+    #[test]
+    fn test_enumerate_item_has_indentation() {
+        let node = make_enumerate(vec![vec![Node::Text("first".to_string())]]);
+        let items = translate_node(&node);
+        let has_kern = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+        );
+        assert!(has_kern, "Expected Kern(20.0) indentation in enumerate");
+    }
+
+    #[test]
+    fn test_itemize_three_items() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let bullet_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')))
+            .count();
+        assert_eq!(bullet_count, 3, "Expected 3 bullet prefixes for 3 items");
+    }
+
+    #[test]
+    fn test_enumerate_three_items() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let numbered_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text.ends_with(". ")))
+            .count();
+        assert_eq!(
+            numbered_count, 3,
+            "Expected 3 numbered prefixes for 3 items"
+        );
+    }
+
+    #[test]
+    fn test_list_surrounded_by_paragraph_glue() {
+        let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        // First element should be Glue{natural:6.0}
+        assert!(
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 6.0).abs() < f64::EPSILON),
+            "Expected Glue(6.0) at start of list"
+        );
+        // Last element should be Glue{natural:6.0}
+        assert!(
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 6.0).abs() < f64::EPSILON),
+            "Expected Glue(6.0) at end of list"
+        );
+    }
+
+    #[test]
+    fn test_itemize_item_text_preserved() {
+        let node = make_itemize(vec![vec![Node::Text("banana".to_string())]]);
+        let items = translate_node(&node);
+        let has_text = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "banana"));
+        assert!(has_text, "Expected item text 'banana' in itemize output");
+    }
+
+    #[test]
+    fn test_enumerate_item_text_preserved() {
+        let node = make_enumerate(vec![vec![Node::Text("orange".to_string())]]);
+        let items = translate_node(&node);
+        let has_text = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "orange"));
+        assert!(has_text, "Expected item text 'orange' in enumerate output");
+    }
+
+    #[test]
+    fn test_itemize_inter_item_glue() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        // Between items there should be a Glue{natural:4.0, stretch:0.5, shrink:0.5}
+        let has_inter_glue = items.iter().any(|n| {
+            matches!(n, BoxNode::Glue { natural, stretch, shrink }
+                if (*natural - 4.0).abs() < f64::EPSILON
+                && (*stretch - 0.5).abs() < f64::EPSILON
+                && (*shrink - 0.5).abs() < f64::EPSILON)
+        });
+        assert!(
+            has_inter_glue,
+            "Expected inter-item Glue(4.0, 0.5, 0.5) in itemize"
+        );
+    }
+
+    #[test]
+    fn test_enumerate_inter_item_glue() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_inter_glue = items.iter().any(|n| {
+            matches!(n, BoxNode::Glue { natural, stretch, shrink }
+                if (*natural - 4.0).abs() < f64::EPSILON
+                && (*stretch - 0.5).abs() < f64::EPSILON
+                && (*shrink - 0.5).abs() < f64::EPSILON)
+        });
+        assert!(
+            has_inter_glue,
+            "Expected inter-item Glue(4.0, 0.5, 0.5) in enumerate"
+        );
+    }
+
+    #[test]
+    fn test_enumerate_second_item_prefix_is_2() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("first".to_string())],
+            vec![Node::Text("second".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_2 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "2. "));
+        assert!(has_2, "Expected '2. ' label for second enumerate item");
+    }
+
+    #[test]
+    fn test_enumerate_third_item_prefix_is_3() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_3 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "3. "));
+        assert!(has_3, "Expected '3. ' label for third enumerate item");
+    }
+
+    #[test]
+    fn test_itemize_no_numbering() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_numbered = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "1. " || text == "2. "));
+        assert!(
+            !has_numbered,
+            "itemize should NOT produce numbered prefixes like '1. '"
+        );
+    }
+
+    #[test]
+    fn test_enumerate_no_bullet() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let has_bullet = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
+        assert!(
+            !has_bullet,
+            "enumerate should NOT produce bullet • prefixes"
+        );
+    }
+
+    #[test]
+    fn test_enumerate_label_width_is_12() {
+        let node = make_enumerate(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        let label_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1. "));
+        if let Some(BoxNode::Text { width, .. }) = label_node {
+            assert!(
+                (*width - 12.0).abs() < f64::EPSILON,
+                "Expected enumerate label width 12.0, got {}",
+                width
+            );
+        } else {
+            panic!("Expected a Text node with '1. '");
+        }
+    }
+
+    #[test]
+    fn test_itemize_bullet_width_is_7() {
+        let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        let bullet_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
+        if let Some(BoxNode::Text { width, .. }) = bullet_node {
+            assert!(
+                (*width - 7.0).abs() < f64::EPSILON,
+                "Expected itemize bullet width 7.0, got {}",
+                width
+            );
+        } else {
+            panic!("Expected a Text node with bullet •");
         }
     }
 }
