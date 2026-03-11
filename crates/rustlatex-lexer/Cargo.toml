@@ -1,0 +1,7 @@
+[package]
+name = "rustlatex-lexer"
+version = "0.1.0"
+edition = "2021"
+description = "LaTeX tokenizer for RustLaTex"
+
+[dependencies]

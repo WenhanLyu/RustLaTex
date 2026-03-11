@@ -1,0 +1,8 @@
+[package]
+name = "rustlatex-engine"
+version = "0.1.0"
+edition = "2021"
+description = "LaTeX typesetting engine for RustLaTex"
+
+[dependencies]
+rustlatex-parser = { path = "../rustlatex-parser" }
