@@ -400,10 +400,7 @@ fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str) -> BoxNode {
         // Abbreviation if:
         // - The "word" before the period is a single uppercase letter (e.g., "A.")
         // - Or ends with an uppercase letter followed by "." (e.g., "U.S.")
-        before_dot
-            .chars()
-            .last()
-            .is_some_and(|c| c.is_uppercase())
+        before_dot.chars().last().is_some_and(|c| c.is_uppercase())
     } else {
         false
     };
@@ -445,9 +442,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
         }
         Node::Paragraph(nodes) => {
             // Check if paragraph starts with \noindent
-            let starts_with_noindent = nodes.first().is_some_and(
-                |n| matches!(n, Node::Command { name, .. } if name == "noindent"),
-            );
+            let starts_with_noindent = nodes
+                .first()
+                .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
             let mut result: Vec<BoxNode> = Vec::new();
 
@@ -542,7 +539,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     };
                     vec![BoxNode::Glue {
                         natural: dim,
-                        stretch: dim * 0.5,
+                        stretch: 0.0,
                         shrink: 0.0,
                     }]
                 }
@@ -941,9 +938,9 @@ pub fn translate_node_with_context(
         }
         Node::Paragraph(nodes) => {
             // Check if paragraph starts with \noindent
-            let starts_with_noindent = nodes.first().is_some_and(
-                |n| matches!(n, Node::Command { name, .. } if name == "noindent"),
-            );
+            let starts_with_noindent = nodes
+                .first()
+                .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
             let mut result: Vec<BoxNode> = Vec::new();
 
@@ -1100,7 +1097,7 @@ pub fn translate_node_with_context(
                     };
                     vec![BoxNode::Glue {
                         natural: dim,
-                        stretch: dim * 0.5,
+                        stretch: 0.0,
                         shrink: 0.0,
                     }]
                 }
@@ -5719,7 +5716,10 @@ mod tests {
                 "\\vspace{{10pt}} should produce Glue with natural=10.0, got {}",
                 natural
             );
-            assert!(*stretch > 0.0, "\\vspace glue should have positive stretch");
+            assert!(
+                (*stretch).abs() < f64::EPSILON,
+                "\\vspace glue stretch should be 0.0"
+            );
             assert!(
                 (*shrink).abs() < f64::EPSILON,
                 "\\vspace glue shrink should be 0"
@@ -5873,10 +5873,23 @@ mod tests {
         };
         let mut ctx = TranslationContext::new_collecting();
         let items = translate_node_with_context(&node, &metrics, &mut ctx);
-        if let BoxNode::Glue { natural, .. } = &items[0] {
+        if let BoxNode::Glue {
+            natural,
+            stretch,
+            shrink,
+        } = &items[0]
+        {
             assert!(
                 (*natural - 20.0).abs() < f64::EPSILON,
                 "\\vspace{{20pt}} in context should produce Glue(20.0)"
+            );
+            assert!(
+                (*stretch).abs() < f64::EPSILON,
+                "\\vspace glue stretch should be 0.0"
+            );
+            assert!(
+                (*shrink).abs() < f64::EPSILON,
+                "\\vspace glue shrink should be 0.0"
             );
         } else {
             panic!("Expected Glue from \\vspace in context");
