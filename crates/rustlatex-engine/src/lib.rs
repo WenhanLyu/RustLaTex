@@ -1426,8 +1426,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     .flat_map(|n| translate_node_with_metrics(n, metrics)),
             );
             result.push(BoxNode::Glue {
-                natural: 6.0,
-                stretch: 2.0,
+                natural: 0.0,
+                stretch: 1.0,
                 shrink: 0.0,
             });
             result
@@ -2318,8 +2318,8 @@ pub fn translate_node_with_context(
                     .flat_map(|n| translate_node_with_context(n, metrics, ctx)),
             );
             result.push(BoxNode::Glue {
-                natural: 6.0,
-                stretch: 2.0,
+                natural: 0.0,
+                stretch: 1.0,
                 shrink: 0.0,
             });
             result
@@ -6416,8 +6416,11 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         let has_glue = nodes
             .iter()
-            .any(|n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 6.0).abs() < 0.001));
-        assert!(has_glue, "Expected paragraph spacing glue");
+            .any(|n| matches!(n, BoxNode::Glue { natural, .. } if (*natural).abs() < 0.001));
+        assert!(
+            has_glue,
+            "Expected paragraph spacing glue with natural ≈ 0.0"
+        );
     }
 
     #[test]
@@ -14835,5 +14838,115 @@ mod tests {
             "First page should have 41 lines (41*16.8=688.8 < 700, 42*16.8=705.6 > 700)"
         );
         assert_eq!(pages[1].len(), 9, "Second page should have 9 lines");
+    }
+
+    // ---- Group A: Paragraph-end Glue tests (M49) ----
+
+    #[test]
+    fn test_paragraph_end_glue_natural_zero() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let last = nodes.last().unwrap();
+        assert!(
+            matches!(last, BoxNode::Glue { natural, .. } if natural.abs() < f64::EPSILON),
+            "Paragraph-end glue natural should be 0.0, got {:?}",
+            last
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_stretch_one() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let last = nodes.last().unwrap();
+        assert!(
+            matches!(last, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
+            "Paragraph-end glue stretch should be 1.0, got {:?}",
+            last
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_shrink_zero() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let last = nodes.last().unwrap();
+        assert!(
+            matches!(last, BoxNode::Glue { shrink, .. } if shrink.abs() < f64::EPSILON),
+            "Paragraph-end glue shrink should be 0.0"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_full_match() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Test paragraph content".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
+                if natural.abs() < f64::EPSILON
+                && (*stretch - 1.0).abs() < f64::EPSILON
+                && shrink.abs() < f64::EPSILON),
+            "Expected Glue{{natural:0.0, stretch:1.0, shrink:0.0}} at paragraph end"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_context_natural_zero() {
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        let last = nodes.last().unwrap();
+        assert!(
+            matches!(last, BoxNode::Glue { natural, .. } if natural.abs() < f64::EPSILON),
+            "Context paragraph-end glue natural should be 0.0"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_context_stretch_one() {
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        let last = nodes.last().unwrap();
+        assert!(
+            matches!(last, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
+            "Context paragraph-end glue stretch should be 1.0"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_context_full_match() {
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text(
+            "Multi word paragraph content here".to_string(),
+        )]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
+                if natural.abs() < f64::EPSILON
+                && (*stretch - 1.0).abs() < f64::EPSILON
+                && shrink.abs() < f64::EPSILON),
+            "Context: Expected Glue{{natural:0.0, stretch:1.0, shrink:0.0}} at paragraph end"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_end_glue_not_six() {
+        // Regression: ensure old value of 6.0 is NOT used
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Regression test".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let last = nodes.last().unwrap();
+        assert!(
+            !matches!(last, BoxNode::Glue { natural, .. } if (*natural - 6.0).abs() < 0.001),
+            "Paragraph-end glue should NOT be 6.0"
+        );
     }
 }

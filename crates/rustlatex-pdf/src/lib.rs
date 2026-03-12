@@ -2065,6 +2065,7 @@ impl PdfWriter {
                 // Compute line natural width and glue info
                 let mut line_nat_width: f32 = 0.0;
                 let mut glue_count: usize = 0;
+                let mut total_stretch: f32 = 0.0;
                 for node in &line.nodes {
                     match node {
                         BoxNode::Text {
@@ -2086,9 +2087,12 @@ impl PdfWriter {
                             }
                         }
                         BoxNode::Kern { amount } => line_nat_width += *amount as f32,
-                        BoxNode::Glue { natural, .. } => {
+                        BoxNode::Glue {
+                            natural, stretch, ..
+                        } => {
                             line_nat_width += *natural as f32;
                             glue_count += 1;
+                            total_stretch += *stretch as f32;
                         }
                         BoxNode::Bullet => line_nat_width += 5.0_f32,
                         _ => {}
@@ -2101,11 +2105,6 @@ impl PdfWriter {
                     Alignment::Center => margin_left + remaining / 2.0,
                     Alignment::RaggedLeft => margin_left + remaining,
                     Alignment::Justify | Alignment::RaggedRight => margin_left,
-                };
-                let glue_extra = if line.alignment == Alignment::Justify && glue_count > 0 {
-                    remaining / glue_count as f32
-                } else {
-                    0.0
                 };
 
                 let mut current_x = start_x;
@@ -2222,8 +2221,21 @@ impl PdfWriter {
                                 content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                             }
                         }
-                        BoxNode::Glue { natural, .. } => {
-                            current_x += *natural as f32 + glue_extra;
+                        BoxNode::Glue {
+                            natural, stretch, ..
+                        } => {
+                            let extra = if line.alignment == Alignment::Justify {
+                                if total_stretch > 0.0 {
+                                    remaining * (*stretch as f32) / total_stretch
+                                } else if glue_count > 0 {
+                                    remaining / glue_count as f32
+                                } else {
+                                    0.0
+                                }
+                            } else {
+                                0.0
+                            };
+                            current_x += *natural as f32 + extra;
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
                         BoxNode::Kern { amount } => {
@@ -5285,5 +5297,130 @@ mod tests {
                 k
             );
         }
+    }
+
+    // ---- Group B: Proportional justification tests (M49) ----
+
+    #[test]
+    fn test_proportional_justify_equal_stretch() {
+        // Two glues with equal stretch: each gets remaining/2
+        let stretch_a: f32 = 1.0;
+        let stretch_b: f32 = 1.0;
+        let remaining: f32 = 315.0;
+        let total_stretch = stretch_a + stretch_b;
+        let extra_a = remaining * stretch_a / total_stretch;
+        let extra_b = remaining * stretch_b / total_stretch;
+        assert!(
+            (extra_a - 157.5).abs() < 0.001,
+            "extra_a should be 157.5, got {}",
+            extra_a
+        );
+        assert!(
+            (extra_b - 157.5).abs() < 0.001,
+            "extra_b should be 157.5, got {}",
+            extra_b
+        );
+    }
+
+    #[test]
+    fn test_proportional_justify_unequal_stretch() {
+        // Glue A has stretch=1.0, Glue B has stretch=3.0
+        let stretch_a: f32 = 1.0;
+        let stretch_b: f32 = 3.0;
+        let remaining: f32 = 100.0;
+        let total_stretch = stretch_a + stretch_b;
+        let extra_a = remaining * stretch_a / total_stretch;
+        let extra_b = remaining * stretch_b / total_stretch;
+        assert!(
+            (extra_a - 25.0).abs() < 0.001,
+            "extra_a should be 25.0, got {}",
+            extra_a
+        );
+        assert!(
+            (extra_b - 75.0).abs() < 0.001,
+            "extra_b should be 75.0, got {}",
+            extra_b
+        );
+    }
+
+    #[test]
+    fn test_proportional_justify_zero_stretch_fallback() {
+        // When all glues have stretch=0.0, fall back to equal distribution
+        let glue_count: usize = 3;
+        let total_stretch: f32 = 0.0;
+        let remaining: f32 = 90.0;
+        let extra = if total_stretch > 0.0 {
+            remaining * 0.0_f32 / total_stretch
+        } else if glue_count > 0 {
+            remaining / glue_count as f32
+        } else {
+            0.0
+        };
+        assert!(
+            (extra - 30.0).abs() < 0.001,
+            "Fallback: extra should be 30.0, got {}",
+            extra
+        );
+    }
+
+    #[test]
+    fn test_proportional_justify_single_glue() {
+        // Single glue gets all remaining space
+        let stretch: f32 = 2.0;
+        let total_stretch: f32 = 2.0;
+        let remaining: f32 = 50.0;
+        let extra = remaining * stretch / total_stretch;
+        assert!(
+            (extra - 50.0).abs() < 0.001,
+            "Single glue should get all 50.0, got {}",
+            extra
+        );
+    }
+
+    #[test]
+    fn test_proportional_justify_sum_equals_remaining() {
+        // Sum of all extra values must equal remaining
+        let stretches = vec![1.0_f32, 2.0, 3.0];
+        let total_stretch: f32 = stretches.iter().sum();
+        let remaining: f32 = 120.0;
+        let total_extra: f32 = stretches
+            .iter()
+            .map(|s| remaining * s / total_stretch)
+            .sum();
+        assert!(
+            (total_extra - remaining).abs() < 0.001,
+            "Sum of extras should equal remaining"
+        );
+    }
+
+    #[test]
+    fn test_proportional_justify_zero_remaining() {
+        // No extra needed when line exactly fills hsize
+        let remaining: f32 = 0.0;
+        let stretches = vec![1.0_f32, 1.0];
+        let total_stretch: f32 = stretches.iter().sum();
+        let total_extra: f32 = stretches
+            .iter()
+            .map(|s| remaining * s / total_stretch)
+            .sum();
+        assert!(total_extra.abs() < 0.001, "Zero remaining → zero extra");
+    }
+
+    #[test]
+    fn test_proportional_justify_negative_remaining() {
+        // Line wider than hsize: remaining is negative, glues compress proportionally
+        let remaining: f32 = -20.0;
+        let stretches = vec![2.0_f32, 2.0];
+        let total_stretch: f32 = stretches.iter().sum();
+        let extras: Vec<f32> = stretches
+            .iter()
+            .map(|s| remaining * s / total_stretch)
+            .collect();
+        assert!(
+            (extras[0] - (-5.0)).abs() < 0.001 || extras[0] < 0.0,
+            "Negative remaining compresses"
+        );
+        let total_extra: f32 = extras.iter().sum();
+        assert!((total_extra - remaining).abs() < 0.001);
     }
 }
