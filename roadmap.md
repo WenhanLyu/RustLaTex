@@ -95,6 +95,8 @@ Binary-identical output requires:
 - **M41 scope:** cmbx10 kern pairs (F2/Bold), exact word spacing precision (1.66667/1.11111), expand compare.tex for better visual coverage, target 770+ tests. Bold text in section headings benefits from cmbx10 kern pairs.
 - **Cycle (M41):** M41 completed in 1 implementation cycle. Leo delivered cmbx10_kern_pair() with 181 pairs from cmbx10.afm, font_kern_pair()/font_has_kern_pairs() dispatch for F1/F2, word spacing precision (1.66667/1.11111), expanded compare.tex (bold text, kern pair test words, math). 15 new tests, 772 total tests pass, CI green. Pixel similarity = 95.88% (slightly lower due to compare.tex expansion showing more differences).
 - **M42 scope:** Superscript/subscript geometry correction (size=7.07pt instead of 7.0pt, rise=3.45pt instead of 4.0pt, subscript offset=-2.5pt instead of -2.0pt). Add cmti10 kern pairs (F4/Italic) from CI texlive AFM at `/usr/share/texmf/fonts/afm/public/cm/cmti10.afm`. Target 785+ tests.
+- **Cycle (M42):** M42 completed in 1 implementation cycle. Leo delivered superscript precision (7.07pt, 3.45pt rise, -2.5pt subscript offset), cmti10 kern pairs (178 pairs from AFM, F4 wired into dispatch). 17 new tests, 789 total tests pass, CI green.
+- **M43 scope:** Fix justified text line width computation (include kern pair contributions in line_nat_width) + add cmbxti10 kern pairs (F5/BoldItalic). Estimated pixel similarity gain ~0.3-0.5%. Target 800+ tests.
 
 ## Milestones
 
@@ -747,13 +749,24 @@ Improve rendering accuracy with bold text kern pairs and precise word spacing.
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit f419b55), 772 tests pass, CI green. Pixel similarity = 95.88%.
 
-### M42: Superscript/Subscript Precision + cmti10 Kern Pairs
+### M42: Superscript/Subscript Precision + cmti10 Kern Pairs ✅ COMPLETE
 Improve math rendering quality and italic text kerning.
 
 **Goals:**
 1. **Superscript geometry correction** — Fix superscript size from 7.0pt to 7.07pt (70.7% of 10pt, matching TeX `\scriptspace` fontdimen). Fix rise from +4.0pt to +3.45pt (matching cmr10 sup_shift). Fix subscript offset from -2.0pt to -2.5pt.
 2. **cmti10 kern pairs (F4/Italic)** — cmti10.afm available in CI texlive at `/usr/share/texmf/fonts/afm/public/cm/cmti10.afm`. Add `cmti10_kern_pair(a: u8, b: u8) -> f32` function with pairs from that file. Update `is_cmr10_kern_font()` to return true for F1, F2, F4. Italic text uses F4 (cmti10).
 3. **12+ new tests** covering corrected superscript geometry, cmti10 kern pairs.
+
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit 4e34d18), 789 tests pass, CI green.
+
+### M43: Justified Text Width Fix + cmbxti10 Kern Pairs
+Improve text rendering accuracy and typographic quality.
+
+**Goals:**
+1. **Fix justified text line width computation** — The `line_nat_width` calculation in `crates/rustlatex-pdf/src/lib.rs` currently doesn't account for kern pair adjustments. When kern pairs are applied via TJ operator, the actual glyph advance is kern_pair_total + text_width. Fix: compute the total kern pair contribution for each Text node and add it to `line_nat_width` so `glue_extra` is correctly calculated. This fixes over-correction in justified text with many kern-pair characters.
+2. **cmbxti10 kern pairs (F5/BoldItalic)** — Add `cmbxti10_kern_pair(a: u8, b: u8) -> f32` function. The cmbxti10.afm file is available in CI texlive at `/usr/share/texmf/fonts/afm/public/cm/cmbxti10.afm`. Update `is_cmr10_kern_font()` to include `b"F5"`. Update `font_kern_pair()` and `font_has_kern_pairs()` to dispatch F5 to the new function.
+3. **12+ new tests** covering justified width correction and cmbxti10 kern pairs.
 
 - **Cycles budget:** 2 | **Cycles actual:** pending
 - **Status:** 🔄 Planned
