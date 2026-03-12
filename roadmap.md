@@ -79,6 +79,8 @@ Binary-identical output requires:
 - **M33 research (Diana):** OT1 encoding is the primary correctness bug — CM fonts use OT1 not StandardEncoding. `< > { } | \ "` all render blank/wrong. Bullet "•" is another visible bug. Superscript rendering (proper size+rise) is the biggest visual similarity gap. CI pixel comparison uses raw bytes (not decoded pixels) — fundamentally flawed measurement. Estimated visual similarity ~55-70% after M32.
 - **Cycle (M33):** M33 completed in 1 implementation cycle. Leo delivered OT1 /Differences encoding array for all 5 CM fonts (cmr10/cmbx10/cmti10/cmbxti10/cmtt10), NON_SYMBOLIC→SYMBOLIC font descriptor flag change, bullet "•" replaced with "-", CI nocapture step added. 15 new tests, 609 total tests pass, CI green.
 - **M33 scope:** OT1 encoding fix + bullet fix + CI visibility. Superscript rendering deferred to M34.
+- **Cycle (M34):** M34 completed in 1 implementation cycle. Leo delivered vertical_offset field on BoxNode::Text, math_node_to_boxes() with proper superscript (font_size=7.0, vertical_offset=+4.0) and subscript (font_size=7.0, vertical_offset=-2.0) rendering, PDF Ts operator via set_rise(). 17 new tests, 626 total tests pass, CI green.
+- **M35 scope:** Math variables use Italic font style (matches cmmi10 in pdflatex). Fix pixel similarity comparison to use PPM raw pixel data (not PNG bytes) for accurate visual measurement. Expand compare.tex. Target 641+ tests.
 
 ## Milestones
 
@@ -638,20 +640,24 @@ Fix the top rendering gaps identified by Diana's M32 research:
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented, 609 tests pass, CI green
 
-### M34: Proper Superscript/Subscript Rendering in PDF
+### M34: Proper Superscript/Subscript Rendering in PDF ✅ COMPLETE
 Implement proper superscript and subscript rendering using the PDF Ts (text rise) operator.
 
-**Current problem:** `$x^2$` renders as literal text "x^2" with ^ as circumflex glyph.
-**Goal:** Render "x" at normal size and "2" raised/smaller as a true PDF superscript.
+- **Deliverables:** vertical_offset field on BoxNode::Text, math_node_to_boxes() function, PDF Ts/set_rise() operator, 17 new tests
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented, 626 tests pass, CI green (commit 436889b)
 
-**Changes:**
-1. Add `vertical_offset: f64` field to `BoxNode::Text` (default 0.0)
-2. New `math_node_to_boxes()` function: translates Superscript/Subscript AST nodes to BoxNode sequences with proper font_size=7.0 and vertical_offset=±4.0/-2.0
-3. PDF backend: emit `Ts` (set_text_rise) operator before rendering Text nodes with non-zero vertical_offset
-4. 15+ new tests, all 609 existing tests pass
+### M35: Math Italic Style + Real Pixel Similarity Comparison
+Improve math rendering quality and fix visual similarity measurement infrastructure.
 
+**Goals:**
+1. **Math variables use Italic** — In math_node_to_boxes_inner(), use FontStyle::Italic for single-letter math tokens (a-z, A-Z). This matches pdflatex/cmmi10 behavior where math variables appear in math italic.
+2. **Fix pixel similarity** — Change GS rendering from PNG to PPM (uncompressed), compute actual per-pixel similarity score. Add compare_ppm_files() helper.
+3. **Expand compare.tex** — Add subsection and display math to get better pixel comparison coverage.
+
+- **Tests:** 15+ new, 641+ total
 - **Cycles budget:** 2
-- **Status:** 🔄 In progress (issue #33)
+- **Status:** 🔄 In progress (issue #35)
 
 
 
