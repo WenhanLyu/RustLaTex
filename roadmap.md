@@ -88,6 +88,7 @@ Binary-identical output requires:
 - **Cycle (M37):** M37 completed in 1 implementation cycle. Ares/Leo delivered FontStyle::MathItalic variant, cmmi10 AFM width metrics for line-breaking, display math horizontal centering. 18+ new tests, 690 total tests pass. Note: MathItalic still maps to cmti10 in PDF (cmmi10.pfb not yet embedded — not available locally).
 - **M38 scope:** Embed cmmi10.pfb (CM Math Italic) and cmsy10.pfb (CM Math Symbols) in PDF output. Map FontStyle::MathItalic to F7 (cmmi10 instead of cmti10). Render BoxNode::Bullet using cmsy10 glyph 15 instead of Bezier circle. Shift page Ref IDs from 18+ to 24+ to accommodate 6 new fixed refs. Diana's research confirmed fonts available at /tmp/amsfonts_extract/ (SIL OFL license) — copy to crates/rustlatex-pdf/fonts/ and commit.
 - **Diana's M38 research (issue #40, closed):** Confirmed cmmi10/cmsy10 downloadable from CTAN amsfonts (SIL OFL 1.1). cmmi10 Latin letters at same ASCII positions as OT1. cmsy10 bullet at position 15 (5pt advance, 3.87pt diameter). Expected +0.5-0.9% pixel similarity improvement. Low implementation risk.
+- **Cycle (M38):** M38 completed in 1 implementation cycle (Ares). Embedded cmmi10.pfb (F7/MathItalic) + cmsy10.pfb (F8/bullet). Shifted page Refs from 18 to 24. Bullet now uses cmsy10 glyph 15 (5pt advance). 706 total tests pass, CI green (commit 315adba).
 
 ## Milestones
 
@@ -692,19 +693,18 @@ Improve math rendering quality with accurate width metrics and visual centering.
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 13b2626), 690 tests pass, CI green
 
-### M38: Embed cmmi10.pfb + cmsy10.pfb Math Fonts
+### M38: Embed cmmi10.pfb + cmsy10.pfb Math Fonts ✅ COMPLETE
 Improve math font visual fidelity by embedding actual Computer Modern Math fonts.
 
 **Goals:**
-1. **Embed cmmi10.pfb (Math Italic font)** — Copy from /tmp/amsfonts_extract/ to crates/rustlatex-pdf/fonts/. Register as F7 in PDF with OML encoding /Differences array. FontStyle::MathItalic maps to F7 (instead of cmti10/F4). Fixes engine/PDF width mismatch.
-2. **Embed cmsy10.pfb (Math Symbol font)** — Register as F8. Use cmsy10 glyph 15 (bullet, 5pt advance, 3.87pt diameter) for BoxNode::Bullet instead of Bezier circle.
-3. **Shift page Ref IDs** — Pages move from 18+i*2 to 24+i*2. New refs 18-23 for cmmi10/cmsy10 file/descriptor/dict.
-4. **OT1 ligature guard** — F7/F8 must NOT be in OT1 ligature list (already correct: only F1/F3/F4/F5).
+1. **Embed cmmi10.pfb (Math Italic font)** — Registered as F7 in PDF with OML encoding. FontStyle::MathItalic maps to F7. Fixes engine/PDF width mismatch.
+2. **Embed cmsy10.pfb (Math Symbol font)** — Registered as F8. BoxNode::Bullet uses cmsy10 glyph 15 (5pt advance) instead of Bezier circle.
+3. **Shift page Ref IDs** — Pages moved from 18+i*2 to 24+i*2. Refs 18-23 for cmmi10/cmsy10.
+4. **OT1 ligature guard** — F7/F8 excluded from OT1 ligature substitution (correct).
 
-- **Font source:** /tmp/amsfonts_extract/fonts/type1/public/amsfonts/cm/ (CTAN amsfonts, SIL OFL 1.1)
-- **Tests:** 15+ new, 705+ total
-- **Cycles budget:** 2
-- **Status:** 🔄 In Progress (issue #41 assigned to Leo)
+- **Tests:** 706 total pass, CI green
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Ares implemented (commit 315adba)
 
 
 
