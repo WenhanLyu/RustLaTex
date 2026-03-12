@@ -65,6 +65,8 @@ Binary-identical output requires:
 - **M26 scope:** TeX hyphenation (pattern-based English hyphenation to improve line breaking quality) + LaTeX counter system (\setcounter, \addtocounter, \value, \arabic, \roman, \alph). These significantly improve document quality and enable richer document customization.
 - **Cycle 109-111 (M26):** M26 completed in 1 implementation cycle. Leo delivered Hyphenator with Liang's algorithm, ~50 English patterns, \hyphenation exception command, \- soft hyphen, full counter system (\setcounter/\addtocounter/\newcounter/\stepcounter/\arabic/\roman/\Roman/\alph/\Alph/\fnsymbol). 33 new tests, 492 total tests pass, CI green.
 - **M27 scope:** Font style support (bold, italic, bold-italic, typewriter) in PDF output. Currently \textbf/\textit/\emph/\texttt all render identically — they don't change font face in the PDF. For the project goal of "binary identical" output, font styles must produce visually correct PDF output using appropriate font resources.
+- **Cycle 113-120 (M27):** M27 completed in 1 implementation cycle + 1 fix round + 1 verification. Leo delivered FontStyle enum (Normal/Bold/Italic/BoldItalic/Typewriter), font_style field on BoxNode::Text, TranslationContext font style tracking + group scoping, \bfseries/\itshape/\ttfamily/\normalfont declarations, 5 Base-14 PDF fonts (Helvetica variants + Courier). Ares added 2 missing tests. 24 new tests, 516 total tests pass, CI green.
+- **M28 scope:** Per-font-style character width metrics. Currently all font styles (Bold, Italic, BoldItalic, Typewriter) use CM Roman width metrics for line-breaking and PDF positioning, even though the PDF backend selects different fonts. This causes incorrect text layout. M28 adds separate width tables for Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, and Courier, and uses them consistently in both the engine (line-breaking) and PDF backend (character positioning).
 
 ## Milestones
 
@@ -500,42 +502,43 @@ Improve line-breaking quality and document customization:
 - **Cycles budget:** 5 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented, 492 tests pass, CI green (commit ce0908f)
 
-### M27: Font Style Support (Bold/Italic/Typewriter in PDF Output)
+### M27: Font Style Support (Bold/Italic/Typewriter in PDF Output) ✅ COMPLETE
 Implement proper font face differentiation in PDF output so that `\textbf`, `\textit`, `\emph`, and `\texttt` produce visually distinct output using appropriate PDF font resources.
 
-**Background:** Currently all text renders using a single font face in the PDF. The `BoxNode::Text` has no font style field, and the PDF backend uses only one font resource regardless of formatting commands. This is a significant gap — virtually every LaTeX document uses bold and italic text.
+- **Deliverables:** FontStyle enum (Normal/Bold/Italic/BoldItalic/Typewriter), font_style on BoxNode::Text, TranslationContext font tracking + group scoping, \bfseries/\itshape/\ttfamily/\normalfont, 5 Base-14 PDF fonts, 24 new tests
+- **Cycles budget:** 5 | **Cycles actual:** 2 (1 impl + 1 fix round)
+- **Status:** ✅ Complete — verified by Apollo (commit c34c8a9, 516 tests total)
+
+### M28: Per-Font-Style Character Width Metrics
+Fix the character width metrics so each font style uses accurate widths for line-breaking and PDF text positioning.
+
+**Background:** M27 added visual font differentiation in PDF (correct font face selected). However, all font styles still use the same CM Roman/Helvetica width table for measuring character widths. This means bold text (wider than normal in Helvetica-Bold) and typewriter text (monospace in Courier) still break lines as if they were normal weight Helvetica. This causes line-breaking to be incorrect for styled text.
 
 **Engine changes (rustlatex-engine):**
-- Add `FontStyle` enum: `Normal`, `Bold`, `Italic`, `BoldItalic`, `Typewriter`
-- Add `font_style: FontStyle` field to `BoxNode::Text` (default: `Normal`)
-- Track current font style in `TranslationContext` (field: `current_font_style: FontStyle`)
-- `\textbf{text}` → render content with `FontStyle::Bold`
-- `\textit{text}` / `\emph{text}` → render content with `FontStyle::Italic`
-- `\textbf{\textit{text}}` / `\bfseries\itshape` → `FontStyle::BoldItalic` (nested styles)
-- `\texttt{text}` → render content with `FontStyle::Typewriter`
-- `\textrm{text}` → render content with `FontStyle::Normal`
-- Handle font-switching declarations: `\bfseries`, `\itshape`, `\ttfamily`, `\normalfont` (set style in context until end of group)
-- Braces `{...}` create font style scope (style restored when group ends)
+- Add width tables for each font style to `FontMetrics` trait and `StandardFontMetrics`
+- Add method `char_width_for_style(c: char, style: FontStyle, size: f64) -> f64` to FontMetrics
+- Helvetica Normal widths: current widths (already approximated from Helvetica AFM)
+- Helvetica-Bold widths: slightly wider than Normal (apply 1.05× scale as approximation, or use actual AFM widths if available)
+- Helvetica-Oblique widths: same as Normal (oblique has same metrics as upright)
+- Helvetica-BoldOblique widths: same as Bold
+- Courier widths: monospace — every character is exactly 600 units wide (at 1000 units/em scale)
+- Engine translator: when computing `BoxNode::Text.width`, use `char_width_for_style(c, font_style, font_size)`
 
-**PDF changes (rustlatex-pdf):**
-- Register multiple font resources: Helvetica (Normal), Helvetica-Bold (Bold), Helvetica-Oblique (Italic), Helvetica-BoldOblique (BoldItalic), Courier (Typewriter)
-- When rendering a `BoxNode::Text`, use the appropriate font resource based on `font_style`
-- Font widths: each font has different character widths — use appropriate width table for each style
-- The engine must use consistent width calculations (width of bold/italic text differs from normal)
+**PDF backend changes (rustlatex-pdf):**
+- When computing text width for `Tf` (font) and `Tj` (show text) operators, use per-font-style widths consistent with engine metrics
+- This ensures PDF text positioning matches engine layout expectations
 
 **Tests (15+ new):**
-- Test `\textbf{hello}` produces Text nodes with `font_style: Bold`
-- Test `\textit{hello}` produces Text nodes with `font_style: Italic`
-- Test `\emph{hello}` produces Text nodes with `font_style: Italic`
-- Test `\texttt{hello}` produces Text nodes with `font_style: Typewriter`
-- Test `\textrm{hello}` produces Text nodes with `font_style: Normal`
-- Test `\bfseries` declaration sets bold style for subsequent text in group
-- Test nested `\textbf{\textit{x}}` produces BoldItalic style
-- Test PDF output contains multiple font references (Helvetica-Bold etc.)
-- Test font style survives two-pass rendering
-- All 492 existing tests continue to pass
+- Test Courier (Typewriter) width for any printable char = 6.0pt (at 10pt, since 600/1000 × 10 = 6.0)
+- Test that `\texttt{hello}` produces Text nodes whose width = 5 × 6.0 = 30.0pt
+- Test that bold text width is >= normal text width (bold is not thinner than normal)
+- Test that `char_width_for_style` returns different values for Normal vs Typewriter
+- Test that engine uses correct width when translating `\texttt{x}`
+- Test that engine uses Courier width for typewriter nodes in line-breaking context
+- Test FontMetrics trait method exists for style-aware width lookup
+- All 516 existing tests continue to pass
 
-- **Cycles budget:** 5
+- **Cycles budget:** 4
 - **Status:** Pending
 
 ---
