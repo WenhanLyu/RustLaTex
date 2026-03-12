@@ -65,9 +65,9 @@ fn is_cm_text_font(font_name: &[u8]) -> bool {
 }
 
 /// Return true if kerning should be applied for this font name.
-/// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F2=cmbx10 Bold, F4=cmti10 Italic).
+/// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F2=cmbx10 Bold, F4=cmti10 Italic, F5=cmbxti10 BoldItalic).
 fn is_cmr10_kern_font(font_name: &[u8]) -> bool {
-    matches!(font_name, b"F1" | b"F2" | b"F4")
+    matches!(font_name, b"F1" | b"F2" | b"F4" | b"F5")
 }
 
 /// Look up the cmbx10 AFM kern pair value for a pair of byte-encoded glyphs.
@@ -751,6 +751,256 @@ pub fn cmti10_kern_pair(a: u8, b: u8) -> f32 {
     }
 }
 
+/// Look up the cmbxti10 AFM kern pair value for a pair of byte-encoded glyphs.
+///
+/// Returns the kern value in AFM units (per 1000 em), or 0.0 if no kern pair
+/// exists. Based on the 178 KPX entries from cmbxti10.afm (excluding polishlcross).
+///
+/// Glyph names are mapped to OT1 byte positions:
+/// - A-Z at 65-90, a-z at 97-122
+/// - ff ligature=11, quoteright=39
+/// - exclam=33, question=63, parenright=41, bracketright=93
+pub fn cmbxti10_kern_pair(a: u8, b: u8) -> f32 {
+    match (a, b) {
+        // A pairs
+        (65, 67) => -29.44,  // A + C
+        (65, 71) => -29.44,  // A + G
+        (65, 79) => -29.44,  // A + O
+        (65, 81) => -29.44,  // A + Q
+        (65, 84) => -88.33,  // A + T
+        (65, 85) => -29.44,  // A + U
+        (65, 86) => -117.78, // A + V
+        (65, 87) => -117.78, // A + W
+        (65, 89) => -88.33,  // A + Y
+        (65, 97) => -58.89,  // A + a
+        (65, 98) => -29.44,  // A + b
+        (65, 99) => -58.89,  // A + c
+        (65, 100) => -58.89, // A + d
+        (65, 101) => -58.89, // A + e
+        (65, 103) => -58.89, // A + g
+        (65, 104) => -29.44, // A + h
+        (65, 105) => -29.44, // A + i
+        (65, 107) => -29.44, // A + k
+        (65, 108) => -29.44, // A + l
+        (65, 109) => -29.44, // A + m
+        (65, 110) => -29.44, // A + n
+        (65, 111) => -58.89, // A + o
+        (65, 113) => -58.89, // A + q
+        (65, 114) => -29.44, // A + r
+        (65, 116) => -29.44, // A + t
+        (65, 117) => -29.44, // A + u
+        (65, 118) => -29.44, // A + v
+        (65, 119) => -29.44, // A + w
+        // D pairs
+        (68, 65) => -29.44, // D + A
+        (68, 86) => -29.44, // D + V
+        (68, 87) => -29.44, // D + W
+        (68, 88) => -29.44, // D + X
+        (68, 89) => -29.44, // D + Y
+        // F pairs
+        (70, 65) => -117.78, // F + A
+        (70, 67) => -29.44,  // F + C
+        (70, 71) => -29.44,  // F + G
+        (70, 79) => -29.44,  // F + O
+        (70, 81) => -29.44,  // F + Q
+        (70, 97) => -88.33,  // F + a
+        (70, 101) => -88.33, // F + e
+        (70, 111) => -88.33, // F + o
+        (70, 114) => -88.33, // F + r
+        (70, 117) => -88.33, // F + u
+        // K pairs
+        (75, 67) => -29.44, // K + C
+        (75, 71) => -29.44, // K + G
+        (75, 79) => -29.44, // K + O
+        (75, 81) => -29.44, // K + Q
+        // L pairs
+        (76, 84) => -88.33,  // L + T
+        (76, 86) => -117.78, // L + V
+        (76, 87) => -117.78, // L + W
+        (76, 89) => -88.33,  // L + Y
+        (76, 97) => -58.89,  // L + a
+        (76, 99) => -58.89,  // L + c
+        (76, 100) => -58.89, // L + d
+        (76, 101) => -58.89, // L + e
+        (76, 103) => -58.89, // L + g
+        (76, 111) => -58.89, // L + o
+        (76, 113) => -58.89, // L + q
+        // O pairs
+        (79, 65) => -29.44, // O + A
+        (79, 86) => -29.44, // O + V
+        (79, 87) => -29.44, // O + W
+        (79, 88) => -29.44, // O + X
+        (79, 89) => -29.44, // O + Y
+        // P pairs
+        (80, 65) => -88.33, // P + A
+        // R pairs
+        (82, 67) => -29.44,  // R + C
+        (82, 71) => -29.44,  // R + G
+        (82, 79) => -29.44,  // R + O
+        (82, 81) => -29.44,  // R + Q
+        (82, 84) => -88.33,  // R + T
+        (82, 85) => -29.44,  // R + U
+        (82, 86) => -117.78, // R + V
+        (82, 87) => -117.78, // R + W
+        (82, 89) => -88.33,  // R + Y
+        (82, 97) => -58.89,  // R + a
+        (82, 98) => -29.44,  // R + b
+        (82, 99) => -58.89,  // R + c
+        (82, 100) => -58.89, // R + d
+        (82, 101) => -58.89, // R + e
+        (82, 103) => -58.89, // R + g
+        (82, 104) => -29.44, // R + h
+        (82, 105) => -29.44, // R + i
+        (82, 107) => -29.44, // R + k
+        (82, 108) => -29.44, // R + l
+        (82, 109) => -29.44, // R + m
+        (82, 110) => -29.44, // R + n
+        (82, 111) => -58.89, // R + o
+        (82, 113) => -58.89, // R + q
+        (82, 114) => -29.44, // R + r
+        (82, 116) => -29.44, // R + t
+        (82, 117) => -29.44, // R + u
+        (82, 118) => -29.44, // R + v
+        (82, 119) => -29.44, // R + w
+        // T pairs
+        (84, 65) => -88.33,  // T + A
+        (84, 97) => -88.33,  // T + a
+        (84, 101) => -88.33, // T + e
+        (84, 111) => -88.33, // T + o
+        (84, 114) => -88.33, // T + r
+        (84, 117) => -88.33, // T + u
+        (84, 121) => -88.33, // T + y
+        // V pairs
+        (86, 65) => -117.78, // V + A
+        (86, 67) => -29.44,  // V + C
+        (86, 71) => -29.44,  // V + G
+        (86, 79) => -29.44,  // V + O
+        (86, 81) => -29.44,  // V + Q
+        (86, 97) => -88.33,  // V + a
+        (86, 101) => -88.33, // V + e
+        (86, 111) => -88.33, // V + o
+        (86, 114) => -88.33, // V + r
+        (86, 117) => -88.33, // V + u
+        // W pairs
+        (87, 65) => -88.33, // W + A
+        // X pairs
+        (88, 67) => -29.44, // X + C
+        (88, 71) => -29.44, // X + G
+        (88, 79) => -29.44, // X + O
+        (88, 81) => -29.44, // X + Q
+        // Y pairs
+        (89, 65) => -88.33,  // Y + A
+        (89, 97) => -88.33,  // Y + a
+        (89, 101) => -88.33, // Y + e
+        (89, 111) => -88.33, // Y + o
+        (89, 114) => -88.33, // Y + r
+        (89, 117) => -88.33, // Y + u
+        // b pairs
+        (98, 97) => -58.89,  // b + a
+        (98, 99) => -58.89,  // b + c
+        (98, 100) => -58.89, // b + d
+        (98, 101) => -58.89, // b + e
+        (98, 103) => -58.89, // b + g
+        (98, 111) => -58.89, // b + o
+        (98, 113) => -58.89, // b + q
+        // c pairs
+        (99, 97) => -58.89,  // c + a
+        (99, 99) => -58.89,  // c + c
+        (99, 100) => -58.89, // c + d
+        (99, 101) => -58.89, // c + e
+        (99, 103) => -58.89, // c + g
+        (99, 111) => -58.89, // c + o
+        (99, 113) => -58.89, // c + q
+        // d pairs
+        (100, 108) => 58.89, // d + l
+        // e pairs
+        (101, 97) => -58.89,  // e + a
+        (101, 99) => -58.89,  // e + c
+        (101, 100) => -58.89, // e + d
+        (101, 101) => -58.89, // e + e
+        (101, 103) => -58.89, // e + g
+        (101, 111) => -58.89, // e + o
+        (101, 113) => -58.89, // e + q
+        // f pairs
+        (102, 93) => 106.67, // f + ] (bracketright)
+        (102, 33) => 106.67, // f + !
+        (102, 41) => 106.67, // f + )
+        (102, 63) => 106.67, // f + ?
+        (102, 39) => 106.67, // f + ' (quoteright)
+        // ff ligature (byte 11) pairs
+        (11, 93) => 106.67, // ff + ]
+        (11, 33) => 106.67, // ff + !
+        (11, 41) => 106.67, // ff + )
+        (11, 63) => 106.67, // ff + ?
+        (11, 39) => 106.67, // ff + ' (quoteright)
+        // l pairs
+        (108, 108) => 58.89, // l + l
+        // n pairs
+        (110, 39) => -117.78, // n + ' (quoteright)
+        // o pairs
+        (111, 97) => -58.89,  // o + a
+        (111, 99) => -58.89,  // o + c
+        (111, 100) => -58.89, // o + d
+        (111, 101) => -58.89, // o + e
+        (111, 103) => -58.89, // o + g
+        (111, 111) => -58.89, // o + o
+        (111, 113) => -58.89, // o + q
+        // p pairs
+        (112, 97) => -58.89,  // p + a
+        (112, 99) => -58.89,  // p + c
+        (112, 100) => -58.89, // p + d
+        (112, 101) => -58.89, // p + e
+        (112, 103) => -58.89, // p + g
+        (112, 111) => -58.89, // p + o
+        (112, 113) => -58.89, // p + q
+        // quoteright (byte 39) pairs
+        (39, 33) => 117.78, // ' + !
+        (39, 63) => 117.78, // ' + ?
+        // r pairs
+        (114, 97) => -58.89,  // r + a
+        (114, 99) => -58.89,  // r + c
+        (114, 100) => -58.89, // r + d
+        (114, 101) => -58.89, // r + e
+        (114, 103) => -58.89, // r + g
+        (114, 111) => -58.89, // r + o
+        (114, 113) => -58.89, // r + q
+        // w pairs
+        (119, 108) => 58.89, // w + l
+        // No kern pair
+        _ => 0.0,
+    }
+}
+
+/// Check if any adjacent bytes have non-zero cmbxti10 kern pairs.
+fn has_cmbxti10_kern_pairs(bytes: &[u8]) -> bool {
+    bytes
+        .windows(2)
+        .any(|w| cmbxti10_kern_pair(w[0], w[1]) != 0.0)
+}
+
+/// Compute the total kern pair adjustment for a font+bytes sequence.
+///
+/// Sums all adjacent kern pair values in the byte sequence for the given font.
+/// Returns the total in AFM units (per 1000 em).
+fn compute_kern_pair_total(font_name: &[u8], bytes: &[u8]) -> f32 {
+    bytes
+        .windows(2)
+        .map(|w| font_kern_pair(font_name, w[0], w[1]))
+        .sum()
+}
+
+/// Map a FontStyle to its PDF font name.
+fn font_name_for_style(style: &FontStyle) -> &'static [u8] {
+    match style {
+        FontStyle::Normal => b"F1",
+        FontStyle::Bold => b"F3",
+        FontStyle::Italic => b"F4",
+        FontStyle::BoldItalic => b"F5",
+        FontStyle::Typewriter => b"F6",
+        FontStyle::MathItalic => b"F7",
+    }
+}
+
 /// Check if any adjacent bytes in a slice have non-zero kern pairs for the given font.
 fn has_kern_pairs(bytes: &[u8]) -> bool {
     bytes.windows(2).any(|w| cmr10_kern_pair(w[0], w[1]) != 0.0)
@@ -775,6 +1025,7 @@ fn font_kern_pair(font_name: &[u8], a: u8, b: u8) -> f32 {
     match font_name {
         b"F2" => cmbx10_kern_pair(a, b),
         b"F4" => cmti10_kern_pair(a, b),
+        b"F5" => cmbxti10_kern_pair(a, b),
         _ => cmr10_kern_pair(a, b),
     }
 }
@@ -784,6 +1035,7 @@ fn font_has_kern_pairs(font_name: &[u8], bytes: &[u8]) -> bool {
     match font_name {
         b"F2" => has_cmbx10_kern_pairs(bytes),
         b"F4" => has_cmti10_kern_pairs(bytes),
+        b"F5" => has_cmbxti10_kern_pairs(bytes),
         _ => has_kern_pairs(bytes),
     }
 }
@@ -1494,7 +1746,24 @@ impl PdfWriter {
                 let mut glue_count: usize = 0;
                 for node in &line.nodes {
                     match node {
-                        BoxNode::Text { width, .. } => line_nat_width += *width as f32,
+                        BoxNode::Text {
+                            text,
+                            width,
+                            font_style,
+                            ..
+                        } => {
+                            line_nat_width += *width as f32;
+                            // Add kern pair contribution to natural width
+                            let fn_name = font_name_for_style(font_style);
+                            if is_cmr10_kern_font(fn_name) {
+                                let raw = if is_cm_text_font(fn_name) {
+                                    apply_ot1_ligatures(text)
+                                } else {
+                                    text.as_bytes().to_vec()
+                                };
+                                line_nat_width += compute_kern_pair_total(fn_name, &raw);
+                            }
+                        }
                         BoxNode::Kern { amount } => line_nat_width += *amount as f32,
                         BoxNode::Glue { natural, .. } => {
                             line_nat_width += *natural as f32;
@@ -3506,7 +3775,10 @@ mod tests {
         assert!(is_cmr10_kern_font(b"F1"), "F1 should have kerning");
         assert!(!is_cmr10_kern_font(b"F3"), "F3 should NOT have kerning");
         assert!(is_cmr10_kern_font(b"F4"), "F4 should have kerning (cmti10)");
-        assert!(!is_cmr10_kern_font(b"F5"), "F5 should NOT have kerning");
+        assert!(
+            is_cmr10_kern_font(b"F5"),
+            "F5 should have kerning (cmbxti10)"
+        );
         assert!(!is_cmr10_kern_font(b"F6"), "F6 should NOT have kerning");
         assert!(!is_cmr10_kern_font(b"F7"), "F7 should NOT have kerning");
         assert!(!is_cmr10_kern_font(b"F8"), "F8 should NOT have kerning");
@@ -3914,6 +4186,260 @@ mod tests {
         assert!(
             pdf_str.contains("TJ"),
             "Italic AV with kern pairs should use TJ operator"
+        );
+    }
+
+    // =============================================
+    // M43: cmbxti10 kern pairs + justified width fix
+    // =============================================
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_a_v() {
+        // cmbxti10: KPX A V -117.78
+        let k = cmbxti10_kern_pair(b'A', b'V');
+        assert!(
+            (k - (-117.78)).abs() < 0.01,
+            "cmbxti10 A+V should be -117.78, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_f_a() {
+        // cmbxti10: KPX F A -117.78
+        let k = cmbxti10_kern_pair(b'F', b'A');
+        assert!(
+            (k - (-117.78)).abs() < 0.01,
+            "cmbxti10 F+A should be -117.78, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_t_o() {
+        // cmbxti10: KPX T o -88.33
+        let k = cmbxti10_kern_pair(b'T', b'o');
+        assert!(
+            (k - (-88.33)).abs() < 0.01,
+            "cmbxti10 T+o should be -88.33, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_d_l_positive() {
+        // cmbxti10: KPX d l 58.89
+        let k = cmbxti10_kern_pair(b'd', b'l');
+        assert!(
+            (k - 58.89).abs() < 0.01,
+            "cmbxti10 d+l should be 58.89 (positive), got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_n_quoteright() {
+        // cmbxti10: KPX n quoteright -117.78
+        let k = cmbxti10_kern_pair(b'n', 39);
+        assert!(
+            (k - (-117.78)).abs() < 0.01,
+            "cmbxti10 n+quoteright should be -117.78, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_no_pair() {
+        // No kern pair should return 0.0
+        let k = cmbxti10_kern_pair(b'a', b'b');
+        assert_eq!(k, 0.0, "cmbxti10 a+b should be 0.0, got {}", k);
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_zero_cases() {
+        assert_eq!(cmbxti10_kern_pair(b'Z', b'Z'), 0.0, "Z-Z should be 0");
+        assert_eq!(cmbxti10_kern_pair(b'x', b'x'), 0.0, "x-x should be 0");
+        assert_eq!(cmbxti10_kern_pair(b's', b't'), 0.0, "s-t should be 0");
+        assert_eq!(cmbxti10_kern_pair(b'0', b'0'), 0.0, "0-0 should be 0");
+    }
+
+    #[test]
+    fn test_m43_is_cmr10_kern_font_f5_true() {
+        assert!(
+            is_cmr10_kern_font(b"F5"),
+            "F5 should have kerning (cmbxti10)"
+        );
+    }
+
+    #[test]
+    fn test_m43_has_cmbxti10_kern_pairs_av() {
+        assert!(
+            has_cmbxti10_kern_pairs(b"AV"),
+            "AV should have cmbxti10 kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m43_has_cmbxti10_kern_pairs_no_pair() {
+        assert!(
+            !has_cmbxti10_kern_pairs(b"ab"),
+            "ab should NOT have cmbxti10 kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m43_font_has_kern_pairs_f5() {
+        assert!(
+            font_has_kern_pairs(b"F5", b"AV"),
+            "font_has_kern_pairs(F5, AV) should be true"
+        );
+    }
+
+    #[test]
+    fn test_m43_font_kern_pair_f5_dispatches_cmbxti10() {
+        let k = font_kern_pair(b"F5", b'A', b'V');
+        assert!(
+            (k - (-117.78)).abs() < 0.01,
+            "F5 A+V should return cmbxti10 value -117.78, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_basic() {
+        // "AV" with F1 (cmr10): A+V = -111.111 (from cmr10 AFM)
+        let total = compute_kern_pair_total(b"F1", b"AV");
+        let expected = cmr10_kern_pair(b'A', b'V');
+        assert!(
+            (total - expected).abs() < 0.01,
+            "compute_kern_pair_total(F1, AV) should be {}, got {}",
+            expected,
+            total
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_no_pairs() {
+        // "ab" with F1: no kern pairs
+        let total = compute_kern_pair_total(b"F1", b"ab");
+        assert_eq!(
+            total, 0.0,
+            "compute_kern_pair_total(F1, ab) should be 0, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_multiple_pairs() {
+        // "AVA" with F1: A+V = -102, V+A = -77 => total = -179
+        let total = compute_kern_pair_total(b"F1", b"AVA");
+        let expected = cmr10_kern_pair(b'A', b'V') + cmr10_kern_pair(b'V', b'A');
+        assert!(
+            (total - expected).abs() < 0.01,
+            "compute_kern_pair_total(F1, AVA) should be {}, got {}",
+            expected,
+            total
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_f5() {
+        // "AV" with F5 (cmbxti10): A+V = -117.78
+        let total = compute_kern_pair_total(b"F5", b"AV");
+        assert!(
+            (total - (-117.78)).abs() < 0.01,
+            "compute_kern_pair_total(F5, AV) should be -117.78, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_single_byte() {
+        // Single byte has no pairs
+        let total = compute_kern_pair_total(b"F1", b"A");
+        assert_eq!(
+            total, 0.0,
+            "compute_kern_pair_total with 1 byte should be 0"
+        );
+    }
+
+    #[test]
+    fn test_m43_compute_kern_pair_total_empty() {
+        let total = compute_kern_pair_total(b"F1", b"");
+        assert_eq!(
+            total, 0.0,
+            "compute_kern_pair_total with empty bytes should be 0"
+        );
+    }
+
+    #[test]
+    fn test_m43_font_name_for_style() {
+        assert_eq!(font_name_for_style(&FontStyle::Normal), b"F1");
+        assert_eq!(font_name_for_style(&FontStyle::Bold), b"F3");
+        assert_eq!(font_name_for_style(&FontStyle::Italic), b"F4");
+        assert_eq!(font_name_for_style(&FontStyle::BoldItalic), b"F5");
+        assert_eq!(font_name_for_style(&FontStyle::Typewriter), b"F6");
+        assert_eq!(font_name_for_style(&FontStyle::MathItalic), b"F7");
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_l_l() {
+        // cmbxti10: KPX l l 58.89
+        let k = cmbxti10_kern_pair(b'l', b'l');
+        assert!(
+            (k - 58.89).abs() < 0.01,
+            "cmbxti10 l+l should be 58.89, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_w_a() {
+        // cmbxti10: KPX W A -88.33
+        let k = cmbxti10_kern_pair(b'W', b'A');
+        assert!(
+            (k - (-88.33)).abs() < 0.01,
+            "cmbxti10 W+A should be -88.33, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_cmbxti10_kern_pair_p_a() {
+        // cmbxti10: KPX P A -88.33
+        let k = cmbxti10_kern_pair(b'P', b'A');
+        assert!(
+            (k - (-88.33)).abs() < 0.01,
+            "cmbxti10 P+A should be -88.33, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m43_pdf_bold_italic_text_with_kern_pairs() {
+        // Bold italic text "AV" with F5 font should produce TJ operator in PDF
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            footnotes: vec![],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "AV".to_string(),
+                    width: 10.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::BoldItalic,
+                    vertical_offset: 0.0,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("TJ"),
+            "Bold italic AV with kern pairs should use TJ operator"
         );
     }
 }
