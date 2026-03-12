@@ -57,6 +57,8 @@ Binary-identical output requires:
 - **M22 scope:** Footnotes (\footnote), abstract environment, horizontal spacing (\hspace, \hfill, \vfill), and URL/hyperlink commands (\href, \url). These are present in the majority of real academic LaTeX documents and are completely missing from the current implementation.
 - **Cycle 89-94 (M22):** M22 completed in 1 implementation cycle + 1 fix round + 1 verification. Leo delivered \footnote superscript markers + page-bottom rendering, \begin{abstract} centered heading, \hspace/\hfill/\vfill/\quad/\qquad/\,/\; spacing, \url/\href URL commands. Ares fixed abstract 6pt glue + 30pt kern indentation + PDF footnote rule width. 25 new tests, 402 total tests pass, CI green.
 - **M23 scope:** Color support (\textcolor, \color, \colorbox, xcolor named colors) and image inclusion (\includegraphics with PNG XObject embedding). Color requires adding a color field to BoxNode::Text and DeviceRGB PDF operators. Image inclusion requires BoxNode::ImagePlaceholder and PNG XObject embedding.
+- **Cycle 95-98 (M23):** M23 completed in 1 implementation cycle + 1 verification. Leo delivered Color struct, 16 named colors, \textcolor/\color/\colorbox, BoxNode::ImagePlaceholder, \includegraphics with width/height/scale parsing, PDF rg operators for colored text, grey rectangle for image placeholders. 24 new tests, 426 total tests pass, CI green.
+- **M24 scope:** Equation environments (equation, align, align*) + theorem-like environments (\newtheorem, theorem, lemma, proof) + Table of Contents (\tableofcontents) + description list environment. These are the core missing academic document features present in virtually all research papers.
 
 ## Milestones
 
@@ -402,6 +404,48 @@ Implement color support and basic image inclusion — features present in virtua
 - All 402 existing tests continue to pass
 
 - **Cycles budget:** 4
+- **Status:** ✅ Complete — verified by Apollo (commit 372cdd3, 426 tests total)
+
+### M24: Equation Environments + Theorem-Like Environments + Table of Contents
+Implement key academic document features:
+
+**Equation environments (rustlatex-engine + rustlatex-parser):**
+- `\begin{equation}...\end{equation}` — numbered display math, renders as display math with "(N)" equation number on the right
+- `\begin{equation*}...\end{equation*}` — unnumbered display math (same as `\[...\]`)
+- `\begin{align}...\end{align}` — multi-line aligned math, split on `&` alignment point, numbered lines
+- `\begin{align*}...\end{align*}` — unnumbered multi-line aligned math
+- Equation counter: auto-increments, `\label` in equation captures number, `\ref` resolves
+- Display math: equation content rendered at full line width, equation number right-aligned
+
+**Theorem-like environments (rustlatex-engine + rustlatex-parser):**
+- `\newtheorem{theorem}{Theorem}` — define a theorem-like environment with a name and title
+- `\newtheorem{lemma}{Lemma}` — similarly for lemma, definition, etc.
+- `\begin{theorem}[optional title]...\end{theorem}` — renders: "**Theorem N** (optional title). content"
+- `\begin{proof}...\end{proof}` — renders: "*Proof.* content □" (QED symbol at end)
+- Auto-numbering per theorem type
+- Common pre-built: theorem, lemma, definition, corollary, proposition, remark, example (all handled if \newtheorem is called)
+
+**Table of Contents (rustlatex-engine):**
+- `\tableofcontents` — renders a "Contents" section listing all sections/subsections with page numbers
+- Collected in two-pass: first pass collects section titles + page numbers, second pass substitutes
+- Output: "Contents" heading, then lines like "1 Introduction ... 1" (section title + dots + page number)
+- Format: section at 10pt, subsection indented 1em, subsubsection indented 2em
+
+**Description list environment (rustlatex-engine + rustlatex-parser):**
+- `\begin{description}...\end{description}` — list where each `\item[term]` renders "**term** description"
+- Renders term in bold followed by description text on same or next line
+
+**Tests (15+ new):**
+- Test `\begin{equation}...\end{equation}` produces numbered display math
+- Test `\begin{equation*}...\end{equation*}` produces unnumbered display math
+- Test `\begin{align}` with `&` alignment produces multi-line math
+- Test `\newtheorem{theorem}{Theorem}` + `\begin{theorem}` renders "Theorem 1."
+- Test `\begin{proof}` renders "Proof." and ends with "□"
+- Test `\tableofcontents` renders section headings with page numbers
+- Test `\begin{description}\item[term] text` renders "term" + description
+- All 426 existing tests continue to pass
+
+- **Cycles budget:** 5
 - **Status:** Pending
 
 ---
