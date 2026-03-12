@@ -51,6 +51,8 @@ Binary-identical output requires:
 - **pdflatex not available locally:** Comparison testing deferred. GhostScript available for smoke tests.
 - **Cycle 62-67 (M19):** M19 completed in 1 implementation cycle + 1 verification. Leo delivered CLI output path fix, verbatim environment, \texttt/\underline/\textsc/\mbox/\noindent commands. 18 new tests, 338 total tests pass.
 - **M20 scope:** Focus on core TeX behaviors: paragraph indentation (20pt first-line indent, suppressed after section headings), page break commands (\newpage/\clearpage/\pagebreak), \vspace, and inter-sentence spacing (wider glue after sentence-ending punctuation). These are visible in every real LaTeX document.
+- **Cycle 60-62 (M20):** M20 completed in 1 implementation cycle + 1 verification. Leo delivered paragraph indentation (20pt Kern, suppressed after headings and via \noindent), \newpage/\clearpage/\pagebreak (Penalty{-10001}), \vspace/\vspace* dimension parsing, inter-sentence spacing (1.5x glue, abbreviation exception). 22 new tests, 360 total tests pass.
+- **M21 scope:** Title/author/date (\title, \author, \date, \maketitle) and page numbers in PDF footer. These are present in virtually every real LaTeX document. \maketitle emits a centered title block; PDF backend renders page numbers in footer.
 
 ## Milestones
 
@@ -315,6 +317,41 @@ Implement core TeX typesetting behaviors that are present in every LaTeX documen
 - Test `\vspace{10pt}` emits a Glue node with natural=10.0
 - Test inter-sentence spacing: "Hello. World" has wider glue than "hello world"
 - All 338 existing tests continue to pass
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 13fbcaa, 360 tests total)
+
+### M21: Title Page (\maketitle) + Page Numbers in PDF Footer
+Implement the LaTeX title block and page number rendering — features present in nearly every real LaTeX document.
+
+**Title/author/date system (rustlatex-parser + rustlatex-engine):**
+- Parse `\title{...}`, `\author{...}`, `\date{...}` commands: store their text content in DocumentCounters/context
+- `\date{}` (empty) → suppress date; `\date{\today}` → today's date string; `\date` without arg → "today" (default)
+- `\maketitle` command: emit a title block at the current position in the document with:
+  - Title text centered at 17pt (large font)
+  - Author text centered at 12pt
+  - Date text centered at 12pt (if non-empty)
+  - 24pt vertical space after the title block
+  - Suppress paragraph indentation for the first paragraph after \maketitle
+
+**Page number rendering (rustlatex-pdf):**
+- Each PDF page should have a centered page number in the footer area
+- Page number format: plain arabic numerals ("1", "2", "3", ...)
+- Position: centered horizontally, 30pt from bottom of page
+- Font: same CMR10, 10pt
+- The `Page` struct already has a `number` field — use it
+
+**Tests (15+ new):**
+- Test `\title{My Title}` stores title in context
+- Test `\author{John Doe}` stores author in context
+- Test `\date{2025}` stores date string
+- Test `\date{}` results in no date in maketitle output
+- Test `\maketitle` emits centered title BoxNode at 17pt
+- Test `\maketitle` emits centered author BoxNode at 12pt
+- Test `\maketitle` with author and date produces 3 centered items (title, author, date)
+- Test `\maketitle` without `\title` set still compiles (fallback to empty)
+- Test PDF output contains page number text ("1") in the footer region
+- All 360 existing tests continue to pass
+
 - **Cycles budget:** 4
 - **Status:** Pending
 
