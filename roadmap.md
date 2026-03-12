@@ -49,6 +49,8 @@ Binary-identical output requires:
 - **Cycle 62-64 (M18):** M18 completed in 1 implementation cycle + 1 verification (with 1 fix round for forward-ref test). Leo delivered: two-pass label/ref system, \label/\ref/\pageref, figure environment with caption numbering, section numbering, 20 new tests. Apollo verified 320 total tests pass, CI green.
 - **M19 scope:** CLI improvements + verbatim environment + more text commands. Fix CLI output path (currently ignores second arg), add \begin{verbatim} environment (monospace, no command parsing), add \texttt{} command (inline code), add \underline{}, fix UTF-8/special chars in PDF output. These are high-value user-visible improvements.
 - **pdflatex not available locally:** Comparison testing deferred. GhostScript available for smoke tests.
+- **Cycle 62-67 (M19):** M19 completed in 1 implementation cycle + 1 verification. Leo delivered CLI output path fix, verbatim environment, \texttt/\underline/\textsc/\mbox/\noindent commands. 18 new tests, 338 total tests pass.
+- **M20 scope:** Focus on core TeX behaviors: paragraph indentation (20pt first-line indent, suppressed after section headings), page break commands (\newpage/\clearpage/\pagebreak), \vspace, and inter-sentence spacing (wider glue after sentence-ending punctuation). These are visible in every real LaTeX document.
 
 ## Milestones
 
@@ -254,7 +256,7 @@ Implement a practical label/reference system and figure environment:
 - **Cycles budget:** 6 | **Cycles actual:** 1 (+ 1 fix round)
 - **Status:** ✅ Complete — verified by Apollo (commit 4d4c030, 320 tests total)
 
-### M19: CLI Output Path + Verbatim Environment + Text Commands
+### M19: CLI Output Path + Verbatim Environment + Text Commands ✅ COMPLETE
 Improve usability and completeness of the compiler:
 
 **CLI fix (rustlatex-cli):**
@@ -279,7 +281,41 @@ Improve usability and completeness of the compiler:
 - Test `\texttt{code}` produces text output
 - Test `\underline{text}` produces text + rule output
 - All 320 existing tests continue to pass
-- **Cycles budget:** 5
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by Apollo (commit 3c89fff, 338 tests total)
+
+### M20: Paragraph Indentation + Page Break Commands + Inter-sentence Spacing
+Implement core TeX typesetting behaviors that are present in every LaTeX document:
+
+**Paragraph first-line indentation (rustlatex-engine):**
+- Standard LaTeX indents the first line of each paragraph by `\parindent` = 20pt (1.5em at 10pt)
+- First paragraph after a section heading is NOT indented (standard LaTeX behavior)
+- `\noindent` already implemented (suppresses indent); now actually use it to trigger no-indent
+- Add a `BoxNode::Kern(20.0)` at the start of each paragraph's box list (except post-heading paragraphs)
+- Track "after_heading" state in TranslationContext to suppress indentation
+
+**Page break commands (rustlatex-engine + rustlatex-parser):**
+- `\newpage` — force a page break (emit a Penalty{value:-10001} or Page break marker)
+- `\clearpage` — same as \newpage for now (flush and start new page)
+- `\pagebreak` — same as \newpage for practical purposes
+- `\vspace{len}` — vertical space insertion (emit Glue with specified natural size, parse pt/em/ex)
+- `\vspace*{len}` — same as \vspace (star variant; no-op for the * for now)
+
+**Inter-sentence spacing (rustlatex-engine):**
+- TeX uses extra space after sentence-ending punctuation (`.`, `!`, `?`) followed by whitespace
+- Implement: after a word ending in `.`, `!`, or `?`, if followed by space, emit wider inter-word glue (1.5x natural)
+- Exception: do NOT apply extra space after abbreviations (a capital letter followed by `.`)
+- This matches pdflatex's default behavior (before `\frenchspacing`)
+
+**Tests (15+ new):**
+- Test that paragraph has leading Kern(20.0) for indentation
+- Test that first paragraph after `\section{}` has no leading Kern (no indent)
+- Test `\noindent` suppresses the paragraph indent
+- Test `\newpage` produces a page break (verify multi-page output from newpage)
+- Test `\vspace{10pt}` emits a Glue node with natural=10.0
+- Test inter-sentence spacing: "Hello. World" has wider glue than "hello world"
+- All 338 existing tests continue to pass
+- **Cycles budget:** 4
 - **Status:** Pending
 
 ---
