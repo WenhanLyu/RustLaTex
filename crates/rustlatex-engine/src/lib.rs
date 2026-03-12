@@ -77,6 +77,9 @@ pub struct TranslationContext {
     pub labels: LabelTable,
     /// Whether this is the collection pass (first pass) or the rendering pass (second pass).
     pub collecting: bool,
+    /// Whether the next paragraph should suppress first-line indentation
+    /// (set after section headings).
+    pub after_heading: bool,
 }
 
 impl TranslationContext {
@@ -86,6 +89,7 @@ impl TranslationContext {
             counters: DocumentCounters::default(),
             labels: LabelTable::new(),
             collecting: true,
+            after_heading: false,
         }
     }
 
@@ -95,6 +99,7 @@ impl TranslationContext {
             counters: DocumentCounters::default(),
             labels,
             collecting: false,
+            after_heading: false,
         }
     }
 }
@@ -381,6 +386,44 @@ pub fn math_node_to_text(node: &Node) -> String {
     }
 }
 
+/// Emit inter-word glue, applying inter-sentence spacing if the previous word
+/// ended with sentence-ending punctuation (`.`, `!`, `?`).
+///
+/// Exception: do NOT apply extra space after abbreviations
+/// (a capital letter followed by `.`, e.g., "Dr." or "U.S.").
+fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str) -> BoxNode {
+    let ends_sentence =
+        prev_word.ends_with('.') || prev_word.ends_with('!') || prev_word.ends_with('?');
+
+    // Check abbreviation exception: single uppercase letter + '.'
+    let is_abbreviation = if let Some(before_dot) = prev_word.strip_suffix('.') {
+        // Abbreviation if:
+        // - The "word" before the period is a single uppercase letter (e.g., "A.")
+        // - Or ends with an uppercase letter followed by "." (e.g., "U.S.")
+        before_dot
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_uppercase())
+    } else {
+        false
+    };
+
+    if ends_sentence && !is_abbreviation {
+        // Inter-sentence spacing: 1.5x natural width
+        BoxNode::Glue {
+            natural: metrics.space_width() * 1.5,
+            stretch: 2.5,
+            shrink: 1.11,
+        }
+    } else {
+        BoxNode::Glue {
+            natural: metrics.space_width(),
+            stretch: 1.67,
+            shrink: 1.11,
+        }
+    }
+}
+
 /// Translate a parser AST node into a flat list of box/glue items,
 /// using the provided font metrics.
 pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Vec<BoxNode> {
@@ -390,11 +433,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             let words: Vec<&str> = s.split_whitespace().collect();
             for (i, word) in words.iter().enumerate() {
                 if i > 0 {
-                    result.push(BoxNode::Glue {
-                        natural: metrics.space_width(),
-                        stretch: 1.67,
-                        shrink: 1.11,
-                    });
+                    result.push(inter_word_glue(metrics, words[i - 1]));
                 }
                 result.push(BoxNode::Text {
                     text: word.to_string(),
@@ -405,10 +444,23 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             result
         }
         Node::Paragraph(nodes) => {
-            let mut result: Vec<BoxNode> = nodes
-                .iter()
-                .flat_map(|n| translate_node_with_metrics(n, metrics))
-                .collect();
+            // Check if paragraph starts with \noindent
+            let starts_with_noindent = nodes.first().is_some_and(
+                |n| matches!(n, Node::Command { name, .. } if name == "noindent"),
+            );
+
+            let mut result: Vec<BoxNode> = Vec::new();
+
+            // Add paragraph indentation (20pt) unless suppressed
+            if !starts_with_noindent {
+                result.push(BoxNode::Kern { amount: 20.0 });
+            }
+
+            result.extend(
+                nodes
+                    .iter()
+                    .flat_map(|n| translate_node_with_metrics(n, metrics)),
+            );
             result.push(BoxNode::Glue {
                 natural: 6.0,
                 stretch: 2.0,
@@ -473,8 +525,26 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     result
                 }
                 "noindent" => {
-                    // No-op
+                    // No-op: indent suppression is handled in Paragraph translation
                     vec![]
+                }
+                "newpage" | "clearpage" | "pagebreak" => {
+                    // Force a page break. Use penalty -10001 as a page-break marker.
+                    vec![BoxNode::Penalty { value: -10001 }]
+                }
+                "vspace" => {
+                    // Parse dimension from first argument
+                    let dim = if let Some(arg) = args.first() {
+                        let text = extract_text_content(arg);
+                        parse_dimension(&text)
+                    } else {
+                        0.0
+                    };
+                    vec![BoxNode::Glue {
+                        natural: dim,
+                        stretch: dim * 0.5,
+                        shrink: 0.0,
+                    }]
                 }
                 "section" | "subsection" | "subsubsection" => {
                     let font_size = match name.as_str() {
@@ -859,11 +929,7 @@ pub fn translate_node_with_context(
             let words: Vec<&str> = s.split_whitespace().collect();
             for (i, word) in words.iter().enumerate() {
                 if i > 0 {
-                    result.push(BoxNode::Glue {
-                        natural: metrics.space_width(),
-                        stretch: 1.67,
-                        shrink: 1.11,
-                    });
+                    result.push(inter_word_glue(metrics, words[i - 1]));
                 }
                 result.push(BoxNode::Text {
                     text: word.to_string(),
@@ -874,10 +940,27 @@ pub fn translate_node_with_context(
             result
         }
         Node::Paragraph(nodes) => {
-            let mut result: Vec<BoxNode> = nodes
-                .iter()
-                .flat_map(|n| translate_node_with_context(n, metrics, ctx))
-                .collect();
+            // Check if paragraph starts with \noindent
+            let starts_with_noindent = nodes.first().is_some_and(
+                |n| matches!(n, Node::Command { name, .. } if name == "noindent"),
+            );
+
+            let mut result: Vec<BoxNode> = Vec::new();
+
+            // Add paragraph indentation (20pt) unless:
+            // - preceded by a section heading (after_heading flag)
+            // - starts with \noindent
+            if !starts_with_noindent && !ctx.after_heading {
+                result.push(BoxNode::Kern { amount: 20.0 });
+            }
+            // Reset after_heading flag (consumed by this paragraph)
+            ctx.after_heading = false;
+
+            result.extend(
+                nodes
+                    .iter()
+                    .flat_map(|n| translate_node_with_context(n, metrics, ctx)),
+            );
             result.push(BoxNode::Glue {
                 natural: 6.0,
                 stretch: 2.0,
@@ -991,6 +1074,8 @@ pub fn translate_node_with_context(
                     };
                     let numbered_title = format!("{} {}", ctx.counters.last_counter_value, title);
                     let width = metrics.string_width(&numbered_title);
+                    // Suppress indentation for the first paragraph after a heading
+                    ctx.after_heading = true;
                     vec![
                         BoxNode::Kern { amount: 12.0 },
                         BoxNode::Text {
@@ -1000,6 +1085,24 @@ pub fn translate_node_with_context(
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
+                }
+                "newpage" | "clearpage" | "pagebreak" => {
+                    // Force a page break. Use penalty -10001 as a page-break marker.
+                    vec![BoxNode::Penalty { value: -10001 }]
+                }
+                "vspace" => {
+                    // Parse dimension from first argument
+                    let dim = if let Some(arg) = args.first() {
+                        let text = extract_text_content(arg);
+                        parse_dimension(&text)
+                    } else {
+                        0.0
+                    };
+                    vec![BoxNode::Glue {
+                        natural: dim,
+                        stretch: dim * 0.5,
+                        shrink: 0.0,
+                    }]
                 }
                 "label" => {
                     if let Some(arg) = args.first() {
@@ -1299,6 +1402,37 @@ pub fn translate_node_with_context(
             .flat_map(|n| translate_node_with_context(n, metrics, ctx))
             .collect(),
         _ => vec![],
+    }
+}
+
+/// Parse a LaTeX dimension string (e.g., "10pt", "1.5em", "2ex") into points.
+///
+/// Supported units:
+/// - `pt` — TeX points (1:1)
+/// - `em` — relative to font size (1em = 10pt at 10pt font)
+/// - `ex` — roughly half an em (1ex ≈ 4.3pt at 10pt font)
+/// - `cm` — centimeters (1cm ≈ 28.45pt)
+/// - `mm` — millimeters (1mm ≈ 2.845pt)
+/// - `in` — inches (1in = 72.27pt)
+///
+/// If no unit is specified, defaults to `pt`.
+pub fn parse_dimension(s: &str) -> f64 {
+    let s = s.trim();
+    // Split into number and unit
+    let num_end = s.find(|c: char| c.is_alphabetic()).unwrap_or(s.len());
+    let num_str = s[..num_end].trim();
+    let unit_str = s[num_end..].trim();
+
+    let value: f64 = num_str.parse().unwrap_or(0.0);
+
+    match unit_str {
+        "pt" | "" => value,
+        "em" => value * 10.0, // 1em = 10pt at 10pt font
+        "ex" => value * 4.3,  // 1ex ≈ 4.3pt at 10pt font
+        "cm" => value * 28.45,
+        "mm" => value * 2.845,
+        "in" => value * 72.27,
+        _ => value, // unknown unit, treat as pt
     }
 }
 
@@ -1664,7 +1798,7 @@ impl LineBreaker for KnuthPlassLineBreaker {
 
         for j in 0..num_bp {
             let (bp_j, bp_pen_j) = breakpoints[j];
-            let forced_j = bp_pen_j == Some(-10000);
+            let forced_j = bp_pen_j == Some(-10000) || bp_pen_j == Some(-10001);
             let is_sentinel = bp_j == n;
 
             // Consider all previous active nodes (breakpoints i < j, plus start = num_bp)
@@ -1694,7 +1828,7 @@ impl LineBreaker for KnuthPlassLineBreaker {
                 let line_items_slice = &items[line_start..line_end];
                 let contains_forced_break = line_items_slice
                     .iter()
-                    .any(|x| matches!(x, BoxNode::Penalty { value } if *value == -10000));
+                    .any(|x| matches!(x, BoxNode::Penalty { value } if *value <= -10000));
                 if contains_forced_break {
                     continue; // Cannot bridge over a forced break
                 }
@@ -1822,37 +1956,53 @@ impl LineBreaker for KnuthPlassLineBreaker {
     }
 }
 
-/// Break items into lines while tracking alignment markers.
+/// Break items into lines while tracking alignment markers and page break penalties.
 /// AlignmentMarker nodes set the alignment for lines that follow them.
 /// They are removed from the output lines (not rendered directly).
+/// Page break penalties (`Penalty{-10001}`) create segment boundaries and
+/// are preserved in the output as markers for the pagination pass.
 pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLine> {
-    // Segment items by alignment spans
-    let mut segments: Vec<(Alignment, Vec<BoxNode>)> = Vec::new();
+    // Segment items by alignment spans and page breaks
+    // Each segment: (alignment, items, has_page_break_after)
+    let mut segments: Vec<(Alignment, Vec<BoxNode>, bool)> = Vec::new();
     let mut current_alignment = Alignment::Justify;
     let mut current_items: Vec<BoxNode> = Vec::new();
 
     for item in items {
         if let BoxNode::AlignmentMarker { alignment } = item {
             if !current_items.is_empty() {
-                segments.push((current_alignment, current_items.clone()));
+                segments.push((current_alignment, current_items.clone(), false));
                 current_items.clear();
             }
             current_alignment = *alignment;
+        } else if matches!(item, BoxNode::Penalty { value } if *value == -10001) {
+            // Page break: flush current segment and mark it
+            if !current_items.is_empty() {
+                segments.push((current_alignment, current_items.clone(), true));
+                current_items.clear();
+            }
         } else {
             current_items.push(item.clone());
         }
     }
     if !current_items.is_empty() {
-        segments.push((current_alignment, current_items));
+        segments.push((current_alignment, current_items, false));
     }
 
     let breaker = KnuthPlassLineBreaker::new();
     let mut result: Vec<OutputLine> = Vec::new();
 
-    for (alignment, seg_items) in segments {
+    for (alignment, seg_items, has_page_break) in segments {
         let lines = breaker.break_lines(&seg_items, hsize);
         for nodes in lines {
             result.push(OutputLine { alignment, nodes });
+        }
+        // If this segment ends with a page break, add a marker line
+        if has_page_break {
+            result.push(OutputLine {
+                alignment,
+                nodes: vec![BoxNode::Penalty { value: -10001 }],
+            });
         }
     }
 
@@ -1909,6 +2059,25 @@ impl Engine {
         let mut accumulated_height = 0.0_f64;
 
         for line in all_lines {
+            // Check if this line contains a page break penalty (-10001)
+            let has_page_break = line
+                .nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::Penalty { value } if *value == -10001));
+
+            if has_page_break && !current_page_lines.is_empty() {
+                // Force page break: flush current page
+                pages.push(Page {
+                    number: pages.len() + 1,
+                    content: content.clone(),
+                    box_lines: current_page_lines,
+                });
+                current_page_lines = Vec::new();
+                accumulated_height = 0.0;
+                // Don't add the page-break line itself to the next page
+                continue;
+            }
+
             if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
                 pages.push(Page {
                     number: pages.len() + 1,
@@ -1971,6 +2140,23 @@ impl Engine {
                 let mut current_page_lines: Vec<OutputLine> = Vec::new();
                 let mut accumulated_height = 0.0_f64;
                 for line in all_lines {
+                    // Check for page break penalty
+                    let has_page_break = line
+                        .nodes
+                        .iter()
+                        .any(|n| matches!(n, BoxNode::Penalty { value } if *value == -10001));
+
+                    if has_page_break && !current_page_lines.is_empty() {
+                        pages.push(Page {
+                            number: pages.len() + 1,
+                            content: content.clone(),
+                            box_lines: current_page_lines,
+                        });
+                        current_page_lines = Vec::new();
+                        accumulated_height = 0.0;
+                        continue;
+                    }
+
                     if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
                         pages.push(Page {
                             number: pages.len() + 1,
@@ -2167,24 +2353,27 @@ mod tests {
             Node::Text("three".to_string()),
         ]);
         let items = translate_node(&node);
+        // Kern(20.0) (paragraph indent)
         // "one two" → Text("one"), Glue, Text("two")
         // "three" → Text("three")
         // + paragraph spacing Glue
-        // total: 5 items
-        assert_eq!(items.len(), 5);
+        // total: 6 items
+        assert_eq!(items.len(), 6);
+        // First item: paragraph indent kern
+        assert_eq!(items[0], BoxNode::Kern { amount: 20.0 });
         // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
-            items[0],
+            items[1],
             BoxNode::Text {
                 text: "one".to_string(),
                 width: cm10_width("one"),
                 font_size: 10.0,
             }
         );
-        assert!(matches!(items[1], BoxNode::Glue { .. }));
+        assert!(matches!(items[2], BoxNode::Glue { .. }));
         // two: t+w+o = 3.89+7.50+5.00 = 16.39
         assert_eq!(
-            items[2],
+            items[3],
             BoxNode::Text {
                 text: "two".to_string(),
                 width: cm10_width("two"),
@@ -2193,7 +2382,7 @@ mod tests {
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
         assert_eq!(
-            items[3],
+            items[4],
             BoxNode::Text {
                 text: "three".to_string(),
                 width: cm10_width("three"),
@@ -5361,5 +5550,396 @@ mod tests {
             "Forward reference should not produce '??', got {:?}",
             ref_texts
         );
+    }
+
+    // ===== M20: Paragraph Indent + Page Breaks + Inter-Sentence Spacing Tests =====
+
+    #[test]
+    fn test_paragraph_has_leading_kern_for_indent() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        // First item should be Kern(20.0) for paragraph indentation
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 20.0 },
+            "Paragraph should start with Kern(20.0) for first-line indent"
+        );
+    }
+
+    #[test]
+    fn test_paragraph_after_section_no_indent_in_context() {
+        // In context-aware mode, paragraph after \section should NOT have Kern(20.0)
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+            },
+            Node::Paragraph(vec![Node::Text("First paragraph".to_string())]),
+        ]);
+        let items = translate_with_context(&node);
+        // Find the paragraph content (after the section heading nodes)
+        // Section produces: Kern(12.0), Text("1 Intro"), Kern(6.0)
+        // Paragraph should NOT start with Kern(20.0)
+        // Look for "First" text and check what precedes it
+        let first_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "First"))
+            .expect("Expected 'First' text");
+        // The item before "First" should NOT be Kern(20.0) — it should be Kern(6.0) from section
+        if first_idx > 0 {
+            let prev = &items[first_idx - 1];
+            assert!(
+                !matches!(prev, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+                "Paragraph after section should not have Kern(20.0) indent"
+            );
+        }
+    }
+
+    #[test]
+    fn test_noindent_suppresses_paragraph_indent() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![
+            Node::Command {
+                name: "noindent".to_string(),
+                args: vec![],
+            },
+            Node::Text("No indent here".to_string()),
+        ]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Should NOT start with Kern(20.0)
+        assert!(
+            !matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 20.0).abs() < f64::EPSILON),
+            "\\noindent should suppress paragraph indent"
+        );
+    }
+
+    #[test]
+    fn test_noindent_suppresses_indent_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Paragraph(vec![
+            Node::Command {
+                name: "noindent".to_string(),
+                args: vec![],
+            },
+            Node::Text("No indent".to_string()),
+        ])]);
+        let items = translate_with_context(&node);
+        // The paragraph should not have leading Kern(20.0)
+        // Find "No" text and check what precedes it
+        let no_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "No"))
+            .expect("Expected 'No' text");
+        if no_idx > 0 {
+            let prev = &items[no_idx - 1];
+            assert!(
+                !matches!(prev, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+                "\\noindent should suppress indent in context"
+            );
+        }
+    }
+
+    #[test]
+    fn test_newpage_produces_page_break_penalty() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "newpage".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Penalty { value: -10001 },
+            "\\newpage should produce Penalty(-10001)"
+        );
+    }
+
+    #[test]
+    fn test_clearpage_produces_page_break_penalty() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "clearpage".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items[0], BoxNode::Penalty { value: -10001 });
+    }
+
+    #[test]
+    fn test_pagebreak_produces_page_break_penalty() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "pagebreak".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items[0], BoxNode::Penalty { value: -10001 });
+    }
+
+    #[test]
+    fn test_newpage_causes_multipage_output() {
+        // "text \newpage text" should produce 2 pages
+        let doc = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("Page one content".to_string())]),
+            Node::Command {
+                name: "newpage".to_string(),
+                args: vec![],
+            },
+            Node::Paragraph(vec![Node::Text("Page two content".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(
+            pages.len() >= 2,
+            "\\newpage should produce at least 2 pages, got {}",
+            pages.len()
+        );
+    }
+
+    #[test]
+    fn test_vspace_emits_glue() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "vspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("10pt".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Glue {
+            natural,
+            stretch,
+            shrink,
+        } = &items[0]
+        {
+            assert!(
+                (*natural - 10.0).abs() < f64::EPSILON,
+                "\\vspace{{10pt}} should produce Glue with natural=10.0, got {}",
+                natural
+            );
+            assert!(*stretch > 0.0, "\\vspace glue should have positive stretch");
+            assert!(
+                (*shrink).abs() < f64::EPSILON,
+                "\\vspace glue shrink should be 0"
+            );
+        } else {
+            panic!("Expected BoxNode::Glue from \\vspace");
+        }
+    }
+
+    #[test]
+    fn test_vspace_em_unit() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "vspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("2em".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        if let BoxNode::Glue { natural, .. } = &items[0] {
+            // 2em = 2 * 10pt = 20pt
+            assert!(
+                (*natural - 20.0).abs() < f64::EPSILON,
+                "\\vspace{{2em}} should produce Glue with natural=20.0, got {}",
+                natural
+            );
+        } else {
+            panic!("Expected Glue");
+        }
+    }
+
+    #[test]
+    fn test_inter_sentence_spacing_wider_after_period() {
+        let metrics = StandardFontMetrics;
+        let normal_glue = inter_word_glue(&metrics, "hello");
+        let sentence_glue = inter_word_glue(&metrics, "hello.");
+
+        let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+        let sentence_nat = if let BoxNode::Glue { natural, .. } = sentence_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        assert!(
+            sentence_nat > normal_nat,
+            "Glue after sentence-ending '.' should be wider ({} vs {})",
+            sentence_nat,
+            normal_nat
+        );
+    }
+
+    #[test]
+    fn test_inter_sentence_spacing_wider_after_exclamation() {
+        let metrics = StandardFontMetrics;
+        let normal_glue = inter_word_glue(&metrics, "hello");
+        let sentence_glue = inter_word_glue(&metrics, "hello!");
+
+        let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+        let sentence_nat = if let BoxNode::Glue { natural, .. } = sentence_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        assert!(sentence_nat > normal_nat, "Glue after '!' should be wider");
+    }
+
+    #[test]
+    fn test_inter_sentence_spacing_wider_after_question() {
+        let metrics = StandardFontMetrics;
+        let normal_glue = inter_word_glue(&metrics, "what");
+        let sentence_glue = inter_word_glue(&metrics, "what?");
+
+        let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+        let sentence_nat = if let BoxNode::Glue { natural, .. } = sentence_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        assert!(sentence_nat > normal_nat, "Glue after '?' should be wider");
+    }
+
+    #[test]
+    fn test_inter_sentence_spacing_not_after_abbreviation() {
+        // "A." ends with uppercase letter before dot → abbreviation, no extra space
+        // (TeX convention: capital letter + period = abbreviation)
+        let metrics = StandardFontMetrics;
+        let abbrev_glue = inter_word_glue(&metrics, "A.");
+        let normal_glue = inter_word_glue(&metrics, "hello");
+
+        let abbrev_nat = if let BoxNode::Glue { natural, .. } = abbrev_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+        let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        assert!(
+            (abbrev_nat - normal_nat).abs() < f64::EPSILON,
+            "Glue after abbreviation 'A.' should be normal width ({} vs {})",
+            abbrev_nat,
+            normal_nat
+        );
+    }
+
+    #[test]
+    fn test_parse_dimension_pt() {
+        assert!((parse_dimension("10pt") - 10.0).abs() < f64::EPSILON);
+        assert!((parse_dimension("0pt") - 0.0).abs() < f64::EPSILON);
+        assert!((parse_dimension("25.5pt") - 25.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_dimension_em() {
+        assert!((parse_dimension("1em") - 10.0).abs() < f64::EPSILON);
+        assert!((parse_dimension("2em") - 20.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_dimension_ex() {
+        assert!((parse_dimension("1ex") - 4.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_dimension_no_unit() {
+        assert!((parse_dimension("15") - 15.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_vspace_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "vspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("20pt".to_string())])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        if let BoxNode::Glue { natural, .. } = &items[0] {
+            assert!(
+                (*natural - 20.0).abs() < f64::EPSILON,
+                "\\vspace{{20pt}} in context should produce Glue(20.0)"
+            );
+        } else {
+            panic!("Expected Glue from \\vspace in context");
+        }
+    }
+
+    #[test]
+    fn test_newpage_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "newpage".to_string(),
+            args: vec![],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(items[0], BoxNode::Penalty { value: -10001 });
+    }
+
+    #[test]
+    fn test_second_paragraph_has_indent() {
+        // First paragraph after section: no indent
+        // Second paragraph: should have indent
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Paragraph(vec![Node::Text("First".to_string())]),
+            Node::Paragraph(vec![Node::Text("Second".to_string())]),
+        ]);
+        let items = translate_with_context(&node);
+        // Find "Second" text
+        let second_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "Second"))
+            .expect("Expected 'Second' text");
+        // Item before "Second" should be Kern(20.0)
+        assert!(
+            second_idx > 0
+                && matches!(&items[second_idx - 1], BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+            "Second paragraph should have Kern(20.0) indent"
+        );
+    }
+
+    #[test]
+    fn test_inter_sentence_in_text_node() {
+        // "Hello. World" should produce wider glue between "Hello." and "World"
+        let metrics = StandardFontMetrics;
+        let node = Node::Text("Hello. World".to_string());
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Should be: Text("Hello."), Glue (wide), Text("World")
+        assert_eq!(items.len(), 3);
+        if let BoxNode::Glue { natural, .. } = &items[1] {
+            let normal_space = metrics.space_width();
+            assert!(
+                *natural > normal_space,
+                "Glue after 'Hello.' should be wider than normal ({} vs {})",
+                natural,
+                normal_space
+            );
+        } else {
+            panic!("Expected Glue between sentences");
+        }
     }
 }

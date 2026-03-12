@@ -388,8 +388,21 @@ impl Parser {
                     let env_name = self.parse_brace_name();
                     Some(ParseEvent::EndEnvironment(env_name))
                 } else {
+                    // Handle star-form commands: \vspace*{...} → Command{name:"vspace", args:[...]}
+                    // The star is consumed and ignored (treated the same as non-star form).
+                    let cmd_name = if name == "vspace" {
+                        if let Token::Character('*', _) = self.peek() {
+                            self.advance(); // consume '*'
+                        }
+                        name
+                    } else {
+                        name
+                    };
                     let args = self.parse_command_args();
-                    Some(ParseEvent::Node(Node::Command { name, args }))
+                    Some(ParseEvent::Node(Node::Command {
+                        name: cmd_name,
+                        args,
+                    }))
                 }
             }
             Token::Character('{', Category::BeginGroup) => {
