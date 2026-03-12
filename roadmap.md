@@ -46,6 +46,9 @@ Binary-identical output requires:
 - **M17 scope:** Tables (tabular environment). tabular column spec parsing (l/r/c/|), \hline rules, cell content rendering, & column separator, \multicolumn support. Engine must produce table box layout. PDF backend must render table cells with proper alignment and column widths.
 - **Cycle 58-62 (M17):** M17 completed in 1 implementation cycle. Leo delivered tabular environment: column spec parsing (l/r/c ignoring |), row splitting at \\, cell splitting at &, \hline as BoxNode::Rule, PDF backend renders Rule as filled rect. 17 new tests, 300 total tests pass, CI green.
 - **M18 scope:** Figures & Cross-References. \begin{figure} environment with placeholder rendering, \label/\ref/\pageref system (resolve references in two passes), automatic figure/section/table numbering, \caption rendering. Keep implementation practical: collect labels in first pass, substitute refs in second pass.
+- **Cycle 62-64 (M18):** M18 completed in 1 implementation cycle + 1 verification (with 1 fix round for forward-ref test). Leo delivered: two-pass label/ref system, \label/\ref/\pageref, figure environment with caption numbering, section numbering, 20 new tests. Apollo verified 320 total tests pass, CI green.
+- **M19 scope:** CLI improvements + verbatim environment + more text commands. Fix CLI output path (currently ignores second arg), add \begin{verbatim} environment (monospace, no command parsing), add \texttt{} command (inline code), add \underline{}, fix UTF-8/special chars in PDF output. These are high-value user-visible improvements.
+- **pdflatex not available locally:** Comparison testing deferred. GhostScript available for smoke tests.
 
 ## Milestones
 
@@ -237,7 +240,7 @@ Implement proper visual rendering of LaTeX list environments in the engine.
 - **Cycles budget:** 6 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by CI (commit f35e77e, 300 tests total)
 
-### M18: Figures & Cross-References
+### M18: Figures & Cross-References ✅ COMPLETE
 Implement a practical label/reference system and figure environment:
 - Figure environment: `\begin{figure}...\end{figure}` renders as a boxed region with caption
 - `\caption{text}` inside figure: renders "Figure N: text" where N is auto-incremented
@@ -246,9 +249,37 @@ Implement a practical label/reference system and figure environment:
 - `\pageref{key}` command: resolves to the page number (e.g., "1")
 - Section numbering: `\section` auto-increments a counter; `\label` after section captures that counter
 - Two-pass rendering: first pass collects labels, second pass substitutes `\ref` values
-- 15+ new tests: figure rendering, caption numbering, \label/\ref resolution, section ref
+- 20 new tests: figure rendering, caption numbering, \label/\ref resolution, section ref, forward references
 - All 300 existing tests continue to pass
-- **Cycles budget:** 6
+- **Cycles budget:** 6 | **Cycles actual:** 1 (+ 1 fix round)
+- **Status:** ✅ Complete — verified by Apollo (commit 4d4c030, 320 tests total)
+
+### M19: CLI Output Path + Verbatim Environment + Text Commands
+Improve usability and completeness of the compiler:
+
+**CLI fix (rustlatex-cli):**
+- Fix output path: if a second argument is provided, use it as the output PDF path (currently ignored)
+- Write the PDF to the user-specified path (or derive from input filename as fallback)
+
+**Verbatim environment (rustlatex-parser + rustlatex-engine):**
+- Parse `\begin{verbatim}...\end{verbatim}` as a special environment (no command interpretation inside)
+- Engine: render verbatim content as monospaced text (use Courier or CM Typewriter font size 10pt)
+- Each line of verbatim becomes a BoxNode::Text line, no line-breaking applied
+
+**New text commands (rustlatex-engine):**
+- `\texttt{text}` — inline monospace/typewriter text (render at same size, mark as monospace)
+- `\underline{text}` — underlined text (render with a Rule beneath the text box)
+- `\textsc{text}` — small caps (render as uppercase text for now)
+- `\noindent` — suppress paragraph indentation (no-op is acceptable for now)
+- `\mbox{text}` — unbreakable horizontal box
+
+**Tests (15+ new):**
+- Test CLI accepts two arguments and writes to specified path
+- Test `\begin{verbatim}` produces output with the verbatim content
+- Test `\texttt{code}` produces text output
+- Test `\underline{text}` produces text + rule output
+- All 320 existing tests continue to pass
+- **Cycles budget:** 5
 - **Status:** Pending
 
 ---
