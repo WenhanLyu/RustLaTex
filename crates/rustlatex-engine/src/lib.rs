@@ -131,6 +131,9 @@ pub enum FontStyle {
     BoldItalic,
     /// Typewriter (monospace) text (e.g., `\texttt`).
     Typewriter,
+    /// Math italic — used for single-letter math variables (cmmi10 font).
+    /// Distinct from text italic (`\textit`); uses cmmi10 glyph metrics.
+    MathItalic,
 }
 
 impl FontStyle {
@@ -140,6 +143,7 @@ impl FontStyle {
             FontStyle::Normal | FontStyle::Bold => FontStyle::Bold,
             FontStyle::Italic | FontStyle::BoldItalic => FontStyle::BoldItalic,
             FontStyle::Typewriter => FontStyle::Bold,
+            FontStyle::MathItalic => FontStyle::BoldItalic,
         }
     }
 
@@ -149,6 +153,7 @@ impl FontStyle {
             FontStyle::Normal | FontStyle::Italic => FontStyle::Italic,
             FontStyle::Bold | FontStyle::BoldItalic => FontStyle::BoldItalic,
             FontStyle::Typewriter => FontStyle::Italic,
+            FontStyle::MathItalic => FontStyle::MathItalic,
         }
     }
 }
@@ -607,6 +612,10 @@ impl FontMetrics for StandardFontMetrics {
                 }
             }
             FontStyle::Typewriter => 5.25, // cmtt10: 525/1000 * 10pt
+            FontStyle::MathItalic => {
+                // cmmi10 AFM widths at 10pt (WX/100)
+                cmmi10_char_width(ch).unwrap_or_else(|| self.char_width(ch))
+            }
         }
     }
 
@@ -615,7 +624,71 @@ impl FontMetrics for StandardFontMetrics {
             FontStyle::Normal | FontStyle::Italic => self.space_width(),
             FontStyle::Bold | FontStyle::BoldItalic => 3.333, // cmbx10 space ≈ 333/1000 * 10pt
             FontStyle::Typewriter => 5.25,
+            FontStyle::MathItalic => 5.0, // cmmi10 space (approximate)
         }
+    }
+}
+
+/// Return the width of a character in cmmi10 at 10pt, or None if not in table.
+///
+/// Values are derived from cmmi10.afm: WX / 100 gives pt width at 10pt.
+fn cmmi10_char_width(ch: char) -> Option<f64> {
+    match ch {
+        // Uppercase letters (A–Z) from cmmi10.afm
+        'A' => Some(7.500),
+        'B' => Some(7.585),
+        'C' => Some(7.147),
+        'D' => Some(8.279),
+        'E' => Some(7.382),
+        'F' => Some(6.431),
+        'G' => Some(7.862),
+        'H' => Some(8.313),
+        'I' => Some(4.396),
+        'J' => Some(5.545),
+        'K' => Some(8.493),
+        'L' => Some(6.806),
+        'M' => Some(9.701),
+        'N' => Some(8.035),
+        'O' => Some(7.628),
+        'P' => Some(6.420),
+        'Q' => Some(7.906),
+        'R' => Some(7.593),
+        'S' => Some(6.132),
+        'T' => Some(5.844),
+        'U' => Some(6.828),
+        'V' => Some(5.833),
+        'W' => Some(9.444),
+        'X' => Some(8.285),
+        'Y' => Some(5.806),
+        'Z' => Some(6.826),
+        // Lowercase letters (a–z) from cmmi10.afm
+        'a' => Some(5.286),
+        'b' => Some(4.292),
+        'c' => Some(4.328),
+        'd' => Some(5.205),
+        'e' => Some(4.656),
+        'f' => Some(4.896),
+        'g' => Some(4.770),
+        'h' => Some(5.762),
+        'i' => Some(3.445),
+        'j' => Some(4.118),
+        'k' => Some(5.206),
+        'l' => Some(2.984),
+        'm' => Some(8.780),
+        'n' => Some(6.002),
+        'o' => Some(4.847),
+        'p' => Some(5.031),
+        'q' => Some(4.464),
+        'r' => Some(4.512),
+        's' => Some(4.688),
+        't' => Some(3.611),
+        'u' => Some(5.725),
+        'v' => Some(4.847),
+        'w' => Some(7.159),
+        'x' => Some(5.715),
+        'y' => Some(4.903),
+        'z' => Some(4.650),
+        _ => None,
     }
 }
 
@@ -802,7 +875,7 @@ fn math_node_to_boxes_inner(
             }
             let font_style =
                 if s.len() == 1 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
-                    FontStyle::Italic
+                    FontStyle::MathItalic
                 } else {
                     FontStyle::Normal
                 };
@@ -1872,7 +1945,13 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 shrink: 3.0,
             }];
             result.push(BoxNode::Penalty { value: -10000 });
+            result.push(BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            });
             result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
+            result.push(BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            });
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
                 natural: 12.0,
@@ -3692,7 +3771,13 @@ pub fn translate_node_with_context(
                 shrink: 3.0,
             }];
             result.push(BoxNode::Penalty { value: -10000 });
+            result.push(BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            });
             result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
+            result.push(BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            });
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
                 natural: 12.0,
@@ -4971,21 +5056,39 @@ mod tests {
     fn test_translate_display_math() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        // DisplayMath produces: Glue(12pt), Penalty, Text, Penalty, Glue(12pt) (5 items)
-        assert_eq!(items.len(), 5);
+        // DisplayMath produces: Glue(12pt), Penalty, AlignCenter, Text, AlignJustify, Penalty, Glue(12pt) (7 items)
+        assert_eq!(items.len(), 7);
         assert!(
             matches!(items[0], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
             "Expected 12pt above-display glue"
         );
         assert!(matches!(items[1], BoxNode::Penalty { value: -10000 }));
-        if let BoxNode::Text { text, .. } = &items[2] {
+        assert!(
+            matches!(
+                items[2],
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                }
+            ),
+            "Expected AlignmentMarker::Center at index 2"
+        );
+        if let BoxNode::Text { text, .. } = &items[3] {
             assert_ne!(text, "(math)", "Should not produce (math) placeholder");
         } else {
-            panic!("Expected BoxNode::Text at index 2");
+            panic!("Expected BoxNode::Text at index 3");
         }
-        assert!(matches!(items[3], BoxNode::Penalty { value: -10000 }));
         assert!(
-            matches!(items[4], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
+            matches!(
+                items[4],
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                }
+            ),
+            "Expected AlignmentMarker::Justify at index 4"
+        );
+        assert!(matches!(items[5], BoxNode::Penalty { value: -10000 }));
+        assert!(
+            matches!(items[6], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
             "Expected 12pt below-display glue"
         );
     }
@@ -6562,16 +6665,17 @@ mod tests {
 
     #[test]
     fn test_math_text_has_computed_width() {
-        // Math text width should equal metrics.string_width(text), not hardcoded 20.0
+        // Math text width for single letter 'x' should use MathItalic (cmmi10) metrics
         let metrics = StandardFontMetrics;
         let node = Node::InlineMath(vec![Node::Text("x".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
         assert_eq!(items.len(), 1);
         if let BoxNode::Text { text, width, .. } = &items[0] {
-            let expected_width = metrics.string_width(text);
+            // Single letter uses MathItalic (cmmi10): 'x' → 5.715pt
+            let expected_width = metrics.string_width_for_style(text, FontStyle::MathItalic);
             assert!(
-                (width - expected_width).abs() < f64::EPSILON,
-                "Math text width should be computed from metrics ({}), not hardcoded. Got {}, expected {}",
+                (width - expected_width).abs() < 0.001,
+                "Math text width should use MathItalic (cmmi10) metrics ({}), not hardcoded. Got {}, expected {}",
                 text,
                 width,
                 expected_width
@@ -13022,12 +13126,12 @@ mod tests {
 
     #[test]
     fn test_math_italic_single_letter_uses_italic() {
-        // A single ASCII letter in math should use FontStyle::Italic
+        // A single ASCII letter in math should use FontStyle::MathItalic
         let node = Node::Text("x".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 1);
         if let BoxNode::Text { font_style, .. } = &boxes[0] {
-            assert_eq!(*font_style, FontStyle::Italic);
+            assert_eq!(*font_style, FontStyle::MathItalic);
         } else {
             panic!("Expected BoxNode::Text");
         }
@@ -13061,7 +13165,7 @@ mod tests {
 
     #[test]
     fn test_math_italic_all_lowercase() {
-        // Every lowercase ASCII letter should produce Italic
+        // Every lowercase ASCII letter should produce MathItalic
         for ch in b'a'..=b'z' {
             let s = String::from(ch as char);
             let node = Node::Text(s.clone());
@@ -13070,8 +13174,8 @@ mod tests {
             if let BoxNode::Text { font_style, .. } = &boxes[0] {
                 assert_eq!(
                     *font_style,
-                    FontStyle::Italic,
-                    "Expected Italic for '{}'",
+                    FontStyle::MathItalic,
+                    "Expected MathItalic for '{}'",
                     s
                 );
             } else {
@@ -13082,7 +13186,7 @@ mod tests {
 
     #[test]
     fn test_math_italic_all_uppercase() {
-        // Every uppercase ASCII letter should produce Italic
+        // Every uppercase ASCII letter should produce MathItalic
         for ch in b'A'..=b'Z' {
             let s = String::from(ch as char);
             let node = Node::Text(s.clone());
@@ -13091,8 +13195,8 @@ mod tests {
             if let BoxNode::Text { font_style, .. } = &boxes[0] {
                 assert_eq!(
                     *font_style,
-                    FontStyle::Italic,
-                    "Expected Italic for '{}'",
+                    FontStyle::MathItalic,
+                    "Expected MathItalic for '{}'",
                     s
                 );
             } else {
@@ -13137,7 +13241,7 @@ mod tests {
 
     #[test]
     fn test_math_node_superscript_letter_italic() {
-        // In x^2, the base 'x' should be italic and exponent '2' should be normal
+        // In x^2, the base 'x' should be MathItalic and exponent '2' should be normal
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -13147,8 +13251,8 @@ mod tests {
         if let BoxNode::Text { font_style, .. } = &boxes[0] {
             assert_eq!(
                 *font_style,
-                FontStyle::Italic,
-                "Base letter should be italic"
+                FontStyle::MathItalic,
+                "Base letter should be MathItalic"
             );
         } else {
             panic!("Expected BoxNode::Text for base");
@@ -13166,7 +13270,7 @@ mod tests {
 
     #[test]
     fn test_math_italic_subscript_letter_italic() {
-        // In x_i, both 'x' and 'i' are single letters -> both italic
+        // In x_i, both 'x' and 'i' are single letters -> both MathItalic
         let node = Node::Subscript {
             base: Box::new(Node::Text("x".to_string())),
             subscript: Box::new(Node::Text("i".to_string())),
@@ -13174,15 +13278,19 @@ mod tests {
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 2);
         if let BoxNode::Text { font_style, .. } = &boxes[0] {
-            assert_eq!(*font_style, FontStyle::Italic, "Base 'x' should be italic");
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Base 'x' should be MathItalic"
+            );
         } else {
             panic!("Expected BoxNode::Text for base");
         }
         if let BoxNode::Text { font_style, .. } = &boxes[1] {
             assert_eq!(
                 *font_style,
-                FontStyle::Italic,
-                "Subscript 'i' should be italic"
+                FontStyle::MathItalic,
+                "Subscript 'i' should be MathItalic"
             );
         } else {
             panic!("Expected BoxNode::Text for subscript");
@@ -13191,16 +13299,16 @@ mod tests {
 
     #[test]
     fn test_math_italic_width_uses_style() {
-        // Width for single letter should use italic metrics
+        // Width for single letter 'x' should use MathItalic (cmmi10) metrics: 5.715pt
         let node = Node::Text("x".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 1);
         if let BoxNode::Text { width, .. } = &boxes[0] {
-            let expected =
-                StandardFontMetrics.string_width_for_style("x", FontStyle::Italic) * (10.0 / 10.0);
+            let expected = StandardFontMetrics.string_width_for_style("x", FontStyle::MathItalic)
+                * (10.0 / 10.0);
             assert!(
                 (*width - expected).abs() < 0.001,
-                "Width should use italic metrics: got {} expected {}",
+                "Width should use MathItalic (cmmi10) metrics: got {} expected {}",
                 width,
                 expected
             );
@@ -13361,6 +13469,273 @@ mod tests {
             assert!(
                 matches!(&items[world_idx - 1], BoxNode::Kern { amount } if (*amount - 15.0).abs() < f64::EPSILON),
                 "Second paragraph indent should be 15pt"
+            );
+        }
+    }
+
+    // ===== M37: MathItalic, cmmi10 metrics, display math centering tests =====
+
+    #[test]
+    fn test_m37_math_italic_variant_exists() {
+        // FontStyle::MathItalic should be a distinct variant from FontStyle::Italic
+        let mi = FontStyle::MathItalic;
+        let it = FontStyle::Italic;
+        assert_ne!(mi, it, "MathItalic must be distinct from Italic");
+        assert_ne!(
+            mi,
+            FontStyle::Normal,
+            "MathItalic must be distinct from Normal"
+        );
+    }
+
+    #[test]
+    fn test_m37_math_italic_with_bold_gives_bold_italic() {
+        // MathItalic + bold modifier → BoldItalic
+        let result = FontStyle::MathItalic.with_bold();
+        assert_eq!(result, FontStyle::BoldItalic);
+    }
+
+    #[test]
+    fn test_m37_math_italic_with_italic_gives_math_italic() {
+        // MathItalic + italic modifier → MathItalic (stays math italic)
+        let result = FontStyle::MathItalic.with_italic();
+        assert_eq!(result, FontStyle::MathItalic);
+    }
+
+    #[test]
+    fn test_m37_single_letter_a_uses_math_italic() {
+        let node = Node::Text("a".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Single 'a' should use MathItalic"
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_m37_single_letter_z_uses_math_italic() {
+        let node = Node::Text("z".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::MathItalic);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_m37_single_letter_A_uses_math_italic() {
+        let node = Node::Text("A".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Single 'A' should use MathItalic"
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_m37_cmmi10_width_for_a() {
+        // cmmi10 width for 'a' = 5.286pt
+        let w = StandardFontMetrics.char_width_for_style('a', FontStyle::MathItalic);
+        assert!(
+            (w - 5.286).abs() < 0.001,
+            "cmmi10 width for 'a' should be ~5.286, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m37_cmmi10_width_for_x() {
+        // cmmi10 width for 'x' = 5.715pt
+        let w = StandardFontMetrics.char_width_for_style('x', FontStyle::MathItalic);
+        assert!(
+            (w - 5.715).abs() < 0.001,
+            "cmmi10 width for 'x' should be ~5.715, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m37_cmmi10_width_for_capital_A() {
+        // cmmi10 width for 'A' = 7.500pt
+        let w = StandardFontMetrics.char_width_for_style('A', FontStyle::MathItalic);
+        assert!(
+            (w - 7.500).abs() < 0.001,
+            "cmmi10 width for 'A' should be ~7.500, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m37_cmmi10_width_for_capital_M() {
+        // cmmi10 width for 'M' = 9.701pt (wider than cmr10's 9.167)
+        let w = StandardFontMetrics.char_width_for_style('M', FontStyle::MathItalic);
+        assert!(
+            (w - 9.701).abs() < 0.001,
+            "cmmi10 width for 'M' should be ~9.701, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m37_cmmi10_width_differs_from_cmr10() {
+        // MathItalic 'x' width (5.715) differs from Normal 'x' width (5.278)
+        let mi_w = StandardFontMetrics.char_width_for_style('x', FontStyle::MathItalic);
+        let norm_w = StandardFontMetrics.char_width_for_style('x', FontStyle::Normal);
+        assert!(
+            (mi_w - norm_w).abs() > 0.01,
+            "MathItalic and Normal widths for 'x' should differ: {} vs {}",
+            mi_w,
+            norm_w
+        );
+    }
+
+    #[test]
+    fn test_m37_display_math_has_center_alignment() {
+        // DisplayMath should include AlignmentMarker::Center
+        let node = Node::DisplayMath(vec![Node::Text("E".to_string())]);
+        let items = translate_node(&node);
+        let has_center = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                }
+            )
+        });
+        assert!(
+            has_center,
+            "DisplayMath should have AlignmentMarker::Center, items: {:?}",
+            items
+        );
+    }
+
+    #[test]
+    fn test_m37_display_math_resets_alignment() {
+        // DisplayMath should include AlignmentMarker::Justify to reset alignment after centering
+        let node = Node::DisplayMath(vec![Node::Text("E".to_string())]);
+        let items = translate_node(&node);
+        let has_justify = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                }
+            )
+        });
+        assert!(
+            has_justify,
+            "DisplayMath should reset to Justify alignment after content"
+        );
+    }
+
+    #[test]
+    fn test_m37_display_math_center_before_content() {
+        // Center marker should appear before the math content
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        let center_idx = items
+            .iter()
+            .position(|n| {
+                matches!(
+                    n,
+                    BoxNode::AlignmentMarker {
+                        alignment: Alignment::Center
+                    }
+                )
+            })
+            .expect("Expected AlignmentMarker::Center");
+        let text_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { .. }))
+            .expect("Expected BoxNode::Text");
+        assert!(
+            center_idx < text_idx,
+            "Center marker ({}) should appear before math content ({})",
+            center_idx,
+            text_idx
+        );
+    }
+
+    #[test]
+    fn test_m37_display_math_produces_7_items_for_single_char() {
+        // For DisplayMath with single char: Glue, Penalty, AlignCenter, Text, AlignJustify, Penalty, Glue
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        assert_eq!(
+            items.len(),
+            7,
+            "DisplayMath with single char should produce 7 items, got {}: {:?}",
+            items.len(),
+            items
+        );
+    }
+
+    #[test]
+    fn test_m37_context_display_math_has_center() {
+        // translate_node_with_context DisplayMath should also include Center
+        let node = Node::DisplayMath(vec![Node::Text("E".to_string())]);
+        let items = translate_with_context(&node);
+        let has_center = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                }
+            )
+        });
+        assert!(
+            has_center,
+            "Context DisplayMath should also have Center alignment"
+        );
+    }
+
+    #[test]
+    fn test_m37_cmmi10_all_lowercase_have_widths() {
+        // All lowercase letters a-z should return cmmi10 widths (not None fallback)
+        for ch in b'a'..=b'z' {
+            let c = ch as char;
+            let w = StandardFontMetrics.char_width_for_style(c, FontStyle::MathItalic);
+            assert!(
+                w > 0.0,
+                "cmmi10 width for '{}' should be positive, got {}",
+                c,
+                w
+            );
+            // Should be different from typewriter (5.25)
+            assert!(
+                (w - 5.25).abs() > 0.01,
+                "cmmi10 width for '{}' should not equal typewriter 5.25, got {}",
+                c,
+                w
+            );
+        }
+    }
+
+    #[test]
+    fn test_m37_cmmi10_all_uppercase_have_widths() {
+        // All uppercase letters A-Z should return cmmi10 widths
+        for ch in b'A'..=b'Z' {
+            let c = ch as char;
+            let w = StandardFontMetrics.char_width_for_style(c, FontStyle::MathItalic);
+            assert!(
+                w > 0.0,
+                "cmmi10 width for '{}' should be positive, got {}",
+                c,
+                w
             );
         }
     }

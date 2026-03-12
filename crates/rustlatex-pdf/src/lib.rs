@@ -640,6 +640,7 @@ impl PdfWriter {
                                 FontStyle::Italic => b"F4",
                                 FontStyle::BoldItalic => b"F5",
                                 FontStyle::Typewriter => b"F6",
+                                FontStyle::MathItalic => b"F4", // cmti10 rendering (cmmi10 metrics)
                             };
                             // Apply text rise for superscript/subscript
                             let has_rise = *vertical_offset != 0.0;
