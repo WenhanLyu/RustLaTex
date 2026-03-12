@@ -1541,9 +1541,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 }
                 "section" | "subsection" | "subsubsection" => {
                     let font_size = match name.as_str() {
-                        "section" => 14.4_f64,
+                        "section" => 14.0_f64,
                         "subsection" => 12.0_f64,
-                        _ => 10.0_f64, // subsubsection
+                        _ => 11.0_f64, // subsubsection
                     };
                     // Spacing to match pdflatex article class:
                     //   \section: 15.07pt before, 9.90pt after
@@ -2471,9 +2471,9 @@ pub fn translate_node_with_context(
                     }
 
                     let font_size = match name.as_str() {
-                        "section" => 14.4_f64,
+                        "section" => 14.0_f64,
                         "subsection" => 12.0_f64,
-                        _ => 10.0_f64,
+                        _ => 11.0_f64,
                     };
                     let title = if let Some(arg) = args.first() {
                         match arg {
@@ -6423,9 +6423,9 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         let has_14_4pt = nodes.iter().any(
-            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 14.4).abs() < 0.001),
+            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 14.0).abs() < 0.001),
         );
-        assert!(has_14_4pt, "Expected 14.4pt text for section");
+        assert!(has_14_4pt, "Expected 14.0pt text for section");
     }
 
     #[test]
@@ -6443,17 +6443,17 @@ mod tests {
     }
 
     #[test]
-    fn test_subsubsection_produces_10pt_text() {
+    fn test_subsubsection_produces_11pt_text() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Sub2".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        let has_10pt = nodes.iter().any(
-            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 10.0).abs() < 0.001),
+        let has_11pt = nodes.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, .. } if (*font_size - 11.0).abs() < 0.001),
         );
-        assert!(has_10pt);
+        assert!(has_11pt);
     }
 
     #[test]
@@ -12831,8 +12831,8 @@ mod tests {
         let text_node = result.iter().find(|n| matches!(n, BoxNode::Text { .. }));
         if let Some(BoxNode::Text { font_size, .. }) = text_node {
             assert!(
-                (*font_size - 14.4).abs() < f64::EPSILON,
-                "Section font size should be 14.4"
+                (*font_size - 14.0).abs() < f64::EPSILON,
+                "Section font size should be 14.0"
             );
         }
     }
@@ -15314,7 +15314,7 @@ mod tests {
     // ===== M51: pdflatex article class spacing/font tests =====
 
     #[test]
-    fn test_m51_section_font_size_is_14_4() {
+    fn test_m51_section_font_size_is_14_0() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15329,8 +15329,8 @@ mod tests {
             }
         });
         assert!(
-            fs.map(|f| (f - 14.4).abs() < 0.001).unwrap_or(false),
-            "section font_size should be 14.4, got {:?}",
+            fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+            "section font_size should be 14.0, got {:?}",
             fs
         );
     }
@@ -15358,7 +15358,7 @@ mod tests {
     }
 
     #[test]
-    fn test_m51_subsubsection_font_size_is_10() {
+    fn test_m51_subsubsection_font_size_is_11() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15373,8 +15373,8 @@ mod tests {
             }
         });
         assert!(
-            fs.map(|f| (f - 10.0).abs() < 0.001).unwrap_or(false),
-            "subsubsection font_size should be 10.0, got {:?}",
+            fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+            "subsubsection font_size should be 11.0, got {:?}",
             fs
         );
     }
@@ -15500,7 +15500,7 @@ mod tests {
     }
 
     #[test]
-    fn test_m51_context_section_font_size_14_4() {
+    fn test_m51_context_section_font_size_14_0() {
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
@@ -15514,14 +15514,14 @@ mod tests {
             }
         });
         assert!(
-            fs.map(|f| (f - 14.4).abs() < 0.001).unwrap_or(false),
-            "context section font_size should be 14.4, got {:?}",
+            fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+            "context section font_size should be 14.0, got {:?}",
             fs
         );
     }
 
     #[test]
-    fn test_m51_context_subsubsection_font_size_10() {
+    fn test_m51_context_subsubsection_font_size_11() {
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -15552,8 +15552,8 @@ mod tests {
             }
         });
         assert!(
-            sss_fs.map(|f| (f - 10.0).abs() < 0.001).unwrap_or(false),
-            "context subsubsection font_size should be 10.0, got {:?}",
+            sss_fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+            "context subsubsection font_size should be 11.0, got {:?}",
             sss_fs
         );
     }
@@ -15923,5 +15923,495 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ===== M54: Revert font sizes: section=14.0, subsubsection=11.0 =====
+
+    #[test]
+    fn test_m54_section_font_size_is_14_0_metrics() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let fs = nodes.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+            "M54: section font_size should be 14.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_subsubsection_font_size_is_11_0_metrics() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let fs = nodes.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+            "M54: subsubsection font_size should be 11.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_subsection_still_12_0() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Methods".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let fs = nodes.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 12.0).abs() < 0.001).unwrap_or(false),
+            "M54: subsection font_size should remain 12.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_section_larger_than_subsection() {
+        let metrics = StandardFontMetrics;
+        let sec = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("A".to_string())])],
+        };
+        let sub = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("B".to_string())])],
+        };
+        let sec_fs = translate_node_with_metrics(&sec, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        let sub_fs = translate_node_with_metrics(&sub, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            sec_fs.unwrap_or(0.0) > sub_fs.unwrap_or(100.0),
+            "M54: section ({:?}) should be larger than subsection ({:?})",
+            sec_fs,
+            sub_fs
+        );
+    }
+
+    #[test]
+    fn test_m54_subsection_larger_than_subsubsection() {
+        let metrics = StandardFontMetrics;
+        let sub = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("B".to_string())])],
+        };
+        let sss = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("C".to_string())])],
+        };
+        let sub_fs = translate_node_with_metrics(&sub, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        let sss_fs = translate_node_with_metrics(&sss, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            sub_fs.unwrap_or(0.0) > sss_fs.unwrap_or(100.0),
+            "M54: subsection ({:?}) should be larger than subsubsection ({:?})",
+            sub_fs,
+            sss_fs
+        );
+    }
+
+    #[test]
+    fn test_m54_section_larger_than_subsubsection() {
+        let metrics = StandardFontMetrics;
+        let sec = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("A".to_string())])],
+        };
+        let sss = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("C".to_string())])],
+        };
+        let sec_fs = translate_node_with_metrics(&sec, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        let sss_fs = translate_node_with_metrics(&sss, &metrics)
+            .iter()
+            .find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            sec_fs.unwrap_or(0.0) > sss_fs.unwrap_or(100.0),
+            "M54: section ({:?}) should be larger than subsubsection ({:?})",
+            sec_fs,
+            sss_fs
+        );
+    }
+
+    #[test]
+    fn test_m54_context_section_font_size_14_0() {
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let fs = items.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+            "M54: context section font_size should be 14.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_context_subsubsection_font_size_11_0() {
+        let node = Node::Document(vec![Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Detail".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let fs = items.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+            "M54: context subsubsection font_size should be 11.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_context_subsection_font_size_12_0() {
+        let node = Node::Document(vec![Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Methods".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let fs = items.iter().find_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        });
+        assert!(
+            fs.map(|f| (f - 12.0).abs() < 0.001).unwrap_or(false),
+            "M54: context subsection font_size should be 12.0, got {:?}",
+            fs
+        );
+    }
+
+    #[test]
+    fn test_m54_section_vskip_still_zero() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        for n in &nodes {
+            if let BoxNode::VSkip { amount } = n {
+                assert!(
+                    amount.abs() < 0.001,
+                    "M54: VSkip amount must remain 0.0, got {}",
+                    amount
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_m54_subsubsection_vskip_still_zero() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        for n in &nodes {
+            if let BoxNode::VSkip { amount } = n {
+                assert!(
+                    amount.abs() < 0.001,
+                    "M54: subsubsection VSkip must remain 0.0, got {}",
+                    amount
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_m54_section_produces_text_node() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Results".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_text = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("Results")));
+        assert!(
+            has_text,
+            "M54: section should produce a Text node with content"
+        );
+    }
+
+    #[test]
+    fn test_m54_subsubsection_produces_text_node() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Algorithm".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_text = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("Algorithm")));
+        assert!(
+            has_text,
+            "M54: subsubsection should produce a Text node with content"
+        );
+    }
+
+    #[test]
+    fn test_m54_multiple_sections_all_14_0() {
+        let metrics = StandardFontMetrics;
+        for title in &["First", "Second", "Third"] {
+            let node = Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text(title.to_string())])],
+            };
+            let nodes = translate_node_with_metrics(&node, &metrics);
+            let fs = nodes.iter().find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+            assert!(
+                fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+                "M54: section '{}' font_size should be 14.0, got {:?}",
+                title,
+                fs
+            );
+        }
+    }
+
+    #[test]
+    fn test_m54_multiple_subsubsections_all_11_0() {
+        let metrics = StandardFontMetrics;
+        for title in &["Alpha", "Beta", "Gamma"] {
+            let node = Node::Command {
+                name: "subsubsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text(title.to_string())])],
+            };
+            let nodes = translate_node_with_metrics(&node, &metrics);
+            let fs = nodes.iter().find_map(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            });
+            assert!(
+                fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+                "M54: subsubsection '{}' font_size should be 11.0, got {:?}",
+                title,
+                fs
+            );
+        }
+    }
+
+    #[test]
+    fn test_m54_context_hierarchy_all_correct_sizes() {
+        // Test all three heading levels in one document via context path
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("TopLevel".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("MidLevel".to_string())])],
+            },
+            Node::Command {
+                name: "subsubsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("BotLevel".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+
+        let sec_fs = items.iter().find_map(|n| {
+            if let BoxNode::Text {
+                font_size, text, ..
+            } = n
+            {
+                if text.contains("TopLevel") {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        let sub_fs = items.iter().find_map(|n| {
+            if let BoxNode::Text {
+                font_size, text, ..
+            } = n
+            {
+                if text.contains("MidLevel") {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        let sss_fs = items.iter().find_map(|n| {
+            if let BoxNode::Text {
+                font_size, text, ..
+            } = n
+            {
+                if text.contains("BotLevel") {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+        assert!(
+            sec_fs.map(|f| (f - 14.0).abs() < 0.001).unwrap_or(false),
+            "M54: context section should be 14.0, got {:?}",
+            sec_fs
+        );
+        assert!(
+            sub_fs.map(|f| (f - 12.0).abs() < 0.001).unwrap_or(false),
+            "M54: context subsection should be 12.0, got {:?}",
+            sub_fs
+        );
+        assert!(
+            sss_fs.map(|f| (f - 11.0).abs() < 0.001).unwrap_or(false),
+            "M54: context subsubsection should be 11.0, got {:?}",
+            sss_fs
+        );
+    }
+
+    #[test]
+    fn test_m54_font_hierarchy_order_14_12_11() {
+        // Verify exact sizes: 14.0 > 12.0 > 11.0
+        assert!(
+            (14.0_f64 - 12.0).abs() > 1.0,
+            "section-subsection gap should be >1pt"
+        );
+        assert!(
+            (12.0_f64 - 11.0).abs() > 0.5,
+            "subsection-subsubsection gap should be >0.5pt"
+        );
+        assert!(14.0_f64 > 12.0_f64, "section > subsection");
+        assert!(12.0_f64 > 11.0_f64, "subsection > subsubsection");
+    }
+
+    #[test]
+    fn test_m54_section_bold_style() {
+        // Section headings should be bold
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Bold Section".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_bold = nodes.iter().any(|n| {
+            matches!(n, BoxNode::Text { font_style, text, .. }
+                if *font_style == FontStyle::Bold && text.contains("Bold Section"))
+        });
+        assert!(has_bold, "M54: section should produce bold text");
+    }
+
+    #[test]
+    fn test_m54_subsubsection_bold_style() {
+        // Subsubsection headings should be bold
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Bold Sub3".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let has_bold = nodes.iter().any(|n| {
+            matches!(n, BoxNode::Text { font_style, text, .. }
+                if *font_style == FontStyle::Bold && text.contains("Bold Sub3"))
+        });
+        assert!(has_bold, "M54: subsubsection should produce bold text");
     }
 }
