@@ -853,9 +853,9 @@ pub fn math_node_to_text(node: &Node) -> String {
 ///
 /// - `Node::Text(s)`: emit `BoxNode::Text` at normal size and baseline.
 /// - `Node::Superscript { base, exponent }`: emit base at normal offset,
-///   exponent at `font_size=7.0` with `vertical_offset=+4.0`.
+///   exponent at `font_size=7.07` with `vertical_offset=+3.45`.
 /// - `Node::Subscript { base, subscript }`: emit base at normal offset,
-///   subscript at `font_size=7.0` with `vertical_offset=-2.0`.
+///   subscript at `font_size=7.0` with `vertical_offset=-2.5`.
 /// - Other node types fall back to `math_node_to_text()`.
 pub fn math_node_to_boxes(node: &Node, metrics: &dyn FontMetrics) -> Vec<BoxNode> {
     math_node_to_boxes_inner(node, metrics, 10.0, 0.0)
@@ -959,12 +959,12 @@ fn math_node_to_boxes_inner(
         }
         Node::Superscript { base, exponent } => {
             let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
-            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.0, 4.0));
+            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.07, 3.45));
             boxes
         }
         Node::Subscript { base, subscript } => {
             let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
-            boxes.extend(math_node_to_boxes_inner(subscript, metrics, 7.0, -2.0));
+            boxes.extend(math_node_to_boxes_inner(subscript, metrics, 7.0, -2.5));
             boxes
         }
         Node::MathGroup(nodes) | Node::Group(nodes) => nodes
@@ -12922,7 +12922,7 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_superscript_vertical_offset() {
-        // Superscript exponent should have vertical_offset=+4.0
+        // Superscript exponent should have vertical_offset=+3.45
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -12938,12 +12938,12 @@ mod tests {
         } else {
             panic!("Expected BoxNode::Text for base");
         }
-        // Exponent should have vertical_offset=+4.0
+        // Exponent should have vertical_offset=+3.45
         if let BoxNode::Text {
             vertical_offset, ..
         } = &boxes[1]
         {
-            assert_eq!(*vertical_offset, 4.0);
+            assert_eq!(*vertical_offset, 3.45);
         } else {
             panic!("Expected BoxNode::Text for exponent");
         }
@@ -12951,19 +12951,19 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_subscript_vertical_offset() {
-        // Subscript should have vertical_offset=-2.0
+        // Subscript should have vertical_offset=-2.5
         let node = Node::Subscript {
             base: Box::new(Node::Text("x".to_string())),
             subscript: Box::new(Node::Text("i".to_string())),
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 2);
-        // Subscript should have vertical_offset=-2.0
+        // Subscript should have vertical_offset=-2.5
         if let BoxNode::Text {
             vertical_offset, ..
         } = &boxes[1]
         {
-            assert_eq!(*vertical_offset, -2.0);
+            assert_eq!(*vertical_offset, -2.5);
         } else {
             panic!("Expected BoxNode::Text for subscript");
         }
@@ -12971,14 +12971,18 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_superscript_font_size() {
-        // Superscript exponent should have font_size=7.0
+        // Superscript exponent should have font_size=7.07
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         if let BoxNode::Text { font_size, .. } = &boxes[1] {
-            assert_eq!(*font_size, 7.0);
+            assert!(
+                (*font_size - 7.07).abs() < 0.001,
+                "Expected font_size=7.07, got {}",
+                font_size
+            );
         } else {
             panic!("Expected BoxNode::Text for exponent");
         }
@@ -13044,8 +13048,12 @@ mod tests {
         } = &items[1]
         {
             assert_eq!(text, "2");
-            assert_eq!(*vertical_offset, 4.0);
-            assert_eq!(*font_size, 7.0);
+            assert_eq!(*vertical_offset, 3.45);
+            assert!(
+                (*font_size - 7.07).abs() < 0.001,
+                "Expected font_size=7.07, got {}",
+                font_size
+            );
         } else {
             panic!("Expected BoxNode::Text");
         }
@@ -13117,8 +13125,8 @@ mod tests {
             } = item
             {
                 assert_eq!(
-                    *vertical_offset, 4.0,
-                    "Superscript group should have vertical_offset=4.0"
+                    *vertical_offset, 3.45,
+                    "Superscript group should have vertical_offset=3.45"
                 );
             }
         }
@@ -14258,5 +14266,72 @@ mod tests {
             "\\alpha should produce 1 box node (no kerns)"
         );
         assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "α"));
+    }
+
+    // ============================================================
+    // M42: Superscript precision tests
+    // ============================================================
+
+    #[test]
+    fn test_m42_superscript_font_size_7_07() {
+        // Superscript exponent should have font_size=7.07 (not 7.0)
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text { font_size, .. } = &boxes[1] {
+            assert!(
+                (*font_size - 7.07).abs() < 0.001,
+                "Expected superscript font_size=7.07, got {}",
+                font_size
+            );
+        } else {
+            panic!("Expected BoxNode::Text for exponent");
+        }
+    }
+
+    #[test]
+    fn test_m42_superscript_vertical_offset_3_45() {
+        // Superscript exponent should have vertical_offset=3.45 (not 4.0)
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("a".to_string())),
+            exponent: Box::new(Node::Text("b".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert_eq!(
+                *vertical_offset, 3.45,
+                "Expected superscript vertical_offset=3.45, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Expected BoxNode::Text for exponent");
+        }
+    }
+
+    #[test]
+    fn test_m42_subscript_vertical_offset_neg_2_5() {
+        // Subscript should have vertical_offset=-2.5 (not -2.0)
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("a".to_string())),
+            subscript: Box::new(Node::Text("k".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert_eq!(
+                *vertical_offset, -2.5,
+                "Expected subscript vertical_offset=-2.5, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Expected BoxNode::Text for subscript");
+        }
     }
 }
