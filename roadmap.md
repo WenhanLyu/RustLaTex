@@ -53,6 +53,8 @@ Binary-identical output requires:
 - **M20 scope:** Focus on core TeX behaviors: paragraph indentation (20pt first-line indent, suppressed after section headings), page break commands (\newpage/\clearpage/\pagebreak), \vspace, and inter-sentence spacing (wider glue after sentence-ending punctuation). These are visible in every real LaTeX document.
 - **Cycle 60-62 (M20):** M20 completed in 1 implementation cycle + 1 verification. Leo delivered paragraph indentation (20pt Kern, suppressed after headings and via \noindent), \newpage/\clearpage/\pagebreak (Penalty{-10001}), \vspace/\vspace* dimension parsing, inter-sentence spacing (1.5x glue, abbreviation exception). 22 new tests, 360 total tests pass.
 - **M21 scope:** Title/author/date (\title, \author, \date, \maketitle) and page numbers in PDF footer. These are present in virtually every real LaTeX document. \maketitle emits a centered title block; PDF backend renders page numbers in footer.
+- **Cycle 86-88 (M21):** M21 completed in 1 implementation cycle. Leo delivered \title/\author/\date/\maketitle system + PDF page number footer. TranslationContext extended with title/author/date fields. \maketitle emits centered title block at 17pt/12pt. PDF footer renders page numbers. 17 new tests, 377 total tests pass, CI green.
+- **M22 scope:** Footnotes (\footnote), abstract environment, horizontal spacing (\hspace, \hfill, \vfill), and URL/hyperlink commands (\href, \url). These are present in the majority of real academic LaTeX documents and are completely missing from the current implementation.
 
 ## Milestones
 
@@ -320,37 +322,51 @@ Implement core TeX typesetting behaviors that are present in every LaTeX documen
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by Apollo (commit 13fbcaa, 360 tests total)
 
-### M21: Title Page (\maketitle) + Page Numbers in PDF Footer
+### M21: Title Page (\maketitle) + Page Numbers in PDF Footer ✅ COMPLETE
 Implement the LaTeX title block and page number rendering — features present in nearly every real LaTeX document.
 
-**Title/author/date system (rustlatex-parser + rustlatex-engine):**
-- Parse `\title{...}`, `\author{...}`, `\date{...}` commands: store their text content in DocumentCounters/context
-- `\date{}` (empty) → suppress date; `\date{\today}` → today's date string; `\date` without arg → "today" (default)
-- `\maketitle` command: emit a title block at the current position in the document with:
-  - Title text centered at 17pt (large font)
-  - Author text centered at 12pt
-  - Date text centered at 12pt (if non-empty)
-  - 24pt vertical space after the title block
-  - Suppress paragraph indentation for the first paragraph after \maketitle
+- **Deliverables:** \title/\author/\date/\maketitle system, PDF page number footer (CMR10, centered, 30pt from bottom), 17 new tests
+- **Cycles budget:** 4 | **Cycles actual:** 1
+- **Status:** ✅ Complete — verified by CI (commit 51cf47d, 377 tests total)
 
-**Page number rendering (rustlatex-pdf):**
-- Each PDF page should have a centered page number in the footer area
-- Page number format: plain arabic numerals ("1", "2", "3", ...)
-- Position: centered horizontally, 30pt from bottom of page
-- Font: same CMR10, 10pt
-- The `Page` struct already has a `number` field — use it
+### M22: Footnotes + Abstract + Horizontal Spacing + URLs
+Implement common LaTeX features missing from the current implementation.
+
+**Footnote system (rustlatex-engine + rustlatex-pdf):**
+- `\footnote{text}` — render footnote text at the bottom of the current page; auto-numbered superscript in main text
+- Footnote counter increments per-page; superscript marker "¹", "²", etc. appears in text
+- At page bottom: horizontal rule + footnote text at 8pt, numbered to match superscript
+- Simple implementation: collect footnotes per page during typesetting, render in PDF footer area above page numbers
+
+**Abstract environment (rustlatex-engine):**
+- `\begin{abstract}...\end{abstract}` — render centered heading "Abstract" followed by indented paragraph text
+- Abstract heading at 12pt, text at 10pt, with 12pt vertical space before/after
+
+**Horizontal spacing (rustlatex-engine):**
+- `\hspace{len}` — insert horizontal glue of specified size (parse pt/em/ex dimensions)
+- `\hspace*{len}` — same as \hspace for now
+- `\hfill` — infinite horizontal stretch glue (pushes content to the right or fills line)
+- `\vfill` — infinite vertical stretch glue (fills vertical space)
+- `\quad` — 1em horizontal space (10pt at default size)
+- `\qquad` — 2em horizontal space (20pt at default size)
+- `\,` — thin space (3pt)
+- `\;` — thick space (5pt)
+
+**URL/hyperlink commands (rustlatex-engine):**
+- `\url{http://...}` — render URL text in typewriter font (same as \texttt)
+- `\href{url}{text}` — render text portion in typewriter font (URL is currently not clickable — PDF links are future work)
+- `\textbf{text}` already works; ensure `\emph{text}` works as italic
 
 **Tests (15+ new):**
-- Test `\title{My Title}` stores title in context
-- Test `\author{John Doe}` stores author in context
-- Test `\date{2025}` stores date string
-- Test `\date{}` results in no date in maketitle output
-- Test `\maketitle` emits centered title BoxNode at 17pt
-- Test `\maketitle` emits centered author BoxNode at 12pt
-- Test `\maketitle` with author and date produces 3 centered items (title, author, date)
-- Test `\maketitle` without `\title` set still compiles (fallback to empty)
-- Test PDF output contains page number text ("1") in the footer region
-- All 360 existing tests continue to pass
+- Test `\footnote{text}` produces a superscript marker in main text
+- Test footnote content appears in engine output
+- Test `\begin{abstract}` renders "Abstract" heading
+- Test `\hspace{10pt}` produces a Kern(10.0) in output
+- Test `\hfill` produces a Glue with large stretch value
+- Test `\quad` produces a Kern(10.0)
+- Test `\url{...}` renders URL text in typewriter font
+- Test `\href{url}{text}` renders link text
+- All 377 existing tests continue to pass
 
 - **Cycles budget:** 4
 - **Status:** Pending
