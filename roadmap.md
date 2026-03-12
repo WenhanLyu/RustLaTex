@@ -67,6 +67,8 @@ Binary-identical output requires:
 - **M27 scope:** Font style support (bold, italic, bold-italic, typewriter) in PDF output. Currently \textbf/\textit/\emph/\texttt all render identically — they don't change font face in the PDF. For the project goal of "binary identical" output, font styles must produce visually correct PDF output using appropriate font resources.
 - **Cycle 113-120 (M27):** M27 completed in 1 implementation cycle + 1 fix round + 1 verification. Leo delivered FontStyle enum (Normal/Bold/Italic/BoldItalic/Typewriter), font_style field on BoxNode::Text, TranslationContext font style tracking + group scoping, \bfseries/\itshape/\ttfamily/\normalfont declarations, 5 Base-14 PDF fonts (Helvetica variants + Courier). Ares added 2 missing tests. 24 new tests, 516 total tests pass, CI green.
 - **M28 scope:** Per-font-style character width metrics. Currently all font styles (Bold, Italic, BoldItalic, Typewriter) use CM Roman width metrics for line-breaking and PDF positioning, even though the PDF backend selects different fonts. This causes incorrect text layout. M28 adds separate width tables for Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, and Courier, and uses them consistently in both the engine (line-breaking) and PDF backend (character positioning).
+- **Cycle 120-123 (M28):** M28 completed in 1 implementation cycle + 1 verification. char_width_for_style/space_width_for_style/string_width_for_style added to FontMetrics trait. Typewriter=6.0pt monospace, Bold/BoldItalic=1.05×, Italic=Normal. Engine translator uses per-style widths throughout. 20 new tests, 536 total tests pass, CI green.
+- **M29 scope:** pdflatex comparison infrastructure. Install texlive-base + texlive-fonts-recommended in CI, add integration tests that compile simple .tex files with BOTH our compiler and pdflatex, render both to PNG via GhostScript, compute pixel similarity. Establishes the baseline measurement for progress toward "binary identical" goal. pdflatex not available locally — CI (ubuntu-latest) is the test environment.
 
 ## Milestones
 
@@ -509,7 +511,7 @@ Implement proper font face differentiation in PDF output so that `\textbf`, `\te
 - **Cycles budget:** 5 | **Cycles actual:** 2 (1 impl + 1 fix round)
 - **Status:** ✅ Complete — verified by Apollo (commit c34c8a9, 516 tests total)
 
-### M28: Per-Font-Style Character Width Metrics
+### M28: Per-Font-Style Character Width Metrics ✅ COMPLETE
 Fix the character width metrics so each font style uses accurate widths for line-breaking and PDF text positioning.
 
 **Background:** M27 added visual font differentiation in PDF (correct font face selected). However, all font styles still use the same CM Roman/Helvetica width table for measuring character widths. This means bold text (wider than normal in Helvetica-Bold) and typewriter text (monospace in Courier) still break lines as if they were normal weight Helvetica. This causes line-breaking to be incorrect for styled text.
@@ -538,7 +540,44 @@ Fix the character width metrics so each font style uses accurate widths for line
 - Test FontMetrics trait method exists for style-aware width lookup
 - All 516 existing tests continue to pass
 
-- **Cycles budget:** 4
+- **Cycles budget:** 4 | **Cycles actual:** 1 (+ 1 verification)
+- **Status:** ✅ Complete — verified by Apollo (commit fce36ac, 536 tests total)
+
+### M29: pdflatex Comparison Infrastructure
+Establish the ability to compare our compiler's output against pdflatex output in CI.
+
+**CI changes (.github/workflows/ci.yml):**
+- Add `texlive-base texlive-fonts-recommended texlive-latex-base` to the apt-get install step (already has ghostscript)
+- Verify `pdflatex --version` works in CI
+
+**Test files (examples/):**
+- Use existing simple .tex files (hello.tex, sections.tex, math.tex, lists.tex)
+- Create a new `compare.tex` with basic text, one section, inline math, and a list — representative enough to reveal layout differences
+
+**Rust integration test (crates/rustlatex-engine/tests/ or a new comparison test):**
+- Compile `compare.tex` with our compiler → `our_output.pdf`
+- Compile `compare.tex` with pdflatex → `ref_output.pdf`  
+- Render page 1 of each to PNG via GhostScript at 150 DPI
+- Compute pixel difference (using a simple byte-level metric in the test)
+- Assert both PDFs are non-empty and valid (gs can render them)
+- Log pixel similarity score — don't fail test on similarity (we know output will differ initially), just log it
+- This establishes a baseline for future comparison
+
+**Shell script approach (simpler alternative):**
+- Add a `compare_test.sh` script that runs both compilers and uses `gs` + `diff` or `compare`
+- Run this script as part of a CI step
+- Output the similarity score to CI logs
+
+**Tests (5+ new):**
+- Test that pdflatex is available in CI (skip test if not available via `#[cfg]` or env check)
+- Test that our compiler produces non-empty PDF for compare.tex
+- Test that pdflatex produces non-empty PDF for compare.tex  
+- Test that both PDFs can be rendered to PNG by GhostScript
+- Log pixel similarity between our output and pdflatex output
+
+**Goal:** After this milestone, we will know *how* different our output is from pdflatex on a simple document, which will guide M30+ fixes.
+
+- **Cycles budget:** 3
 - **Status:** Pending
 
 ---
