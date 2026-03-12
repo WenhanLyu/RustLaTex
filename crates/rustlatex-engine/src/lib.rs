@@ -4877,4 +4877,52 @@ mod tests {
             all_text
         );
     }
+
+    #[test]
+    fn test_forward_reference_two_pass() {
+        // Forward reference: \ref{sec:end} appears BEFORE \section{End}\label{sec:end}
+        // The two-pass system should resolve this correctly (not '??').
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+            },
+            Node::Text("See section ".to_string()),
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:end".to_string())])],
+            },
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("End".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:end".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let ref_texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // sec:end is the second section, so \ref{sec:end} should resolve to "2"
+        assert!(
+            ref_texts.contains(&"2"),
+            "Expected forward \\ref{{sec:end}} to resolve to '2', got {:?}",
+            ref_texts
+        );
+        // Must NOT contain '??' for this reference
+        assert!(
+            !ref_texts.contains(&"??"),
+            "Forward reference should not produce '??', got {:?}",
+            ref_texts
+        );
+    }
 }
