@@ -76,7 +76,8 @@ Binary-identical output requires:
 - **Cycle ~131 (M30):** M30 completed in 1 implementation cycle. Leo fixed all 5 critical rendering gaps. 558 total tests pass, CI green.
 - **Pixel similarity score now visible in CI:** M31 fixed eprintln! — score now appears in CI stderr logs.
 - **Cycle ~133 (M32):** M32 completed in 1 implementation cycle + 1 verification. Leo replaced Helvetica/Courier Base-14 stubs with embedded cmbx10/cmti10/cmbxti10/cmtt10 Type1 fonts. Updated StandardFontMetrics: Bold uses cmbx10 per-char widths, Typewriter = 5.25pt monospace. Apollo verified 594 tests pass, CI green. No more Helvetica/Courier in PDF output.
-- **M33:** Research rendering gaps after M32. Diana to evaluate OT1 encoding issues, pixel similarity score, and top remaining gaps vs pdflatex.
+- **M33 research (Diana):** OT1 encoding is the primary correctness bug — CM fonts use OT1 not StandardEncoding. `< > { } | \ "` all render blank/wrong. Bullet "•" is another visible bug. Superscript rendering (proper size+rise) is the biggest visual similarity gap. CI pixel comparison uses raw bytes (not decoded pixels) — fundamentally flawed measurement. Estimated visual similarity ~55-70% after M32.
+- **M33 scope:** OT1 encoding fix + bullet fix + CI visibility. Superscript rendering deferred to M34.
 
 ## Milestones
 
@@ -626,8 +627,43 @@ Replace Helvetica font variants in PDF output with actual Computer Modern fonts 
 - **Cycles budget:** 2 | **Cycles actual:** 1 + 1 verification
 - **Status:** ✅ Complete — Apollo verified 594 tests pass, CI green (commit a7790a7)
 
-### M33: OT1 Encoding Fix + Pixel Similarity Measurement
-(TBD — pending Diana's research on remaining rendering gaps)
+### M33: OT1 Encoding Fix + Bullet Character Fix + CI Similarity Visibility
+Fix the top rendering gaps identified by Diana's M32 research:
+
+**1. OT1 Encoding Fix (rustlatex-pdf):**
+- Replace `StandardEncoding` with an explicit OT1 encoding `/Differences` array in ALL Type1 CM font dicts (cmr10, cmbx10, cmti10, cmbxti10, cmtt10)
+- OT1 differences include: positions 0-31 (Greek + ligatures: Γ,Δ,Θ,Λ,Ξ,Π,Σ,Υ,Φ,Ψ,Ω,ff,fi,fl,ffi,ffl,dotlessi,dotlessj,...), plus 34→quotedblright, 60→exclamdown, 62→questiondown, 92→quotedblleft, 123→endash, 124→emdash, 125→hungarumlaut
+- Change font descriptor flags from `NON_SYMBOLIC` to `SYMBOLIC` (CM fonts are symbolic/non-standard encoding)
+- This fixes rendering of `< > { } | \ "` which currently show blank/wrong glyphs in CM fonts
+
+**2. Fix Bullet Character (rustlatex-engine + rustlatex-pdf):**
+- Replace Unicode bullet "•" (U+2022) in itemize lists with a PDF-native solution
+- Use a filled circle via PDF path drawing operators (a small filled circle at the right position)
+- OR: use cmsy10 bullet glyph at code position 15 (requires embedding cmsy10 font — simpler: use PDF drawing)
+- Simple approach: render bullet as a BoxNode::Rule (small filled rectangle ~2pt×2pt) or add BoxNode::Bullet variant
+- Alternatively: use the ASCII period "." character padded with space (avoids all encoding issues)
+
+**3. Fix CI Pixel Similarity Test Visibility:**
+- Add `-- --nocapture` to the CI step that runs the pixel similarity test
+- OR: add a separate CI step: `cargo test test_pixel_similarity_logged -- --nocapture`
+- This ensures the similarity score appears in CI output so we can track progress
+
+**Tests (15+ new):**
+- Test that PDF no longer contains `StandardEncoding` for CM fonts (test OT1 encoding entry)
+- Test that the encoding contains correct OT1 glyph names (e.g., /exclamdown at position 60)
+- Test that bullet rendering produces non-Unicode output (no "•" in PDF bytes)
+- Test that each CM font dict has SYMBOLIC flag (not NON_SYMBOLIC)
+- All 594 existing tests pass
+
+- **Cycles budget:** 2
+- **Status:** 🔄 In progress
+
+### M34: Proper Superscript/Subscript Rendering in PDF
+(TBD — pending M33 completion)
+- Use PDF `Ts` (text rise) operator to render superscripts raised by ~4pt at ~7pt font size
+- Use negative `Ts` for subscripts lowered by ~2pt at ~7pt font size
+- This requires per-glyph vertical positioning in the PDF backend
+- Estimated visual improvement: +10-15% pixel similarity
 
 ---
 
