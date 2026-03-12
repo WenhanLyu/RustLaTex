@@ -121,6 +121,8 @@ Binary-identical output requires:
 - **M54 scope:** Revert section font_size 14.4→14.0 and subsubsection font_size 10.0→11.0 to recover pixel similarity. These M51 changes made things worse vs pdflatex layout. Target: 980+ tests, 95.7%+ similarity. Keep VSkip=0.0 infrastructure intact.
 - **Cycle (M54+M55):** M54 reverted font sizes (984 tests, 94.47% — still not enough). M55 removed all VSkip nodes from section headings entirely (returning to M49-style layout). Result: 1003 tests pass, pixel similarity = 95.68%, CI green (commit 57d328f). VSkip infrastructure kept for \vspace.
 - **M56 scope:** Investigate and fix the remaining 4.32% pixel similarity gap. Diana's research needed to identify top improvements. Key candidates: (1) Section spacing before/after without causing cascading layout shifts; (2) Line-breaking accuracy improvements; (3) Other rendering details. Target: 97%+ similarity, 1015+ tests.
+- **Cycle (M56 — MISSED):** M56 failed — 3/3 cycles used, similarity stuck at 95.69%. Section VSkip (12.24pt after section) regressed to 94.44%; reverting VSkip but keeping font_size=14.4 recovered to 95.69%. Net: font_size 14.4 in place (correct per pdflatex spec), but no similarity gain. KEY LESSON: Do NOT add VSkip around section headings. The gap must be diagnosed via a different approach — need to identify which specific pixels differ. Current state: 1000 tests, 95.69% similarity, font_size=14.4 for sections.
+- **M57 approach:** Have Diana do a forensic analysis of what specifically differs at 72 DPI between our PPM and pdflatex PPM. Focus on: text position drift, margin accuracy, page number rendering differences. Then implement the single most impactful fix.
 
 ## Milestones
 
@@ -887,20 +889,27 @@ Remove all VSkip(0.0) nodes from section/subsection/subsubsection headings. Keep
 - **Cycles budget:** 1 | **Cycles actual:** 1 (Leo)
 - **Status:** ✅ Complete — 1003 tests, 95.68% similarity (commit 57d328f)
 
-### M56: Improve Pixel Similarity Beyond 95.68% (Next)
-Investigate and fix the remaining ~4.32% pixel similarity gap vs pdflatex.
+### M56: Improve Pixel Similarity Beyond 95.68% ⚠️ DEADLINE MISSED (3/3 cycles used)
+Investigated and attempted section heading font size (14.0→14.4) + after-VSkip spacing.
 
-**Scope (to be refined after Diana's research):**
-- Analyze what specific lines/regions differ vs pdflatex at current 95.68%
-- Top candidate improvements:
-  1. Section heading before/after spacing — properly implement without cascading layout shifts
-  2. Text line positioning accuracy
-  3. Other rendering details that Diana's analysis identifies
-- 15+ new tests
-- Target: 97%+ similarity, 1015+ tests
+**Outcome:**
+- Commit de4ed61: 94.44% (regression — VSkip caused layout shifts)
+- Commit 2640cb3: 95.69% (same as baseline — VSkip removed, kept font_size 14.4)
+- Net result: font_size 14.4 is now in use (neutral effect on similarity, cosmetically correct)
+- **Target of 97%+ NOT achieved** — section spacing approach exhausted
+- **Lesson learned:** VSkip-based section spacing consistently regresses. The remaining gap requires a different diagnostic approach — we must determine WHICH pixels differ and WHY.
+
+- **Cycles budget:** 3 | **Cycles actual:** 3
+- **Status:** ⚠️ Deadline missed — escalated back to Athena for replanning
+
+### M57: Forensic Diagnosis + Targeted Fix (Next)
+Diagnose the exact cause of the 4.31% pixel gap and apply a targeted fix.
+
+**Scope:** Diana will analyze what specific areas differ, then Leo will implement the most impactful single fix.
+- Target: 96.5%+ similarity (modest but achievable gain), 1015+ tests
 
 - **Cycles budget:** 3
-- **Status:** 🔄 Next
+- **Status:** 🔄 Planning
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
