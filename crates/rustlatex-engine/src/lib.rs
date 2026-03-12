@@ -184,6 +184,21 @@ pub struct OutputLine {
 /// Compute the line height for a set of nodes.
 /// Returns max(font_size) * 1.2 for all BoxNode::Text nodes, or 12.0 if none found.
 pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
+    // If the line contains only VSkip nodes, use the VSkip amount as line_height
+    let all_vskip = !nodes.is_empty() && nodes.iter().all(|n| matches!(n, BoxNode::VSkip { .. }));
+    if all_vskip {
+        // Use the largest VSkip amount in this line
+        return nodes
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+            .fold(0.0_f64, f64::max);
+    }
     let max_font_size = nodes
         .iter()
         .filter_map(|n| {
@@ -426,6 +441,8 @@ pub enum BoxNode {
     },
     /// A fixed-width kern (non-breakable spacing).
     Kern { amount: f64 },
+    /// A vertical skip (whitespace in the vertical direction, for spacing between blocks).
+    VSkip { amount: f64 },
     /// A penalty value influencing line-break decisions.
     Penalty { value: i32 },
     /// A horizontal box containing sub-nodes.
@@ -1558,7 +1575,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     };
                     let width = metrics.string_width(&title);
                     vec![
-                        BoxNode::Kern {
+                        BoxNode::VSkip {
                             amount: kern_before,
                         },
                         BoxNode::Text {
@@ -1569,7 +1586,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_style: FontStyle::Bold,
                             vertical_offset: 0.0,
                         },
-                        BoxNode::Kern { amount: kern_after },
+                        BoxNode::VSkip { amount: kern_after },
                     ]
                 }
                 "hspace" => {
@@ -2506,7 +2523,7 @@ pub fn translate_node_with_context(
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     vec![
-                        BoxNode::Kern {
+                        BoxNode::VSkip {
                             amount: kern_before,
                         },
                         BoxNode::Text {
@@ -2517,7 +2534,7 @@ pub fn translate_node_with_context(
                             font_style: FontStyle::Bold,
                             vertical_offset: 0.0,
                         },
-                        BoxNode::Kern { amount: kern_after },
+                        BoxNode::VSkip { amount: kern_after },
                     ]
                 }
                 "newpage" | "clearpage" | "pagebreak" => {
@@ -4273,6 +4290,7 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
             | BoxNode::AlignmentMarker { .. }
             | BoxNode::Rule { .. }
             | BoxNode::ImagePlaceholder { .. }
+            | BoxNode::VSkip { .. }
             | BoxNode::Bullet => {
                 // Pass through without affecting width calculation for now
                 current_line.push(item.clone());
@@ -4701,14 +4719,45 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
     let mut result: Vec<OutputLine> = Vec::new();
 
     for (alignment, seg_items, has_page_break) in segments {
-        let lines = breaker.break_lines(&seg_items, hsize);
-        for nodes in lines {
-            let line_height = compute_line_height(&nodes);
-            result.push(OutputLine {
-                alignment,
-                nodes,
-                line_height,
-            });
+        // Pre-process: split items at VSkip boundaries — each VSkip becomes its own line
+        let mut pre_lines: Vec<Vec<BoxNode>> = Vec::new();
+        let mut current_chunk: Vec<BoxNode> = Vec::new();
+        for item in &seg_items {
+            if let BoxNode::VSkip { .. } = item {
+                // Flush current chunk as a line
+                if !current_chunk.is_empty() {
+                    pre_lines.push(std::mem::take(&mut current_chunk));
+                }
+                // VSkip gets its own dedicated line
+                pre_lines.push(vec![item.clone()]);
+            } else {
+                current_chunk.push(item.clone());
+            }
+        }
+        if !current_chunk.is_empty() {
+            pre_lines.push(current_chunk);
+        }
+
+        for chunk in pre_lines {
+            if chunk.len() == 1 && matches!(&chunk[0], BoxNode::VSkip { .. }) {
+                // VSkip-only line: line_height = VSkip amount
+                let line_height = compute_line_height(&chunk);
+                result.push(OutputLine {
+                    alignment,
+                    nodes: chunk,
+                    line_height,
+                });
+            } else {
+                let lines = breaker.break_lines(&chunk, hsize);
+                for nodes in lines {
+                    let line_height = compute_line_height(&nodes);
+                    result.push(OutputLine {
+                        alignment,
+                        nodes,
+                        line_height,
+                    });
+                }
+            }
         }
         // If this segment ends with a page break, add a marker line
         if has_page_break {
@@ -6505,44 +6554,44 @@ mod tests {
     }
 
     #[test]
-    fn test_section_has_vertical_kern_before() {
+    fn test_section_has_vertical_vskip_before() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // \section before-kern is 24pt (LaTeX article class spacing)
+        // \section before-vskip is 24pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 24.0).abs() < 0.001)
         );
     }
 
     #[test]
-    fn test_section_has_vertical_kern_after() {
+    fn test_section_has_vertical_vskip_after() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // \section after-kern is 8pt (LaTeX article class spacing)
+        // \section after-vskip is 8pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 8.0).abs() < 0.001)
+            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < 0.001)
         );
     }
 
     #[test]
-    fn test_subsection_kern_before() {
+    fn test_subsection_vskip_before() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // \subsection before-kern is 18pt (LaTeX article class spacing)
+        // \subsection before-vskip is 18pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 18.0).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 18.0).abs() < 0.001)
         );
     }
 
@@ -12794,7 +12843,7 @@ mod tests {
     // ===== M31: Section Heading Spacing Tests =====
 
     #[test]
-    fn test_section_kern_before_is_24pt() {
+    fn test_section_vskip_before_is_24pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -12802,13 +12851,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001),
-            "\\section before-kern must be 24pt (LaTeX article class)"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 24.0).abs() < 0.001),
+            "\\section before-vskip must be 24pt (LaTeX article class)"
         );
     }
 
     #[test]
-    fn test_section_kern_after_is_8pt() {
+    fn test_section_vskip_after_is_8pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -12816,13 +12865,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 8.0).abs() < 0.001),
-            "\\section after-kern must be 8pt (LaTeX article class)"
+            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < 0.001),
+            "\\section after-vskip must be 8pt (LaTeX article class)"
         );
     }
 
     #[test]
-    fn test_subsection_kern_before_is_18pt() {
+    fn test_subsection_vskip_before_is_18pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -12830,13 +12879,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 18.0).abs() < 0.001),
-            "\\subsection before-kern must be 18pt (LaTeX article class)"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 18.0).abs() < 0.001),
+            "\\subsection before-vskip must be 18pt (LaTeX article class)"
         );
     }
 
     #[test]
-    fn test_subsection_kern_after_is_6pt() {
+    fn test_subsection_vskip_after_is_6pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -12844,13 +12893,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001),
-            "\\subsection after-kern must be 6pt"
+            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 6.0).abs() < 0.001),
+            "\\subsection after-vskip must be 6pt"
         );
     }
 
     #[test]
-    fn test_subsubsection_kern_before_is_12pt() {
+    fn test_subsubsection_vskip_before_is_12pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -12858,13 +12907,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001),
-            "\\subsubsection before-kern must be 12pt"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 12.0).abs() < 0.001),
+            "\\subsubsection before-vskip must be 12pt"
         );
     }
 
     #[test]
-    fn test_subsubsection_kern_after_is_6pt() {
+    fn test_subsubsection_vskip_after_is_6pt() {
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -12872,13 +12921,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001),
-            "\\subsubsection after-kern must be 6pt"
+            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 6.0).abs() < 0.001),
+            "\\subsubsection after-vskip must be 6pt"
         );
     }
 
     #[test]
-    fn test_section_has_larger_before_kern_than_subsection() {
+    fn test_section_has_larger_before_vskip_than_subsection() {
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -12890,24 +12939,24 @@ mod tests {
         };
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
-        let sec_before = if let Some(BoxNode::Kern { amount }) = sec_nodes.first() {
+        let sec_before = if let Some(BoxNode::VSkip { amount }) = sec_nodes.first() {
             *amount
         } else {
-            panic!("section first node must be Kern")
+            panic!("section first node must be VSkip")
         };
-        let sub_before = if let Some(BoxNode::Kern { amount }) = sub_nodes.first() {
+        let sub_before = if let Some(BoxNode::VSkip { amount }) = sub_nodes.first() {
             *amount
         } else {
-            panic!("subsection first node must be Kern")
+            panic!("subsection first node must be VSkip")
         };
         assert!(
             sec_before > sub_before,
-            "\\section before-kern ({sec_before}) must be larger than \\subsection before-kern ({sub_before})"
+            "\\section before-vskip ({sec_before}) must be larger than \\subsection before-vskip ({sub_before})"
         );
     }
 
     #[test]
-    fn test_section_has_larger_after_kern_than_subsection() {
+    fn test_section_has_larger_after_vskip_than_subsection() {
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -12919,58 +12968,60 @@ mod tests {
         };
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
-        let sec_after = if let Some(BoxNode::Kern { amount }) = sec_nodes.last() {
+        let sec_after = if let Some(BoxNode::VSkip { amount }) = sec_nodes.last() {
             *amount
         } else {
-            panic!("section last node must be Kern")
+            panic!("section last node must be VSkip")
         };
-        let sub_after = if let Some(BoxNode::Kern { amount }) = sub_nodes.last() {
+        let sub_after = if let Some(BoxNode::VSkip { amount }) = sub_nodes.last() {
             *amount
         } else {
-            panic!("subsection last node must be Kern")
+            panic!("subsection last node must be VSkip")
         };
         assert!(
             sec_after > sub_after,
-            "\\section after-kern ({sec_after}) must be larger than \\subsection after-kern ({sub_after})"
+            "\\section after-vskip ({sec_after}) must be larger than \\subsection after-vskip ({sub_after})"
         );
     }
 
     #[test]
-    fn test_section_kern_before_context_24pt() {
+    fn test_section_vskip_before_context_24pt() {
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001),
-            "\\section before-kern via context must be 24pt"
+            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 24.0).abs() < 0.001),
+            "\\section before-vskip via context must be 24pt"
         );
     }
 
     #[test]
-    fn test_section_kern_after_context_8pt() {
+    fn test_section_vskip_after_context_8pt() {
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
-        // Last item should be the section's after-kern
-        let kern_after = items.iter().rev().find_map(|n| {
-            if let BoxNode::Kern { amount } = n {
+        // Last item should be the section's after-vskip
+        let vskip_after = items.iter().rev().find_map(|n| {
+            if let BoxNode::VSkip { amount } = n {
                 Some(*amount)
             } else {
                 None
             }
         });
         assert!(
-            kern_after.map(|a| (a - 8.0).abs() < 0.001).unwrap_or(false),
-            "\\section after-kern via context must be 8pt"
+            vskip_after
+                .map(|a| (a - 8.0).abs() < 0.001)
+                .unwrap_or(false),
+            "\\section after-vskip via context must be 8pt"
         );
     }
 
     #[test]
-    fn test_subsection_kern_before_context_18pt() {
+    fn test_subsection_vskip_before_context_18pt() {
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -12982,16 +13033,16 @@ mod tests {
             },
         ]);
         let items = translate_with_context(&node);
-        // Find the subsection's before-kern: it should be 18pt
-        // The subsection nodes follow the section nodes (Kern(24), Text, Kern(8))
-        // Skip the section nodes and find the next Kern
+        // Find the subsection's before-vskip: it should be 18pt
+        // The subsection nodes follow the section nodes (VSkip(24), Text, VSkip(8))
+        // Skip the section nodes and find the next VSkip
         let subsec_before = items
             .iter()
             .skip_while(|n| !matches!(n, BoxNode::Text { text, .. } if text.contains("Main")))
             .skip(1) // skip the "Main" text node
-            .skip(1) // skip the section after-kern
+            .skip(1) // skip the section after-vskip
             .find_map(|n| {
-                if let BoxNode::Kern { amount } = n {
+                if let BoxNode::VSkip { amount } = n {
                     Some(*amount)
                 } else {
                     None
@@ -13001,13 +13052,13 @@ mod tests {
             subsec_before
                 .map(|a| (a - 18.0).abs() < 0.001)
                 .unwrap_or(false),
-            "\\subsection before-kern via context must be 18pt, got {:?}",
+            "\\subsection before-vskip via context must be 18pt, got {:?}",
             subsec_before
         );
     }
 
     #[test]
-    fn test_subsection_kern_after_context_6pt() {
+    fn test_subsection_vskip_after_context_6pt() {
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -13019,18 +13070,18 @@ mod tests {
             },
         ]);
         let items = translate_with_context(&node);
-        // Find the last kern (after the subsection text)
-        let last_kern = items.iter().rev().find_map(|n| {
-            if let BoxNode::Kern { amount } = n {
+        // Find the last vskip (after the subsection text)
+        let last_vskip = items.iter().rev().find_map(|n| {
+            if let BoxNode::VSkip { amount } = n {
                 Some(*amount)
             } else {
                 None
             }
         });
         assert!(
-            last_kern.map(|a| (a - 6.0).abs() < 0.001).unwrap_or(false),
-            "\\subsection after-kern via context must be 6pt, got {:?}",
-            last_kern
+            last_vskip.map(|a| (a - 6.0).abs() < 0.001).unwrap_or(false),
+            "\\subsection after-vskip via context must be 6pt, got {:?}",
+            last_vskip
         );
     }
 
@@ -13045,7 +13096,7 @@ mod tests {
         assert_eq!(
             nodes.len(),
             3,
-            "\\subsection should produce exactly 3 nodes (kern, text, kern)"
+            "\\subsection should produce exactly 3 nodes (vskip, text, vskip)"
         );
     }
 
@@ -13060,7 +13111,7 @@ mod tests {
         assert_eq!(
             nodes.len(),
             3,
-            "\\subsubsection should produce exactly 3 nodes (kern, text, kern)"
+            "\\subsubsection should produce exactly 3 nodes (vskip, text, vskip)"
         );
     }
 
@@ -13074,17 +13125,17 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before kern
+        // before vskip
         assert!(
-            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 24.0).abs() < 0.001),
-            "section before kern should be exactly 24pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 24.0).abs() < 0.001),
+            "section before vskip should be exactly 24pt"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
-        // after kern
+        // after vskip
         assert!(
-            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 8.0).abs() < 0.001),
-            "section after kern should be exactly 8pt"
+            matches!(&nodes[2], BoxNode::VSkip { amount } if (*amount - 8.0).abs() < 0.001),
+            "section after vskip should be exactly 8pt"
         );
     }
 
@@ -13098,17 +13149,17 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before kern
+        // before vskip
         assert!(
-            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 18.0).abs() < 0.001),
-            "subsection before kern should be exactly 18pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 18.0).abs() < 0.001),
+            "subsection before vskip should be exactly 18pt"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
-        // after kern
+        // after vskip
         assert!(
-            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 6.0).abs() < 0.001),
-            "subsection after kern should be exactly 6pt"
+            matches!(&nodes[2], BoxNode::VSkip { amount } if (*amount - 6.0).abs() < 0.001),
+            "subsection after vskip should be exactly 6pt"
         );
     }
 
@@ -13122,17 +13173,17 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before kern
+        // before vskip
         assert!(
-            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 12.0).abs() < 0.001),
-            "subsubsection before kern should be exactly 12pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 12.0).abs() < 0.001),
+            "subsubsection before vskip should be exactly 12pt"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
-        // after kern
+        // after vskip
         assert!(
-            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 6.0).abs() < 0.001),
-            "subsubsection after kern should be exactly 6pt"
+            matches!(&nodes[2], BoxNode::VSkip { amount } if (*amount - 6.0).abs() < 0.001),
+            "subsubsection after vskip should be exactly 6pt"
         );
     }
 
@@ -14947,6 +14998,313 @@ mod tests {
         assert!(
             !matches!(last, BoxNode::Glue { natural, .. } if (*natural - 6.0).abs() < 0.001),
             "Paragraph-end glue should NOT be 6.0"
+        );
+    }
+
+    // ===== M50: VSkip tests =====
+
+    #[test]
+    fn test_section_emits_vskip_before() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // First node should be VSkip (not Kern)
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 24.0).abs() < 0.01)),
+            "Expected VSkip(24.0) before section heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_section_emits_vskip_after() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Last node should be VSkip (not Kern)
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 8.0).abs() < 0.01)),
+            "Expected VSkip(8.0) after section heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_section_no_kern_before_after() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Should NOT have any Kern nodes (horizontal kerns replaced by VSkip)
+        let has_kern = nodes.iter().any(|n| matches!(n, BoxNode::Kern { .. }));
+        assert!(
+            !has_kern,
+            "Section should not emit Kern nodes, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_subsection_emits_vskip_before_18pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Background".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 18.0).abs() < 0.01)),
+            "Expected VSkip(18.0) before subsection heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_emits_vskip_before_12pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Detail".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 12.0).abs() < 0.01)),
+            "Expected VSkip(12.0) before subsubsection heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_subsection_emits_vskip_after_6pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Background".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 6.0).abs() < 0.01)),
+            "Expected VSkip(6.0) after subsection heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_emits_vskip_after_6pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Detail".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 6.0).abs() < 0.01)),
+            "Expected VSkip(6.0) after subsubsection heading, got: {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_vskip_only_line_has_correct_line_height() {
+        let nodes = vec![BoxNode::VSkip { amount: 24.0 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 24.0).abs() < 0.01,
+            "Expected line_height=24.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_vskip_only_line_height_8pt() {
+        let nodes = vec![BoxNode::VSkip { amount: 8.0 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 8.0).abs() < 0.01,
+            "Expected line_height=8.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_vskip_only_line_height_18pt() {
+        let nodes = vec![BoxNode::VSkip { amount: 18.0 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 18.0).abs() < 0.01,
+            "Expected line_height=18.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_vskip_only_line_height_12pt() {
+        let nodes = vec![BoxNode::VSkip { amount: 12.0 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "Expected line_height=12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_vskip_mixed_with_text_does_not_use_vskip_height() {
+        // When a VSkip is mixed with Text nodes, line_height should use text font_size * 1.2
+        let nodes = vec![
+            BoxNode::VSkip { amount: 50.0 },
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "Expected line_height=12.0 (10.0*1.2), got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_break_items_vskip_creates_own_line() {
+        let items = vec![
+            BoxNode::VSkip { amount: 24.0 },
+            BoxNode::Text {
+                text: "Hello".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::VSkip { amount: 8.0 },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // Should have at least 3 lines: VSkip(24), text, VSkip(8)
+        assert!(
+            lines.len() >= 3,
+            "Expected at least 3 lines, got {}",
+            lines.len()
+        );
+        // First line is VSkip(24)
+        assert!(
+            matches!(&lines[0].nodes[..], [BoxNode::VSkip { amount }] if (*amount - 24.0).abs() < 0.01),
+            "First line should be VSkip(24.0)"
+        );
+        // First line has line_height = 24.0
+        assert!(
+            (lines[0].line_height - 24.0).abs() < 0.01,
+            "VSkip line height should be 24.0"
+        );
+    }
+
+    #[test]
+    fn test_break_items_vskip_last_line() {
+        let items = vec![
+            BoxNode::Text {
+                text: "Hello".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::VSkip { amount: 8.0 },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // Last line should be VSkip(8)
+        let last = lines.last().unwrap();
+        assert!(
+            matches!(&last.nodes[..], [BoxNode::VSkip { amount }] if (*amount - 8.0).abs() < 0.01),
+            "Last line should be VSkip(8.0), got: {:?}",
+            last.nodes
+        );
+        assert!(
+            (last.line_height - 8.0).abs() < 0.01,
+            "VSkip line height should be 8.0"
+        );
+    }
+
+    #[test]
+    fn test_vskip_variant_construction() {
+        let node = BoxNode::VSkip { amount: 42.0 };
+        if let BoxNode::VSkip { amount } = &node {
+            assert!((amount - 42.0).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected BoxNode::VSkip");
+        }
+    }
+
+    #[test]
+    fn test_section_heading_has_text_between_vskips() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 3, "Section should emit 3 nodes");
+        assert!(matches!(&nodes[0], BoxNode::VSkip { .. }));
+        assert!(matches!(
+            &nodes[1],
+            BoxNode::Text {
+                font_style: FontStyle::Bold,
+                ..
+            }
+        ));
+        assert!(matches!(&nodes[2], BoxNode::VSkip { .. }));
+    }
+
+    #[test]
+    fn test_multiple_vskip_only_line_max_amount() {
+        // Multiple VSkip nodes in one line: compute_line_height returns the max
+        let nodes = vec![
+            BoxNode::VSkip { amount: 10.0 },
+            BoxNode::VSkip { amount: 20.0 },
+            BoxNode::VSkip { amount: 15.0 },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 20.0).abs() < 0.01,
+            "Expected max VSkip 20.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_empty_nodes_line_height_default() {
+        // Empty nodes should still return 12.0 (fallback)
+        let nodes: Vec<BoxNode> = vec![];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "Expected 12.0 for empty, got {}",
+            lh
         );
     }
 }
