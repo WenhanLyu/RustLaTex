@@ -116,6 +116,9 @@ Binary-identical output requires:
 - **Cycle (M51):** M51 completed in 1 cycle. Leo updated section spacing to 15.07/9.90/13.99/6.46, section font_size 14.0→14.4, subsubsection font_size 11.0→10.0. 17 new tests, 955 total. Pixel similarity DROPPED to 94.47% — regression caused by adding 15.07pt before first section (pdflatex suppresses before-skip at top of page).
 - **M51 regression root cause:** pdflatex's \@startsection uses NEGATIVE before-skip which is suppressed at top of page/column. compare.tex starts with \section{Introduction} — pdflatex adds ZERO before-spacing. We add 15.07pt VSkip, shifting all content down by 15.07pt. Fix in M52: suppress before-VSkip when no body content has been emitted yet.
 - **M52 scope:** Add `content_emitted: bool` to TranslationContext. Set true when body paragraphs are emitted. Suppress before-VSkip (use 0.0) when !content_emitted. Expected similarity recovery: 97%+.
+- **Cycle (M52):** M52 completed by Leo (0f325c5). Suppresses before-VSkip for first section. 960 tests. But similarity only 94.47% — font size change (14.4 vs 14.0) still hurts.
+- **Cycle (M53):** M53 completed by Leo (37de084). Set all VSkip=0.0 (no effect on rendering). 965 tests, 94.53% similarity. Still below 95.69% because section font_size 14.4 (line_height 17.28pt) vs M49's 14.0 (line_height 16.8pt).
+- **M54 scope:** Revert section font_size 14.4→14.0 and subsubsection font_size 10.0→11.0 to recover pixel similarity. These M51 changes made things worse vs pdflatex layout. Target: 980+ tests, 95.7%+ similarity. Keep VSkip=0.0 infrastructure intact.
 
 ## Milestones
 
@@ -860,19 +863,29 @@ Fix section/subsection spacing values to match pdflatex article class exactly.
 - **Status:** ✅ Complete — Leo implemented (commit bd45b04), 955 tests pass, CI green. Pixel similarity = 94.47% (REGRESSION vs 95.69% pre-M50 — see M52 for fix)
 - **Root cause of M51 regression**: pdflatex SUPPRESSES the before-skip when section is at top of page/column. compare.tex starts with \section{Introduction} — no before-skip in pdflatex. We add 15.07pt VSkip before it, shifting ALL content down by 15.07pt. Fix in M52.
 
-### M52: Fix Top-of-Page Section Spacing (Before-Skip Suppression)
+### M52: Fix Top-of-Page Section Spacing (Before-Skip Suppression) ✅ COMPLETE
 Fix the M51 regression: suppress the before-VSkip for sections that appear at the start of document content.
 
-**Root cause**: pdflatex uses negative before-skip in \@startsection, which means: if the section appears at the top of a page/column, the before-skip is suppressed. compare.tex has \section{Introduction} as the first element, so pdflatex adds NO before-skip. We add 15.07pt, shifting all lines down by 15.07pt.
+- **Status:** ✅ Complete — Leo implemented (commit 0f325c5), 960 tests. Similarity 94.47% (still worse than M49).
+
+### M53: Set VSkip to 0.0 ✅ COMPLETE
+Set all section VSkip amounts to 0.0 to eliminate VSkip contribution.
+
+- **Status:** ✅ Complete — Leo implemented (commit 37de084), 965 tests, 94.53% similarity. Still below 95.69% due to font_size 14.4 change.
+
+### M54: Recover Pixel Similarity by Reverting Section Font Sizes
+Fix the pixel similarity regression caused by M51's font size changes.
+
+**Root cause**: M51 changed section font_size 14.0→14.4 and subsubsection 11.0→10.0. This increases section line_height from 16.8pt to 17.28pt, shifting subsequent content 0.48pt lower than before. This 0.48pt error causes ~1.16% pixel similarity loss vs pdflatex.
 
 **Fix**:
-1. Add `pub content_emitted: bool` flag to TranslationContext (initialized to false)
-2. Set `content_emitted = true` when a paragraph (body text) is emitted
-3. In section/subsection/subsubsection processing: if `!ctx.content_emitted`, use `kern_before = 0.0` (suppress before-VSkip)
-4. Also suppress in `translate_node_with_metrics` — detect by checking if section counter was 0 before this section (first section = no before-skip)
-5. Update all affected tests
+1. Revert section font_size: 14.4 → 14.0 (line_height goes back to 16.8pt)
+2. Revert subsubsection font_size: 10.0 → 11.0 (line_height goes back to 13.2pt)
+3. Update all affected tests (look for 14.4 and 10.0 font size assertions for sections)
+4. Add 15+ new tests confirming the new behavior
+5. Keep VSkip=0.0 infrastructure intact
 
-**Expected impact**: Recover from 94.47% back to 96%+ (remove 15.07pt shift from entire document)
+**Expected impact**: Recover from 94.53% back to ≥95.69%
 
 - **Cycles budget:** 2
 - **Status:** 🔄 Next
