@@ -1187,7 +1187,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             width,
                             font_size,
                             color: None,
-                            font_style: FontStyle::Normal,
+                            font_style: FontStyle::Bold,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -1467,6 +1467,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             let mut translated = translate_node_with_metrics(node, metrics);
                             result.append(&mut translated);
                         }
+                        // Force line break after each item
+                        result.push(BoxNode::Penalty { value: -10000 });
                     }
 
                     // After list: paragraph glue
@@ -2115,7 +2117,7 @@ pub fn translate_node_with_context(
                             width,
                             font_size,
                             color: None,
-                            font_style: FontStyle::Normal,
+                            font_style: FontStyle::Bold,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -2990,6 +2992,8 @@ pub fn translate_node_with_context(
                             let mut translated = translate_node_with_context(node, metrics, ctx);
                             result.append(&mut translated);
                         }
+                        // Force line break after each item
+                        result.push(BoxNode::Penalty { value: -10000 });
                     }
 
                     result.push(BoxNode::Glue {
@@ -11727,5 +11731,145 @@ mod tests {
             (normal_sw - italic_sw).abs() < f64::EPSILON,
             "Normal and Italic space widths should be equal"
         );
+    }
+
+    // ===== M30 tests: Section headings bold =====
+
+    #[test]
+    fn test_m30_section_heading_bold_simple() {
+        // Using translate_node_with_metrics (non-ctx path)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        // The second element (index 1) should be Text with FontStyle::Bold
+        let text_node = result.iter().find(|n| matches!(n, BoxNode::Text { .. }));
+        assert!(text_node.is_some(), "Should contain a Text node");
+        if let Some(BoxNode::Text { font_style, .. }) = text_node {
+            assert_eq!(
+                *font_style,
+                FontStyle::Bold,
+                "Section heading should be bold"
+            );
+        }
+    }
+
+    #[test]
+    fn test_m30_subsection_heading_bold() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        let text_node = result.iter().find(|n| matches!(n, BoxNode::Text { .. }));
+        assert!(text_node.is_some());
+        if let Some(BoxNode::Text { font_style, .. }) = text_node {
+            assert_eq!(*font_style, FontStyle::Bold);
+        }
+    }
+
+    #[test]
+    fn test_m30_subsubsection_heading_bold() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Minor".to_string())])],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        let text_node = result.iter().find(|n| matches!(n, BoxNode::Text { .. }));
+        assert!(text_node.is_some());
+        if let Some(BoxNode::Text { font_style, .. }) = text_node {
+            assert_eq!(*font_style, FontStyle::Bold);
+        }
+    }
+
+    // ===== M30 tests: List item line breaks =====
+
+    #[test]
+    fn test_m30_itemize_penalty_after_items() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "itemize".to_string(),
+            options: None,
+            content: vec![
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("First".to_string()),
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("Second".to_string()),
+            ],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        // Should have Penalty{-10000} after each item's content
+        let penalty_count = result
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Penalty { value: -10000 }))
+            .count();
+        assert!(
+            penalty_count >= 2,
+            "Should have at least 2 penalties (one per item), got {}",
+            penalty_count
+        );
+    }
+
+    #[test]
+    fn test_m30_enumerate_penalty_after_items() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "enumerate".to_string(),
+            options: None,
+            content: vec![
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("Alpha".to_string()),
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("Beta".to_string()),
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("Gamma".to_string()),
+            ],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        let penalty_count = result
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Penalty { value: -10000 }))
+            .count();
+        assert!(
+            penalty_count >= 3,
+            "Should have at least 3 penalties (one per item), got {}",
+            penalty_count
+        );
+    }
+
+    #[test]
+    fn test_m30_section_heading_font_size() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
+        };
+        let result = translate_node_with_metrics(&node, &metrics);
+        let text_node = result.iter().find(|n| matches!(n, BoxNode::Text { .. }));
+        if let Some(BoxNode::Text { font_size, .. }) = text_node {
+            assert!(
+                (*font_size - 14.0).abs() < f64::EPSILON,
+                "Section font size should be 14.0"
+            );
+        }
     }
 }

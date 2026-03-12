@@ -393,6 +393,25 @@ impl Parser {
                     // \input{filename} or \include{filename}
                     let filename = self.parse_brace_name();
                     Some(ParseEvent::Node(Node::Input { filename }))
+                } else if name == "[" {
+                    // \[...\] display math
+                    let mut inner = Vec::new();
+                    loop {
+                        match self.peek().clone() {
+                            Token::ControlSequence(ref cs) if cs == "]" => {
+                                self.advance(); // consume \]
+                                break;
+                            }
+                            Token::EndOfInput => break,
+                            _ => {
+                                if let Some(node) = self.parse_math_node() {
+                                    let node = self.maybe_attach_scripts(node);
+                                    inner.push(node);
+                                }
+                            }
+                        }
+                    }
+                    Some(ParseEvent::Node(Node::DisplayMath(inner)))
                 } else {
                     // Handle star-form commands: \vspace*{...} → Command{name:"vspace", args:[...]}
                     // \hspace*{...} → Command{name:"hspace", args:[...]}
@@ -1546,5 +1565,95 @@ mod tests {
                 }])),
             }])])
         );
+    }
+
+    // ===== M30 tests: \[...\] display math =====
+
+    #[test]
+    fn test_bracket_display_math_simple() {
+        let mut parser = Parser::new(r"\[ x^2 \]");
+        let doc = parser.parse();
+        assert!(matches!(&doc, Node::Document(_)));
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            assert!(matches!(&children[0], Node::DisplayMath(_)));
+        } else {
+            panic!("Expected Document node");
+        }
+    }
+
+    #[test]
+    fn test_bracket_display_math_frac() {
+        let mut parser = Parser::new(r"\[ \frac{a}{b} \]");
+        let doc = parser.parse();
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            assert!(matches!(&children[0], Node::DisplayMath(_)));
+            if let Node::DisplayMath(ref inner) = children[0] {
+                // Should contain a Fraction node
+                assert!(inner.iter().any(|n| matches!(n, Node::Fraction { .. })));
+            }
+        } else {
+            panic!("Expected Document node");
+        }
+    }
+
+    #[test]
+    fn test_bracket_display_math_superscript() {
+        let mut parser = Parser::new(r"\[ x^2 \]");
+        let doc = parser.parse();
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            if let Node::DisplayMath(ref inner) = children[0] {
+                // Should contain a superscript node
+                assert!(inner.iter().any(|n| matches!(n, Node::Superscript { .. })));
+            } else {
+                panic!("Expected DisplayMath");
+            }
+        } else {
+            panic!("Expected Document");
+        }
+    }
+
+    #[test]
+    fn test_bracket_display_math_empty() {
+        // \[\] with no space produces empty DisplayMath
+        let mut parser = Parser::new(r"\[\]");
+        let doc = parser.parse();
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            assert!(matches!(&children[0], Node::DisplayMath(ref inner) if inner.is_empty()));
+        } else {
+            panic!("Expected Document");
+        }
+    }
+
+    #[test]
+    fn test_bracket_display_math_with_space() {
+        // \[ \] — space between brackets is parsed as DisplayMath content
+        let mut parser = Parser::new(r"\[ \]");
+        let doc = parser.parse();
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            assert!(matches!(&children[0], Node::DisplayMath(_)));
+        } else {
+            panic!("Expected Document");
+        }
+    }
+
+    #[test]
+    fn test_bracket_display_math_sqrt() {
+        let mut parser = Parser::new(r"\[ \sqrt{x} \]");
+        let doc = parser.parse();
+        if let Node::Document(ref children) = doc {
+            assert_eq!(children.len(), 1);
+            if let Node::DisplayMath(ref inner) = children[0] {
+                assert!(inner.iter().any(|n| matches!(n, Node::Radical { .. })));
+            } else {
+                panic!("Expected DisplayMath");
+            }
+        } else {
+            panic!("Expected Document");
+        }
     }
 }

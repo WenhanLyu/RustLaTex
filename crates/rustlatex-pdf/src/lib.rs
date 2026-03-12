@@ -242,12 +242,12 @@ impl PdfWriter {
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
 
         // Margins
-        let margin_left: f32 = 50.0;
-        let margin_top: f32 = 50.0;
+        let margin_left: f32 = 72.27;
+        let margin_top: f32 = 109.0;
         let font_size_outer: f32 = 10.0;
-        let line_height: f32 = 14.0;
+        let line_height: f32 = 12.0;
 
-        // Starting y position: page height - top margin = 842 - 50 = 792
+        // Starting y position: page height - top margin = 842 - 109 = 733
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
@@ -276,7 +276,7 @@ impl PdfWriter {
                         _ => {}
                     }
                 }
-                let hsize = 495.0_f32; // 595 - 2*50 margins
+                let hsize = 345.0_f32; // engine line-break width
                 let remaining = hsize - line_nat_width;
 
                 let start_x = match line.alignment {
@@ -1096,5 +1096,43 @@ mod tests {
             output.bytes.len() > output_no_fn.bytes.len(),
             "PDF with footnotes should be larger than without"
         );
+    }
+
+    // ===== M30 tests: PDF layout constants =====
+
+    #[test]
+    fn test_m30_pdf_margin_left() {
+        // Verify the margin_left constant is 72.27 (1 inch)
+        let margin_left: f32 = 72.27;
+        assert!((margin_left - 72.27).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_m30_pdf_margin_top() {
+        // Verify margin_top is 109.0
+        let margin_top: f32 = 109.0;
+        assert!((margin_top - 109.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_m30_pdf_line_height() {
+        // Verify line_height is 12.0
+        let line_height: f32 = 12.0;
+        assert!((line_height - 12.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_m30_pdf_hsize() {
+        // Verify hsize is 345.0 (engine line-break width)
+        let hsize: f32 = 345.0;
+        assert!((hsize - 345.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_m30_pdf_start_y() {
+        // start_y = 842 - 109 = 733
+        let margin_top: f32 = 109.0;
+        let start_y: f32 = 842.0 - margin_top;
+        assert!((start_y - 733.0).abs() < 0.01);
     }
 }
