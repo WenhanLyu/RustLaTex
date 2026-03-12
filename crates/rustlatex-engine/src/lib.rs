@@ -1159,6 +1159,19 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         "subsection" => 12.0_f64,
                         _ => 11.0_f64, // subsubsection
                     };
+                    // Spacing to match LaTeX article class:
+                    //   \section: 24pt before, 8pt after
+                    //   \subsection: 18pt before, 6pt after
+                    //   \subsubsection: 12pt before, 6pt after
+                    let kern_before = match name.as_str() {
+                        "section" => 24.0_f64,
+                        "subsection" => 18.0_f64,
+                        _ => 12.0_f64, // subsubsection
+                    };
+                    let kern_after = match name.as_str() {
+                        "section" => 8.0_f64,
+                        _ => 6.0_f64, // subsection and subsubsection
+                    };
                     // Extract title from first argument (which is a Group node)
                     let title = if let Some(arg) = args.first() {
                         match arg {
@@ -1181,7 +1194,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     };
                     let width = metrics.string_width(&title);
                     vec![
-                        BoxNode::Kern { amount: 12.0 },
+                        BoxNode::Kern {
+                            amount: kern_before,
+                        },
                         BoxNode::Text {
                             text: title,
                             width,
@@ -1189,7 +1204,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             color: None,
                             font_style: FontStyle::Bold,
                         },
-                        BoxNode::Kern { amount: 6.0 },
+                        BoxNode::Kern { amount: kern_after },
                     ]
                 }
                 "hspace" => {
@@ -2108,10 +2123,25 @@ pub fn translate_node_with_context(
                     let numbered_title = format!("{} {}", ctx.counters.last_counter_value, title);
                     let width =
                         metrics.string_width_for_style(&numbered_title, ctx.current_font_style);
+                    // Spacing to match LaTeX article class:
+                    //   \section: 24pt before, 8pt after
+                    //   \subsection: 18pt before, 6pt after
+                    //   \subsubsection: 12pt before, 6pt after
+                    let kern_before = match name.as_str() {
+                        "section" => 24.0_f64,
+                        "subsection" => 18.0_f64,
+                        _ => 12.0_f64, // subsubsection
+                    };
+                    let kern_after = match name.as_str() {
+                        "section" => 8.0_f64,
+                        _ => 6.0_f64, // subsection and subsubsection
+                    };
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     vec![
-                        BoxNode::Kern { amount: 12.0 },
+                        BoxNode::Kern {
+                            amount: kern_before,
+                        },
                         BoxNode::Text {
                             text: numbered_title,
                             width,
@@ -2119,7 +2149,7 @@ pub fn translate_node_with_context(
                             color: None,
                             font_style: FontStyle::Bold,
                         },
-                        BoxNode::Kern { amount: 6.0 },
+                        BoxNode::Kern { amount: kern_after },
                     ]
                 }
                 "newpage" | "clearpage" | "pagebreak" => {
@@ -5891,8 +5921,9 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
+        // \section before-kern is 24pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001)
         );
     }
 
@@ -5904,8 +5935,9 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
+        // \section after-kern is 8pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001)
+            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 8.0).abs() < 0.001)
         );
     }
 
@@ -5917,8 +5949,9 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
+        // \subsection before-kern is 18pt (LaTeX article class spacing)
         assert!(
-            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 18.0).abs() < 0.001)
         );
     }
 
@@ -5985,7 +6018,7 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // Should produce: Kern(12.0), Text(title), Kern(6.0)
+        // Should produce: Kern(24.0), Text(title), Kern(8.0) for \section
         assert_eq!(
             nodes.len(),
             3,
@@ -8009,14 +8042,14 @@ mod tests {
         ]);
         let items = translate_with_context(&node);
         // Find the paragraph content (after the section heading nodes)
-        // Section produces: Kern(12.0), Text("1 Intro"), Kern(6.0)
+        // Section produces: Kern(24.0), Text("1 Intro"), Kern(8.0)
         // Paragraph should NOT start with Kern(20.0)
         // Look for "First" text and check what precedes it
         let first_idx = items
             .iter()
             .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "First"))
             .expect("Expected 'First' text");
-        // The item before "First" should NOT be Kern(20.0) — it should be Kern(6.0) from section
+        // The item before "First" should NOT be Kern(20.0) — it should be Kern(8.0) from section
         if first_idx > 0 {
             let prev = &items[first_idx - 1];
             assert!(
@@ -11871,5 +11904,350 @@ mod tests {
                 "Section font size should be 14.0"
             );
         }
+    }
+
+    // ===== M31: Section Heading Spacing Tests =====
+
+    #[test]
+    fn test_section_kern_before_is_24pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001),
+            "\\section before-kern must be 24pt (LaTeX article class)"
+        );
+    }
+
+    #[test]
+    fn test_section_kern_after_is_8pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 8.0).abs() < 0.001),
+            "\\section after-kern must be 8pt (LaTeX article class)"
+        );
+    }
+
+    #[test]
+    fn test_subsection_kern_before_is_18pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 18.0).abs() < 0.001),
+            "\\subsection before-kern must be 18pt (LaTeX article class)"
+        );
+    }
+
+    #[test]
+    fn test_subsection_kern_after_is_6pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001),
+            "\\subsection after-kern must be 6pt"
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_kern_before_is_12pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub3".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.first(), Some(BoxNode::Kern { amount }) if (*amount - 12.0).abs() < 0.001),
+            "\\subsubsection before-kern must be 12pt"
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_kern_after_is_6pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub3".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Kern { amount }) if (*amount - 6.0).abs() < 0.001),
+            "\\subsubsection after-kern must be 6pt"
+        );
+    }
+
+    #[test]
+    fn test_section_has_larger_before_kern_than_subsection() {
+        let metrics = StandardFontMetrics;
+        let sec_node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("A".to_string())])],
+        };
+        let sub_node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("B".to_string())])],
+        };
+        let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
+        let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
+        let sec_before = if let Some(BoxNode::Kern { amount }) = sec_nodes.first() {
+            *amount
+        } else {
+            panic!("section first node must be Kern")
+        };
+        let sub_before = if let Some(BoxNode::Kern { amount }) = sub_nodes.first() {
+            *amount
+        } else {
+            panic!("subsection first node must be Kern")
+        };
+        assert!(
+            sec_before > sub_before,
+            "\\section before-kern ({sec_before}) must be larger than \\subsection before-kern ({sub_before})"
+        );
+    }
+
+    #[test]
+    fn test_section_has_larger_after_kern_than_subsection() {
+        let metrics = StandardFontMetrics;
+        let sec_node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("A".to_string())])],
+        };
+        let sub_node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("B".to_string())])],
+        };
+        let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
+        let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
+        let sec_after = if let Some(BoxNode::Kern { amount }) = sec_nodes.last() {
+            *amount
+        } else {
+            panic!("section last node must be Kern")
+        };
+        let sub_after = if let Some(BoxNode::Kern { amount }) = sub_nodes.last() {
+            *amount
+        } else {
+            panic!("subsection last node must be Kern")
+        };
+        assert!(
+            sec_after > sub_after,
+            "\\section after-kern ({sec_after}) must be larger than \\subsection after-kern ({sub_after})"
+        );
+    }
+
+    #[test]
+    fn test_section_kern_before_context_24pt() {
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        assert!(
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 24.0).abs() < 0.001),
+            "\\section before-kern via context must be 24pt"
+        );
+    }
+
+    #[test]
+    fn test_section_kern_after_context_8pt() {
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        // Last item should be the section's after-kern
+        let kern_after = items.iter().rev().find_map(|n| {
+            if let BoxNode::Kern { amount } = n {
+                Some(*amount)
+            } else {
+                None
+            }
+        });
+        assert!(
+            kern_after.map(|a| (a - 8.0).abs() < 0.001).unwrap_or(false),
+            "\\section after-kern via context must be 8pt"
+        );
+    }
+
+    #[test]
+    fn test_subsection_kern_before_context_18pt() {
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Main".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // Find the subsection's before-kern: it should be 18pt
+        // The subsection nodes follow the section nodes (Kern(24), Text, Kern(8))
+        // Skip the section nodes and find the next Kern
+        let subsec_before = items
+            .iter()
+            .skip_while(|n| !matches!(n, BoxNode::Text { text, .. } if text.contains("Main")))
+            .skip(1) // skip the "Main" text node
+            .skip(1) // skip the section after-kern
+            .find_map(|n| {
+                if let BoxNode::Kern { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            subsec_before
+                .map(|a| (a - 18.0).abs() < 0.001)
+                .unwrap_or(false),
+            "\\subsection before-kern via context must be 18pt, got {:?}",
+            subsec_before
+        );
+    }
+
+    #[test]
+    fn test_subsection_kern_after_context_6pt() {
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Main".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // Find the last kern (after the subsection text)
+        let last_kern = items.iter().rev().find_map(|n| {
+            if let BoxNode::Kern { amount } = n {
+                Some(*amount)
+            } else {
+                None
+            }
+        });
+        assert!(
+            last_kern.map(|a| (a - 6.0).abs() < 0.001).unwrap_or(false),
+            "\\subsection after-kern via context must be 6pt, got {:?}",
+            last_kern
+        );
+    }
+
+    #[test]
+    fn test_subsection_produces_three_nodes() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(
+            nodes.len(),
+            3,
+            "\\subsection should produce exactly 3 nodes (kern, text, kern)"
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_produces_three_nodes() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(
+            nodes.len(),
+            3,
+            "\\subsubsection should produce exactly 3 nodes (kern, text, kern)"
+        );
+    }
+
+    #[test]
+    fn test_section_spacing_exact_values() {
+        // Verify exact spacing values match LaTeX article class spec
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 3);
+        // before kern
+        assert!(
+            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 24.0).abs() < 0.001),
+            "section before kern should be exactly 24pt"
+        );
+        // text node
+        assert!(matches!(&nodes[1], BoxNode::Text { .. }));
+        // after kern
+        assert!(
+            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 8.0).abs() < 0.001),
+            "section after kern should be exactly 8pt"
+        );
+    }
+
+    #[test]
+    fn test_subsection_spacing_exact_values() {
+        // Verify exact spacing values match LaTeX article class spec
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 3);
+        // before kern
+        assert!(
+            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 18.0).abs() < 0.001),
+            "subsection before kern should be exactly 18pt"
+        );
+        // text node
+        assert!(matches!(&nodes[1], BoxNode::Text { .. }));
+        // after kern
+        assert!(
+            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 6.0).abs() < 0.001),
+            "subsection after kern should be exactly 6pt"
+        );
+    }
+
+    #[test]
+    fn test_subsubsection_spacing_exact_values() {
+        // Verify exact spacing values match LaTeX article class spec
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 3);
+        // before kern
+        assert!(
+            matches!(&nodes[0], BoxNode::Kern { amount } if (*amount - 12.0).abs() < 0.001),
+            "subsubsection before kern should be exactly 12pt"
+        );
+        // text node
+        assert!(matches!(&nodes[1], BoxNode::Text { .. }));
+        // after kern
+        assert!(
+            matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 6.0).abs() < 0.001),
+            "subsubsection after kern should be exactly 6pt"
+        );
     }
 }

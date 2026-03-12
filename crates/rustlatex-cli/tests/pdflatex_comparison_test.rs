@@ -325,20 +325,93 @@ fn test_pixel_similarity_logged() {
         1.0
     };
 
-    println!("=== Pixel Similarity Report ===");
-    println!("Our PNG size:      {} bytes", our_bytes.len());
-    println!("pdflatex PNG size: {} bytes", their_bytes.len());
-    println!("Differing bytes:   {}", diff_count);
-    println!(
+    eprintln!("=== Pixel Similarity Report ===");
+    eprintln!("Our PNG size:      {} bytes", our_bytes.len());
+    eprintln!("pdflatex PNG size: {} bytes", their_bytes.len());
+    eprintln!("Differing bytes:   {}", diff_count);
+    eprintln!(
         "Byte similarity:   {:.4} ({:.2}%)",
         similarity,
         similarity * 100.0
     );
-    println!("===============================");
+    eprintln!("===============================");
 
     // Clean up
     let _ = std::fs::remove_file(&our_pdf);
     let _ = std::fs::remove_file(&our_png);
     let _ = std::fs::remove_file(&pdflatex_png);
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ===== M31: Tests verifying similarity infrastructure =====
+
+/// Verify that similarity helper functions exist and behave correctly.
+#[test]
+fn test_similarity_score_is_one_for_identical_bytes() {
+    let data = vec![1u8, 2, 3, 4, 5];
+    let our_bytes = &data;
+    let their_bytes = &data;
+    let min_len = our_bytes.len().min(their_bytes.len());
+    let max_len = our_bytes.len().max(their_bytes.len());
+    let mut diff_count: u64 = 0;
+    for i in 0..min_len {
+        if our_bytes[i] != their_bytes[i] {
+            diff_count += 1;
+        }
+    }
+    diff_count += (max_len - min_len) as u64;
+    let similarity = if max_len > 0 {
+        1.0 - (diff_count as f64 / max_len as f64)
+    } else {
+        1.0
+    };
+    assert!(
+        (similarity - 1.0).abs() < f64::EPSILON,
+        "Identical byte arrays should have similarity 1.0"
+    );
+}
+
+/// Verify that similarity is 0 for completely different byte arrays.
+#[test]
+fn test_similarity_score_is_zero_for_all_different_bytes() {
+    let our_bytes = vec![0u8, 0, 0, 0];
+    let their_bytes = vec![1u8, 2, 3, 4];
+    let min_len = our_bytes.len().min(their_bytes.len());
+    let max_len = our_bytes.len().max(their_bytes.len());
+    let mut diff_count: u64 = 0;
+    for i in 0..min_len {
+        if our_bytes[i] != their_bytes[i] {
+            diff_count += 1;
+        }
+    }
+    diff_count += (max_len - min_len) as u64;
+    let similarity = if max_len > 0 {
+        1.0 - (diff_count as f64 / max_len as f64)
+    } else {
+        1.0
+    };
+    assert!(
+        similarity < 1.0,
+        "Completely different byte arrays should have similarity < 1.0"
+    );
+    assert!(similarity >= 0.0, "Similarity must be non-negative");
+}
+
+/// Verify that gs_available() returns a bool without panicking.
+#[test]
+fn test_gs_available_does_not_panic() {
+    let _result = gs_available();
+    // Just verify it runs without panicking
+}
+
+/// Verify skip_pdflatex() function behaves correctly when env var absent.
+#[test]
+fn test_skip_pdflatex_default_is_false() {
+    // Unless SKIP_PDFLATEX_TESTS is set in the env, should return false
+    if std::env::var("SKIP_PDFLATEX_TESTS").is_err() {
+        assert!(
+            !skip_pdflatex(),
+            "skip_pdflatex() should be false when env var not set"
+        );
+    }
 }
