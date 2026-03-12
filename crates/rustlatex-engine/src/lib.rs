@@ -326,6 +326,9 @@ pub struct TranslationContext {
     pub current_font_style: FontStyle,
     /// Stack of font styles for brace-scoped declarations.
     pub font_style_stack: Vec<FontStyle>,
+    /// Whether any visible content (e.g. a paragraph) has been emitted.
+    /// Used to suppress before-skip for the first section heading on a page.
+    pub content_emitted: bool,
 }
 
 impl TranslationContext {
@@ -385,6 +388,7 @@ impl TranslationContext {
             hyphenator: Hyphenator::new(),
             current_font_style: FontStyle::Normal,
             font_style_stack: Vec::new(),
+            content_emitted: false,
         }
     }
 
@@ -415,6 +419,7 @@ impl TranslationContext {
             hyphenator: Hyphenator::new(),
             current_font_style: FontStyle::Normal,
             font_style_stack: Vec::new(),
+            content_emitted: false,
         }
     }
 }
@@ -1544,11 +1549,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     //   \section: 15.07pt before, 9.90pt after
                     //   \subsection: 13.99pt before, 6.46pt after
                     //   \subsubsection: 11.63pt before, 6.46pt after
-                    let kern_before = match name.as_str() {
-                        "section" => 15.07_f64,
-                        "subsection" => 13.99_f64,
-                        _ => 11.63_f64, // subsubsection
-                    };
+                    // In the non-context path we always suppress before-skip
+                    // (matches pdflatex first-section-on-page behaviour).
+                    let kern_before = 0.0_f64;
                     let kern_after = match name.as_str() {
                         "section" => 9.90_f64,
                         _ => 6.46_f64, // subsection and subsubsection
@@ -2313,6 +2316,9 @@ pub fn translate_node_with_context(
             result
         }
         Node::Paragraph(nodes) => {
+            // Mark that visible content has been emitted (for first-section suppression)
+            ctx.content_emitted = true;
+
             // Check if paragraph starts with \noindent
             let starts_with_noindent = nodes
                 .first()
@@ -2511,10 +2517,16 @@ pub fn translate_node_with_context(
                     //   \section: 15.07pt before, 9.90pt after
                     //   \subsection: 13.99pt before, 6.46pt after
                     //   \subsubsection: 11.63pt before, 6.46pt after
-                    let kern_before = match name.as_str() {
-                        "section" => 15.07_f64,
-                        "subsection" => 13.99_f64,
-                        _ => 11.63_f64, // subsubsection
+                    // pdflatex suppresses before-skip for the first section at the
+                    // top of a page/column (i.e. when no content has been emitted yet).
+                    let kern_before = if !ctx.content_emitted {
+                        0.0
+                    } else {
+                        match name.as_str() {
+                            "section" => 15.07_f64,
+                            "subsection" => 13.99_f64,
+                            _ => 11.63_f64, // subsubsection
+                        }
                     };
                     let kern_after = match name.as_str() {
                         "section" => 9.90_f64,
@@ -6561,9 +6573,10 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // \section before-vskip is 15.07pt (pdflatex article class spacing)
+        // In the non-context path, before-vskip is suppressed (0.0) —
+        // matches pdflatex first-section-on-page behaviour.
         assert!(
-            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 15.07).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001)
         );
     }
 
@@ -6589,9 +6602,9 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("X".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // \subsection before-vskip is 13.99pt (pdflatex article class spacing)
+        // In the non-context path, before-vskip is suppressed (0.0).
         assert!(
-            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 13.99).abs() < 0.001)
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001)
         );
     }
 
@@ -12844,6 +12857,7 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_is_15_07pt() {
+        // In non-context path, before-vskip is suppressed (first-section-on-page).
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -12851,8 +12865,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 15.07).abs() < 0.001),
-            "\\section before-vskip must be 15.07pt (pdflatex article class)"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001),
+            "\\section before-vskip must be 0.0pt in non-context path (first-section suppression)"
         );
     }
 
@@ -12872,6 +12886,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_before_is_13_99pt() {
+        // In non-context path, before-vskip is suppressed (first-section-on-page).
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -12879,8 +12894,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 13.99).abs() < 0.001),
-            "\\subsection before-vskip must be 13.99pt (pdflatex article class)"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001),
+            "\\subsection before-vskip must be 0.0pt in non-context path"
         );
     }
 
@@ -12900,6 +12915,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_vskip_before_is_11_63pt() {
+        // In non-context path, before-vskip is suppressed (first-section-on-page).
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -12907,8 +12923,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount - 11.63).abs() < 0.001),
-            "\\subsubsection before-vskip must be 11.63pt"
+            matches!(nodes.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001),
+            "\\subsubsection before-vskip must be 0.0pt in non-context path"
         );
     }
 
@@ -12928,6 +12944,8 @@ mod tests {
 
     #[test]
     fn test_section_has_larger_before_vskip_than_subsection() {
+        // In non-context path, both before-vskips are suppressed (0.0).
+        // Instead, verify both are 0.0 (first-section-on-page behaviour).
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -12950,8 +12968,8 @@ mod tests {
             panic!("subsection first node must be VSkip")
         };
         assert!(
-            sec_before > sub_before,
-            "\\section before-vskip ({sec_before}) must be larger than \\subsection before-vskip ({sub_before})"
+            sec_before.abs() < 0.001 && sub_before.abs() < 0.001,
+            "Both before-vskips must be 0.0 in non-context path, got sec={sec_before} sub={sub_before}"
         );
     }
 
@@ -12986,14 +13004,15 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_context_15_07pt() {
+        // First section in document has no preceding content → before-skip suppressed to 0.0
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 15.07).abs() < 0.001),
-            "\\section before-vskip via context must be 15.07pt"
+            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001),
+            "\\section before-vskip for first section must be 0.0pt (suppressed)"
         );
     }
 
@@ -13022,6 +13041,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_before_context_13_99pt() {
+        // No paragraph before subsection → content_emitted is false → before-skip is 0.0
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -13033,8 +13053,8 @@ mod tests {
             },
         ]);
         let items = translate_with_context(&node);
-        // Find the subsection's before-vskip: it should be 13.99pt
-        // The subsection nodes follow the section nodes (VSkip(15.07), Text, VSkip(9.90))
+        // Find the subsection's before-vskip: it should be 0.0 (no content emitted)
+        // The subsection nodes follow the section nodes (VSkip(0.0), Text, VSkip(9.90))
         // Skip the section nodes and find the next VSkip
         let subsec_before = items
             .iter()
@@ -13049,10 +13069,8 @@ mod tests {
                 }
             });
         assert!(
-            subsec_before
-                .map(|a| (a - 13.99).abs() < 0.001)
-                .unwrap_or(false),
-            "\\subsection before-vskip via context must be 13.99pt, got {:?}",
+            subsec_before.map(|a| a.abs() < 0.001).unwrap_or(false),
+            "\\subsection before-vskip must be 0.0pt (no content emitted), got {:?}",
             subsec_before
         );
     }
@@ -13119,7 +13137,7 @@ mod tests {
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // Verify exact spacing values match pdflatex article class spec
+        // In non-context path, before-vskip is suppressed (0.0)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13127,10 +13145,10 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before vskip
+        // before vskip — suppressed to 0.0
         assert!(
-            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 15.07).abs() < 0.001),
-            "section before vskip should be exactly 15.07pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount).abs() < 0.001),
+            "section before vskip should be 0.0pt (first-section suppression)"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
@@ -13143,7 +13161,7 @@ mod tests {
 
     #[test]
     fn test_subsection_spacing_exact_values() {
-        // Verify exact spacing values match pdflatex article class spec
+        // In non-context path, before-vskip is suppressed (0.0)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13151,10 +13169,10 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before vskip
+        // before vskip — suppressed to 0.0
         assert!(
-            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 13.99).abs() < 0.001),
-            "subsection before vskip should be exactly 13.99pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount).abs() < 0.001),
+            "subsection before vskip should be 0.0pt (first-section suppression)"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
@@ -13167,7 +13185,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_spacing_exact_values() {
-        // Verify exact spacing values match pdflatex article class spec
+        // In non-context path, before-vskip is suppressed (0.0)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13175,10 +13193,10 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(nodes.len(), 3);
-        // before vskip
+        // before vskip — suppressed to 0.0
         assert!(
-            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount - 11.63).abs() < 0.001),
-            "subsubsection before vskip should be exactly 11.63pt"
+            matches!(&nodes[0], BoxNode::VSkip { amount } if (*amount).abs() < 0.001),
+            "subsubsection before vskip should be 0.0pt (first-section suppression)"
         );
         // text node
         assert!(matches!(&nodes[1], BoxNode::Text { .. }));
@@ -15013,12 +15031,12 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // First node should be VSkip (not Kern)
+        // First node should be VSkip with 0.0 (first-section suppression)
         assert!(
             nodes
                 .iter()
-                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 15.07).abs() < 0.01)),
-            "Expected VSkip(15.07) before section heading, got: {:?}",
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount).abs() < 0.01)),
+            "Expected VSkip(0.0) before section heading (suppressed), got: {:?}",
             nodes
         );
     }
@@ -15066,11 +15084,12 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Background".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
+        // Before-vskip is suppressed to 0.0 in non-context path
         assert!(
             nodes
                 .iter()
-                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 13.99).abs() < 0.01)),
-            "Expected VSkip(13.99) before subsection heading, got: {:?}",
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount).abs() < 0.01)),
+            "Expected VSkip(0.0) before subsection heading (suppressed), got: {:?}",
             nodes
         );
     }
@@ -15083,11 +15102,12 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Detail".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
+        // Before-vskip is suppressed to 0.0 in non-context path
         assert!(
             nodes
                 .iter()
-                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount - 11.63).abs() < 0.01)),
-            "Expected VSkip(11.63) before subsubsection heading, got: {:?}",
+                .any(|n| matches!(n, BoxNode::VSkip { amount } if (*amount).abs() < 0.01)),
+            "Expected VSkip(0.0) before subsubsection heading (suppressed), got: {:?}",
             nodes
         );
     }
@@ -15380,6 +15400,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_kern_before_15_07() {
+        // In non-context path, before-vskip is suppressed to 0.0
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15388,8 +15409,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         if let Some(BoxNode::VSkip { amount }) = nodes.first() {
             assert!(
-                (*amount - 15.07).abs() < 0.001,
-                "section kern_before should be 15.07, got {}",
+                (*amount).abs() < 0.001,
+                "section kern_before should be 0.0 (suppressed), got {}",
                 amount
             );
         } else {
@@ -15418,6 +15439,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_kern_before_13_99() {
+        // In non-context path, before-vskip is suppressed to 0.0
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15426,8 +15448,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         if let Some(BoxNode::VSkip { amount }) = nodes.first() {
             assert!(
-                (*amount - 13.99).abs() < 0.001,
-                "subsection kern_before should be 13.99, got {}",
+                (*amount).abs() < 0.001,
+                "subsection kern_before should be 0.0 (suppressed), got {}",
                 amount
             );
         } else {
@@ -15456,6 +15478,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsubsection_kern_before_11_63() {
+        // In non-context path, before-vskip is suppressed to 0.0
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15464,8 +15487,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         if let Some(BoxNode::VSkip { amount }) = nodes.first() {
             assert!(
-                (*amount - 11.63).abs() < 0.001,
-                "subsubsection kern_before should be 11.63, got {}",
+                (*amount).abs() < 0.001,
+                "subsubsection kern_before should be 0.0 (suppressed), got {}",
                 amount
             );
         } else {
@@ -15553,6 +15576,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_before_greater_than_subsection_before() {
+        // In non-context path, both before-vskips are suppressed to 0.0
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -15575,8 +15599,8 @@ mod tests {
             0.0
         };
         assert!(
-            sec_before > sub_before,
-            "section before ({}) should be > subsection before ({})",
+            sec_before.abs() < 0.001 && sub_before.abs() < 0.001,
+            "Both before-vskips should be 0.0 (suppressed), got sec={} sub={}",
             sec_before,
             sub_before
         );
@@ -15584,6 +15608,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_before_greater_than_subsubsection_before() {
+        // In non-context path, both before-vskips are suppressed to 0.0
         let metrics = StandardFontMetrics;
         let sub = Node::Command {
             name: "subsection".to_string(),
@@ -15606,8 +15631,8 @@ mod tests {
             0.0
         };
         assert!(
-            sub_before > subsub_before,
-            "subsection before ({}) should be > subsubsection before ({})",
+            sub_before.abs() < 0.001 && subsub_before.abs() < 0.001,
+            "Both before-vskips should be 0.0 (suppressed), got sub={} subsub={}",
             sub_before,
             subsub_before
         );
@@ -15692,6 +15717,128 @@ mod tests {
             (lh - 9.90).abs() < 0.01,
             "Expected line_height=9.90, got {}",
             lh
+        );
+    }
+
+    // ===== M52: First-section before-skip suppression tests =====
+
+    #[test]
+    fn test_m52_first_section_gets_zero_before_vskip() {
+        // When a section is the first element (no paragraph before it),
+        // pdflatex suppresses the before-skip to 0.0.
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let first_vskip = items.first();
+        assert!(
+            matches!(first_vskip, Some(BoxNode::VSkip { amount }) if (*amount).abs() < 0.001),
+            "First section should have 0.0 before-vskip (suppressed), got {:?}",
+            first_vskip
+        );
+    }
+
+    #[test]
+    fn test_m52_section_after_paragraph_gets_15_07_before_vskip() {
+        // When a section follows a paragraph, the before-skip should be 15.07pt.
+        let node = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("Some text.".to_string())]),
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Next".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // Find the VSkip that appears after the paragraph-end glue and before the section text
+        let section_before = items
+            .iter()
+            .skip_while(|n| !matches!(n, BoxNode::Glue { stretch, .. } if *stretch > 0.5))
+            .skip(1) // skip the paragraph-end glue
+            .find_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            section_before
+                .map(|a| (a - 15.07).abs() < 0.001)
+                .unwrap_or(false),
+            "Section after paragraph should have 15.07pt before-vskip, got {:?}",
+            section_before
+        );
+    }
+
+    #[test]
+    fn test_m52_subsection_after_paragraph_gets_13_99_before_vskip() {
+        // When a subsection follows a paragraph, the before-skip should be 13.99pt.
+        let node = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("Some text.".to_string())]),
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let subsec_before = items
+            .iter()
+            .skip_while(|n| !matches!(n, BoxNode::Glue { stretch, .. } if *stretch > 0.5))
+            .skip(1)
+            .find_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            subsec_before
+                .map(|a| (a - 13.99).abs() < 0.001)
+                .unwrap_or(false),
+            "Subsection after paragraph should have 13.99pt before-vskip, got {:?}",
+            subsec_before
+        );
+    }
+
+    #[test]
+    fn test_m52_subsubsection_after_paragraph_gets_11_63_before_vskip() {
+        // When a subsubsection follows a paragraph, the before-skip should be 11.63pt.
+        let node = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("Some text.".to_string())]),
+            Node::Command {
+                name: "subsubsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let subsub_before = items
+            .iter()
+            .skip_while(|n| !matches!(n, BoxNode::Glue { stretch, .. } if *stretch > 0.5))
+            .skip(1)
+            .find_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            });
+        assert!(
+            subsub_before
+                .map(|a| (a - 11.63).abs() < 0.001)
+                .unwrap_or(false),
+            "Subsubsection after paragraph should have 11.63pt before-vskip, got {:?}",
+            subsub_before
+        );
+    }
+
+    #[test]
+    fn test_m52_content_emitted_flag_initially_false() {
+        let ctx = TranslationContext::new_collecting();
+        assert!(
+            !ctx.content_emitted,
+            "content_emitted should be false initially"
         );
     }
 }
