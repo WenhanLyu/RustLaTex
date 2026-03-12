@@ -387,6 +387,9 @@ pub enum BoxNode {
         font_size: f64,
         color: Option<Color>,
         font_style: FontStyle,
+        /// Vertical offset for superscript (+) or subscript (-) rendering.
+        /// Default is 0.0 (normal baseline).
+        vertical_offset: f64,
     },
     /// Inter-word glue with natural width, stretchability, and shrinkability.
     Glue {
@@ -770,6 +773,72 @@ pub fn math_node_to_text(node: &Node) -> String {
     }
 }
 
+/// Convert a math AST node into a sequence of `BoxNode` items with proper
+/// superscript/subscript rendering (smaller font size + vertical offset).
+///
+/// - `Node::Text(s)`: emit `BoxNode::Text` at normal size and baseline.
+/// - `Node::Superscript { base, exponent }`: emit base at normal offset,
+///   exponent at `font_size=7.0` with `vertical_offset=+4.0`.
+/// - `Node::Subscript { base, subscript }`: emit base at normal offset,
+///   subscript at `font_size=7.0` with `vertical_offset=-2.0`.
+/// - Other node types fall back to `math_node_to_text()`.
+pub fn math_node_to_boxes(node: &Node, metrics: &dyn FontMetrics) -> Vec<BoxNode> {
+    math_node_to_boxes_inner(node, metrics, 10.0, 0.0)
+}
+
+/// Inner recursive helper that carries current font_size and vertical_offset.
+fn math_node_to_boxes_inner(
+    node: &Node,
+    metrics: &dyn FontMetrics,
+    font_size: f64,
+    vertical_offset: f64,
+) -> Vec<BoxNode> {
+    match node {
+        Node::Text(s) => {
+            if s.is_empty() {
+                return vec![];
+            }
+            vec![BoxNode::Text {
+                width: metrics.string_width(s) * (font_size / 10.0),
+                text: s.clone(),
+                font_size,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset,
+            }]
+        }
+        Node::Superscript { base, exponent } => {
+            let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
+            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.0, 4.0));
+            boxes
+        }
+        Node::Subscript { base, subscript } => {
+            let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
+            boxes.extend(math_node_to_boxes_inner(subscript, metrics, 7.0, -2.0));
+            boxes
+        }
+        Node::MathGroup(nodes) | Node::Group(nodes) => nodes
+            .iter()
+            .flat_map(|n| math_node_to_boxes_inner(n, metrics, font_size, vertical_offset))
+            .collect(),
+        // For Fraction, Radical, Command and others, fall back to text rendering
+        _ => {
+            let text = math_node_to_text(node);
+            if text.is_empty() {
+                return vec![];
+            }
+            vec![BoxNode::Text {
+                width: metrics.string_width(&text) * (font_size / 10.0),
+                text,
+                font_size,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset,
+            }]
+        }
+    }
+}
+
 /// Emit inter-word glue, applying inter-sentence spacing if the previous word
 /// ended with sentence-ending punctuation (`.`, `!`, `?`).
 ///
@@ -1042,6 +1111,7 @@ impl Hyphenator {
                 font_size,
                 color,
                 font_style: style,
+                vertical_offset: 0.0,
             }];
         }
 
@@ -1058,6 +1128,7 @@ impl Hyphenator {
                     font_size,
                     color: color.clone(),
                     font_style: style,
+                    vertical_offset: 0.0,
                 });
                 // Discretionary hyphen: Penalty(50) allows break with a hyphen
                 result.push(BoxNode::Penalty { value: 50 });
@@ -1074,6 +1145,7 @@ impl Hyphenator {
                 font_size,
                 color,
                 font_style: style,
+                vertical_offset: 0.0,
             });
         }
 
@@ -1098,6 +1170,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 });
             }
             result
@@ -1185,6 +1258,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                     }
                     result
@@ -1261,6 +1335,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size,
                             color: None,
                             font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Kern { amount: kern_after },
                     ]
@@ -1308,6 +1383,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         }]
                     }
                 }
@@ -1333,6 +1409,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         font_size: 7.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
@@ -1341,6 +1418,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
@@ -1348,6 +1426,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -1357,6 +1436,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -1470,6 +1550,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -1525,6 +1606,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                         } else {
                             result.push(BoxNode::Text {
@@ -1533,6 +1615,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                         }
                         // Item content
@@ -1572,6 +1655,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         font_size: 12.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -1760,6 +1844,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -1775,34 +1860,20 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     .collect(),
             }
         }
-        Node::InlineMath(nodes) => {
-            let text: String = nodes.iter().map(math_node_to_text).collect();
-            vec![BoxNode::Text {
-                width: metrics.string_width(&text),
-                text,
-                font_size: 10.0,
-                color: None,
-                font_style: FontStyle::Normal,
-            }]
-        }
+        Node::InlineMath(nodes) => nodes
+            .iter()
+            .flat_map(|n| math_node_to_boxes(n, metrics))
+            .collect(),
         Node::DisplayMath(nodes) => {
-            let text: String = nodes.iter().map(math_node_to_text).collect();
-            vec![
-                BoxNode::Penalty { value: -10000 },
-                BoxNode::Text {
-                    width: metrics.string_width(&text),
-                    text,
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                },
-                BoxNode::Penalty { value: -10000 },
-                BoxNode::Glue {
-                    natural: 6.0,
-                    stretch: 2.0,
-                    shrink: 0.0,
-                },
-            ]
+            let mut result = vec![BoxNode::Penalty { value: -10000 }];
+            result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
+            result.push(BoxNode::Penalty { value: -10000 });
+            result.push(BoxNode::Glue {
+                natural: 6.0,
+                stretch: 2.0,
+                shrink: 0.0,
+            });
+            result
         }
         Node::Group(nodes) => nodes
             .iter()
@@ -1983,6 +2054,7 @@ pub fn translate_node_with_context(
                     font_size: 10.0,
                     color: ctx.current_color.clone(),
                     font_style: style,
+                    vertical_offset: 0.0,
                 });
             }
             result
@@ -2095,6 +2167,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                     }
                     result
@@ -2206,6 +2279,7 @@ pub fn translate_node_with_context(
                             font_size,
                             color: None,
                             font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Kern { amount: kern_after },
                     ]
@@ -2259,6 +2333,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2283,6 +2358,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2315,6 +2391,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::AlignmentMarker {
                             alignment: Alignment::Justify,
@@ -2369,6 +2446,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         }]
                     }
                 }
@@ -2411,6 +2489,7 @@ pub fn translate_node_with_context(
                         font_size: 7.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
@@ -2419,6 +2498,7 @@ pub fn translate_node_with_context(
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
@@ -2426,6 +2506,7 @@ pub fn translate_node_with_context(
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -2435,6 +2516,7 @@ pub fn translate_node_with_context(
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -2510,6 +2592,7 @@ pub fn translate_node_with_context(
                             font_size: 17.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2523,6 +2606,7 @@ pub fn translate_node_with_context(
                                 font_size: 12.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                             result.push(BoxNode::Penalty { value: -10000 });
                         }
@@ -2540,6 +2624,7 @@ pub fn translate_node_with_context(
                             font_size: 12.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2652,6 +2737,7 @@ pub fn translate_node_with_context(
                         font_size: 14.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Kern { amount: 6.0 });
                     result.push(BoxNode::Penalty { value: -10000 });
@@ -2672,6 +2758,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2719,6 +2806,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                     ]
                 }
@@ -2759,6 +2847,7 @@ pub fn translate_node_with_context(
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
                 "newenvironment" | "renewenvironment" => {
@@ -2827,6 +2916,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2844,6 +2934,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2861,6 +2952,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2878,6 +2970,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2895,6 +2988,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2912,6 +3006,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2929,6 +3024,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
                             font_style: ctx.current_font_style,
+                            vertical_offset: 0.0,
                         }]
                     } else {
                         vec![]
@@ -2983,6 +3079,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -3066,6 +3163,7 @@ pub fn translate_node_with_context(
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                         } else {
                             result.push(BoxNode::Text {
@@ -3074,6 +3172,7 @@ pub fn translate_node_with_context(
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                         }
                         for node in item_nodes {
@@ -3111,6 +3210,7 @@ pub fn translate_node_with_context(
                         font_size: 12.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -3183,6 +3283,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Glue {
                             natural: 20.0,
@@ -3196,6 +3297,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -3237,6 +3339,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -3274,6 +3377,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Glue {
                             natural: 20.0,
@@ -3287,6 +3391,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -3318,6 +3423,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -3338,6 +3444,7 @@ pub fn translate_node_with_context(
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Glue {
                         natural: metrics.space_width_for_style(ctx.current_font_style),
@@ -3359,6 +3466,7 @@ pub fn translate_node_with_context(
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::Glue {
@@ -3430,6 +3538,7 @@ pub fn translate_node_with_context(
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
+                                vertical_offset: 0.0,
                             });
                             result.push(BoxNode::Glue {
                                 natural: metrics.space_width_for_style(ctx.current_font_style),
@@ -3461,6 +3570,7 @@ pub fn translate_node_with_context(
                         font_size: 14.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     });
                     result.push(BoxNode::Kern { amount: 6.0 });
                     result.push(BoxNode::Penalty { value: -10000 });
@@ -3544,6 +3654,7 @@ pub fn translate_node_with_context(
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
                         });
                         result.push(BoxNode::Glue {
                             natural: metrics.space_width_for_style(ctx.current_font_style),
@@ -3571,34 +3682,20 @@ pub fn translate_node_with_context(
                 }
             }
         }
-        Node::InlineMath(nodes) => {
-            let text: String = nodes.iter().map(math_node_to_text).collect();
-            vec![BoxNode::Text {
-                width: metrics.string_width_for_style(&text, ctx.current_font_style),
-                text,
-                font_size: 10.0,
-                color: None,
-                font_style: FontStyle::Normal,
-            }]
-        }
+        Node::InlineMath(nodes) => nodes
+            .iter()
+            .flat_map(|n| math_node_to_boxes(n, metrics))
+            .collect(),
         Node::DisplayMath(nodes) => {
-            let text: String = nodes.iter().map(math_node_to_text).collect();
-            vec![
-                BoxNode::Penalty { value: -10000 },
-                BoxNode::Text {
-                    width: metrics.string_width_for_style(&text, ctx.current_font_style),
-                    text,
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                },
-                BoxNode::Penalty { value: -10000 },
-                BoxNode::Glue {
-                    natural: 6.0,
-                    stretch: 2.0,
-                    shrink: 0.0,
-                },
-            ]
+            let mut result = vec![BoxNode::Penalty { value: -10000 }];
+            result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
+            result.push(BoxNode::Penalty { value: -10000 });
+            result.push(BoxNode::Glue {
+                natural: 6.0,
+                stretch: 2.0,
+                shrink: 0.0,
+            });
+            result
         }
         Node::Group(nodes) => {
             // Save font style for brace-scoped declarations
@@ -3650,6 +3747,7 @@ pub fn translate_node_with_context(
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }]
                 }
             }
@@ -4654,6 +4752,7 @@ mod tests {
             font_size: 10.0,
             color: None,
             font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
         };
         if let BoxNode::Text { text, width, .. } = &node {
             assert_eq!(text, "hello");
@@ -4716,6 +4815,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }],
         };
         if let BoxNode::HBox {
@@ -4744,6 +4844,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }],
         };
         if let BoxNode::VBox { width, content } = &node {
@@ -4771,6 +4872,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4783,6 +4885,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -4811,6 +4914,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         assert!(matches!(items[2], BoxNode::Glue { .. }));
@@ -4823,6 +4927,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
@@ -4834,6 +4939,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -4886,6 +4992,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -4908,6 +5015,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4920,6 +5028,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -4943,6 +5052,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4955,6 +5065,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -4986,6 +5097,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         // second: s+e+c+o+n+d = 3.89+4.44+4.44+5.00+5.56+5.56 = 28.89
@@ -4997,6 +5109,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -5025,6 +5138,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5037,6 +5151,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_into_lines(&items, 345.0);
@@ -5057,6 +5172,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5069,6 +5185,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5081,6 +5198,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_into_lines(&items, 100.0);
@@ -5108,6 +5226,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5120,6 +5239,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         // hsize=100, 50 + 50 = 100, fits exactly
@@ -5207,6 +5327,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -5228,6 +5349,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -5241,6 +5363,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5407,6 +5530,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         // Glue should use FixedMetrics space_width = 5.0
@@ -5424,6 +5548,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -5451,6 +5576,7 @@ mod tests {
             font_size: 10.0,
             color: None,
             font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
         }
     }
 
@@ -5481,6 +5607,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5493,6 +5620,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = kp.break_lines(&items, 345.0);
@@ -5829,6 +5957,7 @@ mod tests {
             font_size: 10.0,
             color: None,
             font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
         };
         if let BoxNode::Text { font_size, .. } = node {
             assert_eq!(font_size, 10.0);
@@ -6133,26 +6262,22 @@ mod tests {
 
     #[test]
     fn test_math_subscript_renders_as_text() {
-        // $x_i$ should render text containing "x" and "i"
+        // $x_i$ should render as two BoxNode::Text items: "x" (base) and "i" (subscript)
         let node = Node::InlineMath(vec![Node::Subscript {
             base: Box::new(Node::Text("x".to_string())),
             subscript: Box::new(Node::Text("i".to_string())),
         }]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 1);
+        assert_eq!(items.len(), 2);
         if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(
-                text.contains('x'),
-                "Expected 'x' in subscript text, got '{}'",
-                text
-            );
-            assert!(
-                text.contains('i'),
-                "Expected 'i' in subscript text, got '{}'",
-                text
-            );
+            assert_eq!(text, "x");
         } else {
-            panic!("Expected BoxNode::Text");
+            panic!("Expected BoxNode::Text for base");
+        }
+        if let BoxNode::Text { text, .. } = &items[1] {
+            assert_eq!(text, "i");
+        } else {
+            panic!("Expected BoxNode::Text for subscript");
         }
     }
 
@@ -6264,7 +6389,7 @@ mod tests {
 
     #[test]
     fn test_math_operator_times() {
-        // $a \times b$ should produce text containing "×"
+        // $a \times b$ should produce text items including "×"
         let node = Node::InlineMath(vec![
             Node::Text("a".to_string()),
             Node::Command {
@@ -6274,21 +6399,28 @@ mod tests {
             Node::Text("b".to_string()),
         ]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 1);
-        if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(
-                text.contains('×'),
-                "Expected '×' for \\times, got '{}'",
-                text
-            );
-        } else {
-            panic!("Expected BoxNode::Text");
-        }
+        assert_eq!(items.len(), 3);
+        // Check that one of the items contains the × symbol
+        let all_text: String = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            all_text.contains('×'),
+            "Expected '×' for \\times, got '{}'",
+            all_text
+        );
     }
 
     #[test]
     fn test_math_operator_leq() {
-        // $x \leq y$ should produce text containing "≤"
+        // $x \leq y$ should produce text items containing "≤"
         let node = Node::InlineMath(vec![
             Node::Text("x".to_string()),
             Node::Command {
@@ -6298,12 +6430,22 @@ mod tests {
             Node::Text("y".to_string()),
         ]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 1);
-        if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(text.contains('≤'), "Expected '≤' for \\leq, got '{}'", text);
-        } else {
-            panic!("Expected BoxNode::Text");
-        }
+        assert_eq!(items.len(), 3);
+        let all_text: String = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            all_text.contains('≤'),
+            "Expected '≤' for \\leq, got '{}'",
+            all_text
+        );
     }
 
     #[test]
@@ -6810,6 +6952,7 @@ mod tests {
             font_size: 10.0,
             color: None,
             font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
         }];
         let lines = break_items_with_alignment(&items, 345.0);
         assert_eq!(lines.len(), 1);
@@ -6828,6 +6971,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6847,6 +6991,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6866,6 +7011,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6882,6 +7028,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
             BoxNode::AlignmentMarker {
                 alignment: Alignment::Center,
@@ -6892,6 +7039,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6912,6 +7060,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6933,6 +7082,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }],
         };
         assert_eq!(line.alignment, Alignment::Center);
@@ -7744,6 +7894,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -7755,6 +7906,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -7777,6 +7929,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
         if let BoxNode::Rule { width, height } = &items[1] {
@@ -7854,6 +8007,7 @@ mod tests {
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
             }
         );
     }
@@ -11051,6 +11205,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::Italic,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -11136,6 +11291,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::BoldItalic,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -11163,6 +11319,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -11187,6 +11344,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::Italic,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -11211,6 +11369,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::Typewriter,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -11325,6 +11484,7 @@ mod tests {
             font_size: 10.0,
             color: None,
             font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
         };
         if let BoxNode::Text { font_style, .. } = &node {
             assert_eq!(*font_style, FontStyle::Bold);
@@ -11410,6 +11570,7 @@ mod tests {
                 n,
                 BoxNode::Text {
                     font_style: FontStyle::BoldItalic,
+                    vertical_offset: 0.0,
                     ..
                 }
             )
@@ -12501,5 +12662,352 @@ mod tests {
             "Expected 3 dash bullet prefixes for 3 items, got {}",
             dash_count
         );
+    }
+
+    // ============================================================
+    // M34: Superscript / Subscript rendering tests
+    // ============================================================
+
+    #[test]
+    fn test_boxnode_text_has_vertical_offset_field() {
+        // BoxNode::Text should accept a vertical_offset field
+        let node = BoxNode::Text {
+            text: "hello".to_string(),
+            width: 25.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        };
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &node
+        {
+            assert_eq!(*vertical_offset, 0.0);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_boxnode_text_vertical_offset_nonzero() {
+        // BoxNode::Text should accept a non-zero vertical_offset
+        let node = BoxNode::Text {
+            text: "sup".to_string(),
+            width: 10.0,
+            font_size: 7.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 4.0,
+        };
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &node
+        {
+            assert_eq!(*vertical_offset, 4.0);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_superscript_vertical_offset() {
+        // Superscript exponent should have vertical_offset=+4.0
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2);
+        // Base should have vertical_offset=0.0
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[0]
+        {
+            assert_eq!(*vertical_offset, 0.0);
+        } else {
+            panic!("Expected BoxNode::Text for base");
+        }
+        // Exponent should have vertical_offset=+4.0
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert_eq!(*vertical_offset, 4.0);
+        } else {
+            panic!("Expected BoxNode::Text for exponent");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_subscript_vertical_offset() {
+        // Subscript should have vertical_offset=-2.0
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2);
+        // Subscript should have vertical_offset=-2.0
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert_eq!(*vertical_offset, -2.0);
+        } else {
+            panic!("Expected BoxNode::Text for subscript");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_superscript_font_size() {
+        // Superscript exponent should have font_size=7.0
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text { font_size, .. } = &boxes[1] {
+            assert_eq!(*font_size, 7.0);
+        } else {
+            panic!("Expected BoxNode::Text for exponent");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_subscript_font_size() {
+        // Subscript text should have font_size=7.0
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text { font_size, .. } = &boxes[1] {
+            assert_eq!(*font_size, 7.0);
+        } else {
+            panic!("Expected BoxNode::Text for subscript");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_base_normal_offset() {
+        // Base of superscript should have vertical_offset=0.0 and font_size=10.0
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        if let BoxNode::Text {
+            font_size,
+            vertical_offset,
+            ..
+        } = &boxes[0]
+        {
+            assert_eq!(*font_size, 10.0);
+            assert_eq!(*vertical_offset, 0.0);
+        } else {
+            panic!("Expected BoxNode::Text for base");
+        }
+    }
+
+    #[test]
+    fn test_inline_math_superscript_produces_boxes() {
+        // InlineMath with Superscript should produce multiple boxes, not a single text
+        let node = Node::InlineMath(vec![Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        }]);
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 2, "Expected 2 BoxNode items for x^2");
+        // First item: "x"
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert_eq!(text, "x");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+        // Second item: "2" (superscript)
+        if let BoxNode::Text {
+            text,
+            vertical_offset,
+            font_size,
+            ..
+        } = &items[1]
+        {
+            assert_eq!(text, "2");
+            assert_eq!(*vertical_offset, 4.0);
+            assert_eq!(*font_size, 7.0);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_x_squared_no_caret_in_output() {
+        // $x^2$ should NOT contain literal ^ character in text
+        let node = Node::InlineMath(vec![Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        }]);
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { text, .. } = item {
+                assert!(
+                    !text.contains('^'),
+                    "Text should not contain literal ^, got '{}'",
+                    text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_x_squared_produces_two_text_items() {
+        // x^2 produces two separate BoxNode::Text items
+        let node = Node::InlineMath(vec![Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        }]);
+        let items = translate_node(&node);
+        let text_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .count();
+        assert_eq!(text_count, 2, "Expected 2 text items for x^2");
+    }
+
+    #[test]
+    fn test_nested_superscript_group() {
+        // $x^{2n}$ should produce base "x" and superscript "2n"
+        let node = Node::InlineMath(vec![Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::MathGroup(vec![
+                Node::Text("2".to_string()),
+                Node::Text("n".to_string()),
+            ])),
+        }]);
+        let items = translate_node(&node);
+        // Should produce: "x" (base) + "2" and "n" (superscript group)
+        assert!(items.len() >= 2, "Expected at least 2 items for x^{{2n}}");
+        // Check base
+        if let BoxNode::Text {
+            text,
+            vertical_offset,
+            ..
+        } = &items[0]
+        {
+            assert_eq!(text, "x");
+            assert_eq!(*vertical_offset, 0.0);
+        } else {
+            panic!("Expected BoxNode::Text for base");
+        }
+        // Check that remaining items have superscript offset
+        for item in &items[1..] {
+            if let BoxNode::Text {
+                vertical_offset, ..
+            } = item
+            {
+                assert_eq!(
+                    *vertical_offset, 4.0,
+                    "Superscript group should have vertical_offset=4.0"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_plain_text() {
+        // Plain text node produces normal text at baseline
+        let node = Node::Text("hello".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text {
+            text,
+            font_size,
+            vertical_offset,
+            ..
+        } = &boxes[0]
+        {
+            assert_eq!(text, "hello");
+            assert_eq!(*font_size, 10.0);
+            assert_eq!(*vertical_offset, 0.0);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_node_to_boxes_empty_text() {
+        // Empty text node produces no boxes
+        let node = Node::Text(String::new());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 0);
+    }
+
+    #[test]
+    fn test_display_math_superscript() {
+        // DisplayMath with superscript should include Penalty markers
+        let node = Node::DisplayMath(vec![Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        }]);
+        let items = translate_node(&node);
+        // Should start with Penalty and end with Penalty + Glue
+        assert!(items.len() >= 5);
+        assert!(matches!(&items[0], BoxNode::Penalty { value: -10000 }));
+        // Last two should be Penalty and Glue
+        let n = items.len();
+        assert!(matches!(&items[n - 2], BoxNode::Penalty { value: -10000 }));
+        assert!(matches!(&items[n - 1], BoxNode::Glue { .. }));
+    }
+
+    #[test]
+    fn test_math_subscript_no_underscore_in_output() {
+        // $x_i$ should NOT contain literal _ character in text
+        let node = Node::InlineMath(vec![Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        }]);
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { text, .. } = item {
+                assert!(
+                    !text.contains('_'),
+                    "Text should not contain literal _, got '{}'",
+                    text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_math_fraction_fallback_still_works() {
+        // Fraction should fall back to text rendering "a/b"
+        let node = Node::Fraction {
+            numerator: Box::new(Node::Text("a".to_string())),
+            denominator: Box::new(Node::Text("b".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert!(text.contains('/'), "Expected fraction fallback with /");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_command_in_boxes() {
+        // Math command like \alpha should produce text
+        let node = Node::Command {
+            name: "alpha".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert_eq!(text, "α");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
     }
 }

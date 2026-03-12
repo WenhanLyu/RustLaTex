@@ -586,6 +586,7 @@ impl PdfWriter {
                             font_size,
                             color,
                             font_style,
+                            vertical_offset,
                         } => {
                             // Select font name based on font_style
                             let font_name: &[u8] = match font_style {
@@ -595,6 +596,11 @@ impl PdfWriter {
                                 FontStyle::BoldItalic => b"F5",
                                 FontStyle::Typewriter => b"F6",
                             };
+                            // Apply text rise for superscript/subscript
+                            let has_rise = *vertical_offset != 0.0;
+                            if has_rise {
+                                content.set_rise(*vertical_offset as f32);
+                            }
                             // Set color if non-black
                             let has_color = color.as_ref().is_some_and(|c| !c.is_black());
                             if has_color {
@@ -610,6 +616,10 @@ impl PdfWriter {
                             let escaped = pdf_escape(text);
                             content.show(Str(&escaped));
                             current_x += *width as f32;
+                            // Reset text rise after rendering
+                            if has_rise {
+                                content.set_rise(0.0);
+                            }
                             if has_color {
                                 // Reset to black
                                 content.end_text();
@@ -772,6 +782,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     },
                     BoxNode::Glue {
                         natural: 3.33,
@@ -784,6 +795,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     },
                 ],
             }],
@@ -809,6 +821,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -836,6 +849,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }],
                 }],
                 footnotes: vec![],
@@ -851,6 +865,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }],
                 }],
                 footnotes: vec![],
@@ -901,6 +916,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1091,6 +1107,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1115,6 +1132,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1145,6 +1163,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }],
                 }],
                 footnotes: vec![],
@@ -1160,6 +1179,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
                     }],
                 }],
                 footnotes: vec![],
@@ -1203,6 +1223,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1249,6 +1270,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1274,6 +1296,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1284,6 +1307,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Italic,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1294,6 +1318,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::BoldItalic,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1304,6 +1329,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Typewriter,
+                        vertical_offset: 0.0,
                     }],
                 },
             ],
@@ -1347,6 +1373,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![FootnoteInfo {
@@ -1371,6 +1398,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1435,6 +1463,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1458,6 +1487,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Italic,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1481,6 +1511,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::BoldItalic,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1507,6 +1538,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Typewriter,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1530,6 +1562,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1556,6 +1589,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Typewriter,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1582,6 +1616,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
@@ -1611,6 +1646,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1621,6 +1657,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Italic,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1631,6 +1668,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::BoldItalic,
+                        vertical_offset: 0.0,
                     }],
                 },
                 OutputLine {
@@ -1641,6 +1679,7 @@ mod tests {
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Typewriter,
+                        vertical_offset: 0.0,
                     }],
                 },
             ],
@@ -1670,6 +1709,7 @@ mod tests {
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
                 }],
             }],
             footnotes: vec![],
