@@ -55,6 +55,8 @@ Binary-identical output requires:
 - **M21 scope:** Title/author/date (\title, \author, \date, \maketitle) and page numbers in PDF footer. These are present in virtually every real LaTeX document. \maketitle emits a centered title block; PDF backend renders page numbers in footer.
 - **Cycle 86-88 (M21):** M21 completed in 1 implementation cycle. Leo delivered \title/\author/\date/\maketitle system + PDF page number footer. TranslationContext extended with title/author/date fields. \maketitle emits centered title block at 17pt/12pt. PDF footer renders page numbers. 17 new tests, 377 total tests pass, CI green.
 - **M22 scope:** Footnotes (\footnote), abstract environment, horizontal spacing (\hspace, \hfill, \vfill), and URL/hyperlink commands (\href, \url). These are present in the majority of real academic LaTeX documents and are completely missing from the current implementation.
+- **Cycle 89-94 (M22):** M22 completed in 1 implementation cycle + 1 fix round + 1 verification. Leo delivered \footnote superscript markers + page-bottom rendering, \begin{abstract} centered heading, \hspace/\hfill/\vfill/\quad/\qquad/\,/\; spacing, \url/\href URL commands. Ares fixed abstract 6pt glue + 30pt kern indentation + PDF footnote rule width. 25 new tests, 402 total tests pass, CI green.
+- **M23 scope:** Color support (\textcolor, \color, \colorbox, xcolor named colors) and image inclusion (\includegraphics with PNG XObject embedding). Color requires adding a color field to BoxNode::Text and DeviceRGB PDF operators. Image inclusion requires BoxNode::ImagePlaceholder and PNG XObject embedding.
 
 ## Milestones
 
@@ -329,7 +331,7 @@ Implement the LaTeX title block and page number rendering — features present i
 - **Cycles budget:** 4 | **Cycles actual:** 1
 - **Status:** ✅ Complete — verified by CI (commit 51cf47d, 377 tests total)
 
-### M22: Footnotes + Abstract + Horizontal Spacing + URLs
+### M22: Footnotes + Abstract + Horizontal Spacing + URLs ✅ COMPLETE
 Implement common LaTeX features missing from the current implementation.
 
 **Footnote system (rustlatex-engine + rustlatex-pdf):**
@@ -367,6 +369,37 @@ Implement common LaTeX features missing from the current implementation.
 - Test `\url{...}` renders URL text in typewriter font
 - Test `\href{url}{text}` renders link text
 - All 377 existing tests continue to pass
+
+- **Cycles budget:** 4
+- **Status:** ✅ Complete — verified by Apollo (commit 30849f6, 402 tests total)
+
+### M23: Color Support + Image Inclusion
+Implement color support and basic image inclusion — features present in virtually all modern LaTeX documents.
+
+**Color system (rustlatex-engine + rustlatex-pdf):**
+- Add `Color` type to engine: RGB values (r, g, b: f64 in 0.0..1.0) + named colors
+- Add `color` field to `BoxNode::Text` (default: black = (0,0,0))
+- Handle `\textcolor{color}{text}` — renders text in specified color
+- Handle `\color{color}` — sets current color for subsequent text
+- Handle `\colorbox{color}{text}` — background color box (filled Rect behind text)
+- Support xcolor named colors: black, white, red, green, blue, cyan, magenta, yellow, gray, orange, purple, brown, lime, teal, violet, pink
+- Support RGB specification: `\textcolor[rgb]{r,g,b}{text}`
+- PDF backend: emit `rg` DeviceRGB operators for colored text
+
+**Image inclusion (rustlatex-engine + rustlatex-pdf):**
+- `\includegraphics[width=Xpt]{filename}` — placeholder box if file not found
+- Add `BoxNode::ImagePlaceholder { filename: String, width: f64, height: f64 }` variant
+- If PNG file exists: embed as XObject in PDF
+- Parse optional key=value args: width, height, scale
+- `\usepackage{graphicx}` and `\usepackage{xcolor}` — parse and ignore
+
+**Tests (15+ new):**
+- Test `\textcolor{red}{text}` produces Text node with color=(1,0,0)
+- Test `\textcolor[rgb]{0.5,0.5,0.5}{text}` produces correct color
+- Test `\colorbox{yellow}{text}` produces nodes with background
+- Test `\includegraphics[width=100pt]{missing.png}` produces ImagePlaceholder(width=100)
+- Test color names map to RGB values correctly
+- All 402 existing tests continue to pass
 
 - **Cycles budget:** 4
 - **Status:** Pending
