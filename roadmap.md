@@ -109,7 +109,7 @@ Binary-identical output requires:
 - **Cycle (M47):** M47 completed in 1 implementation cycle. Leo delivered PPM ±2 tolerance, cmsy10 kern pairs (26 pairs, F8), unused variable cleanup. 21 new tests, 879 total tests pass, CI green. Pixel similarity = 95.69% (with ±2 tolerance).
 - **Cycle (M48):** M48 completed in 1 implementation cycle. Leo delivered correct cmr10 AFM widths for 27 punctuation/symbol characters in StandardFontMetrics::char_width(). 21 new tests, 900 total tests pass, CI green. Pixel similarity = 95.69% (unchanged — punctuation width fix did not affect compare.tex line-breaking measurably, but improves correctness for documents with more punctuation).
 - **M48 scope:** Complete punctuation character widths in StandardFontMetrics. The engine's char_width() defaults to 5.0pt for all punctuation, but cmr10 AFM has precise widths (period=2.778, comma=2.778, hyphen=3.333, colon/semicolon=2.778, exclaim=2.778, question=4.722, parens=3.889, brackets=2.778). Wrong widths cause incorrect line-breaking vs pdflatex. Also add bold (cmbx10) widths for punctuation. This is the highest-impact remaining fix. Target 899+ tests, pixel similarity to ~97%+.
-- **M49 scope:** Diana research to identify remaining 4.31% pixel gap. The most likely causes: (1) vertical line spacing differences (pdflatex uses exact baselineskip = 12pt for 10pt text, we may deviate); (2) text positioning in PDF (first line y-position, margin precision); (3) math rendering text width differences (cmmi10 widths for subscripts/superscripts). Diana should render our PDF and pdflatex PDF to images and compare specific regions, particularly the math expressions and section headings in compare.tex.
+- **Athena M49 analysis (direct):** Rebuilt binary and confirmed \[...\] DisplayMath is correctly parsed. Identified two critical bugs: (1) Paragraph-end Glue{natural:6.0} creates spurious 12pt vertical blank lines between paragraphs (pdflatex uses parskip=0pt). (2) PDF justification distributes remaining space uniformly instead of proportionally by stretch value — wrong for inter-sentence glue (stretch=2.5 vs normal 1.667). Fix both in M49.
 
 ## Milestones
 
@@ -822,11 +822,14 @@ Fix the engine's char_width() function to use correct cmr10 AFM widths for all p
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 6062077), 900 tests pass, CI green. Pixel similarity = 95.69%.
 
-### M49: Research Remaining Pixel Similarity Gap + Targeted Fixes
-Use Diana to research the remaining 4.31% pixel similarity gap and implement targeted fixes.
+### M49: Fix Paragraph Spacing + Proportional Justification (Pixel Similarity Fixes)
+Two critical rendering fixes to improve pixel similarity from 95.69% toward 97%+:
 
-- **Cycles budget:** 3
-- **Status:** 🔄 Planned (Next)
+1. **Paragraph-end trailing Glue fix** — Change paragraph end Glue from `natural:6.0, stretch:2.0` to `natural:0.0, stretch:1.0` (match pdflatex's `\parskip=0pt plus 1pt`). Current 6pt natural glue creates an extra blank line (~12pt) between paragraphs, causing vertical positions to drift by ~12pt per paragraph.
+2. **Proportional justification** — Fix PDF backend to distribute remaining space proportionally based on per-glue stretch values instead of uniform `remaining/glue_count`. Fixes inter-sentence spacing.
+
+- **Cycles budget:** 2
+- **Status:** 🔄 Next (issue #52)
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
