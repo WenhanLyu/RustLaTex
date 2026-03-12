@@ -99,6 +99,8 @@ Binary-identical output requires:
 - **M43 scope:** Fix justified text line width computation (include kern pair contributions in line_nat_width) + add cmbxti10 kern pairs (F5/BoldItalic). Estimated pixel similarity gain ~0.3-0.5%. Target 800+ tests.
 - **Cycle (M43):** M43 completed in 1 implementation cycle. Leo delivered compute_kern_pair_total + justified width fix + cmbxti10 kern pairs (178 entries, F5). 23 new tests, 812 total tests pass, CI green. Pixel similarity = 95.77% (similarity=0.9577 from CI).
 - **CRITICAL BUG FOUND (M44 planning):** cmbx10 kern pairs (M41) are dead code. `font_name_for_style(Bold)` returns `b"F3"` but `is_cmr10_kern_font` checks for `b"F2"`. Bold text (F3/cmbx10) has never benefited from kern pairs. Fix: change `is_cmr10_kern_font` and `font_kern_pair` to use F3 (not F2) for cmbx10. This bug affects section headings (which use Bold/F3).
+- **Cycle (M44):** M44 completed in 1 implementation cycle. Ares fixed F2→F3 cmbx10 kern pair routing + updated tests. 14 new tests, 826 total tests pass, CI green.
+- **M45 scope:** Per-line height adaptation in PDF. Currently line_height is a flat 12pt constant. Section headings (14pt font) and subsections (12pt) need larger baselineskip. Fix: add `line_height: f64` to `OutputLine`, compute as max_font_size×1.2 in engine, use it in PDF backend. Target 840+ tests.
 - **M44 scope:** Fix cmbx10 kern pairs to apply to F3 (not dead-code F2). Fix `is_cmr10_kern_font` (add F3, remove F2), `font_kern_pair` (F3→cmbx10_kern_pair), `font_has_kern_pairs` (F3 dispatch), `compute_kern_pair_total` (F3 dispatch), `line_nat_width` computation for F3. Update tests that assert F3 should NOT have kerning. Estimated similarity improvement: +0.3-0.5% for bold text in section headings. Target 825+ tests.
 
 ## Milestones
@@ -763,19 +765,25 @@ Improve math rendering quality and italic text kerning.
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 4e34d18), 789 tests pass, CI green.
 
-### M44: Fix cmbx10 Kern Pairs (F3/Bold) — Critical Bug Fix
-Fix the dead-code bug in M41: cmbx10 kern pairs were implemented for font name "F2" but Bold text uses font name "F3". Section headings use F3/Bold (cmbx10), so this bug means no kerning is applied to bold section text.
+### M44: Fix cmbx10 Kern Pairs (F3/Bold) — Critical Bug Fix ✅ COMPLETE
+Fix the dead-code bug in M41: cmbx10 kern pairs were implemented for font name "F2" but Bold text uses font name "F3".
+
+- **Deliverables:** Fixed is_cmr10_kern_font/font_kern_pair/font_has_kern_pairs to use F3 (not F2) for cmbx10. Updated existing tests. 14 new tests.
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Ares implemented (commit ec55f78), 826 tests pass, CI green
+
+### M45: Per-Line Height Adaptation in PDF Output
+Fix the flat 12pt line_height in the PDF backend to properly reflect each line's font size.
 
 **Goals:**
-1. **Fix is_cmr10_kern_font**: change `b"F1" | b"F2" | b"F4" | b"F5"` to `b"F1" | b"F3" | b"F4" | b"F5"` (replace F2 with F3)
-2. **Fix font_kern_pair dispatch**: change `b"F2" => cmbx10_kern_pair(a, b)` to `b"F3" => cmbx10_kern_pair(a, b)` 
-3. **Fix font_has_kern_pairs dispatch**: change `b"F2" => has_cmbx10_kern_pairs(bytes)` to `b"F3" => has_cmbx10_kern_pairs(bytes)`
-4. **Fix compute_kern_pair_total**: it delegates to `font_kern_pair` so will auto-fix after step 2
-5. **Update tests**: tests that assert `F3 should NOT have kerning` must now assert F3 DOES have kerning; tests for F2 should be removed or changed to assert F2 has NO kern pairs
-6. **12+ new tests** covering F3 kern pair lookups (AV, To, Fo) and the corrected behavior
+1. **Add `line_height: f64` to `OutputLine` struct** in rustlatex-engine
+2. **Compute line_height in engine**: when building OutputLine, set line_height = max(font_size of BoxNode::Text nodes in that line) × 1.2 (standard TeX baselineskip factor). Default: 12.0 for 10pt text, 16.8 for 14pt section headings, 14.4 for 12pt subsections.
+3. **PDF backend uses `line.line_height`**: replace the flat `line_height: f32 = 12.0` with per-line values from the engine.
+4. **Glue-carrying lines**: lines that contain only Glue/Kern/Rule nodes (no Text) should still advance by their glue amount (already handled by Glue nodes) — use 0.0 or line.line_height for those.
+5. **12+ new tests** verifying line_height is 12.0 for normal text, 16.8 for 14pt sections, 14.4 for 12pt subsections.
 
 - **Cycles budget:** 2 | **Cycles actual:** pending
-- **Status:** 🔄 Planned — critical bug affecting bold text kerning in section headings
+- **Status:** 🔄 Planned
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
