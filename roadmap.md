@@ -69,6 +69,7 @@ Binary-identical output requires:
 - **M28 scope:** Per-font-style character width metrics. Currently all font styles (Bold, Italic, BoldItalic, Typewriter) use CM Roman width metrics for line-breaking and PDF positioning, even though the PDF backend selects different fonts. This causes incorrect text layout. M28 adds separate width tables for Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, and Courier, and uses them consistently in both the engine (line-breaking) and PDF backend (character positioning).
 - **Cycle 120-123 (M28):** M28 completed in 1 implementation cycle + 1 verification. char_width_for_style/space_width_for_style/string_width_for_style added to FontMetrics trait. Typewriter=6.0pt monospace, Bold/BoldItalic=1.05×, Italic=Normal. Engine translator uses per-style widths throughout. 20 new tests, 536 total tests pass, CI green.
 - **M29 scope:** pdflatex comparison infrastructure. Install texlive-base + texlive-fonts-recommended in CI, add integration tests that compile simple .tex files with BOTH our compiler and pdflatex, render both to PNG via GhostScript, compute pixel similarity. Establishes the baseline measurement for progress toward "binary identical" goal. pdflatex not available locally — CI (ubuntu-latest) is the test environment.
+- **Cycle ~130 (M29):** M29 completed in 1 implementation cycle. Leo delivered texlive CI install, examples/compare.tex, and 5 comparison tests (our PDF, pdflatex PDF, gs render ours, gs render pdflatex, pixel similarity log). 541 total tests pass, CI green.
 
 ## Milestones
 
@@ -576,6 +577,21 @@ Establish the ability to compare our compiler's output against pdflatex output i
 - Log pixel similarity between our output and pdflatex output
 
 **Goal:** After this milestone, we will know *how* different our output is from pdflatex on a simple document, which will guide M30+ fixes.
+
+- **Cycles budget:** 3 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo committed 2344578, 541 tests pass, CI green. Comparison infrastructure established.
+
+### M30: Rendering Quality Improvements (Pending)
+Focus on the highest-impact visual rendering gaps vs pdflatex output:
+
+**Expected areas (to be confirmed by Diana's research):**
+- Text rendering: proper use of Computer Modern fonts (cmr10) vs Helvetica
+- Math rendering: proper symbols and spacing
+- Page margins: matching pdflatex's default margins (1in all around)
+- Paragraph indentation and spacing consistency
+- Line breaking quality improvements
+
+**Goal:** Reduce the pixel difference between our output and pdflatex output by 20%+ on the compare.tex document.
 
 - **Cycles budget:** 3
 - **Status:** Pending
