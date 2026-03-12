@@ -315,6 +315,19 @@ impl PdfWriter {
             }
 
             content.end_text();
+
+            // Page number footer
+            let page_num_str = format!("{}", page.number);
+            let page_num_width = page_num_str.len() as f32 * 5.0; // ~5pt per digit at 10pt
+            let footer_x = (595.0 - page_num_width) / 2.0;
+            let footer_y: f32 = 25.0; // middle of bottom margin
+            content.begin_text();
+            content.set_font(Name(b"F1"), 10.0);
+            content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
+            let escaped_num = pdf_escape(&page_num_str);
+            content.show(Str(&escaped_num));
+            content.end_text();
+
             let content_bytes = content.finish();
 
             // Write content stream
@@ -674,6 +687,73 @@ mod tests {
         // PdfOutput.bytes should be valid PDF
         assert!(!output.bytes.is_empty());
         assert_eq!(&output.bytes[0..4], b"%PDF");
+    }
+
+    #[test]
+    fn test_pdf_page_number_in_output() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: "test".to_string(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Hello".to_string(),
+                    width: 25.0,
+                    font_size: 10.0,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // The page number "1" should appear in the PDF content stream
+        // Look for the page number text operation in the raw bytes
+        let text = String::from_utf8_lossy(&output.bytes);
+        // The footer should contain the page number as a text show operation
+        assert!(
+            output.bytes.windows(3).any(|w| w == b"(1)"),
+            "PDF should contain page number '1' in footer"
+        );
+    }
+
+    #[test]
+    fn test_pdf_page_number_two_pages() {
+        let pages = vec![
+            EnginePage {
+                number: 1,
+                content: "page one".to_string(),
+                box_lines: vec![OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "First".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                    }],
+                }],
+            },
+            EnginePage {
+                number: 2,
+                content: "page two".to_string(),
+                box_lines: vec![OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "Second".to_string(),
+                        width: 30.0,
+                        font_size: 10.0,
+                    }],
+                }],
+            },
+        ];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // Both page numbers should be present
+        assert!(
+            output.bytes.windows(3).any(|w| w == b"(1)"),
+            "PDF should contain page number '1'"
+        );
+        assert!(
+            output.bytes.windows(3).any(|w| w == b"(2)"),
+            "PDF should contain page number '2'"
+        );
     }
 
     #[test]

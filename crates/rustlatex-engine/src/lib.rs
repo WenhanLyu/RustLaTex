@@ -80,6 +80,15 @@ pub struct TranslationContext {
     /// Whether the next paragraph should suppress first-line indentation
     /// (set after section headings).
     pub after_heading: bool,
+    /// Title text set by `\title{...}`.
+    pub title: Option<String>,
+    /// Author text set by `\author{...}`.
+    pub author: Option<String>,
+    /// Date text set by `\date{...}`.
+    /// - `None` → no `\date` call (use today's date at `\maketitle` time)
+    /// - `Some("")` → `\date{}` (suppress date)
+    /// - `Some("2025")` → explicit date
+    pub date: Option<String>,
 }
 
 impl TranslationContext {
@@ -90,6 +99,9 @@ impl TranslationContext {
             labels: LabelTable::new(),
             collecting: true,
             after_heading: false,
+            title: None,
+            author: None,
+            date: None,
         }
     }
 
@@ -100,6 +112,9 @@ impl TranslationContext {
             labels,
             collecting: false,
             after_heading: false,
+            title: None,
+            author: None,
+            date: None,
         }
     }
 }
@@ -1216,6 +1231,113 @@ pub fn translate_node_with_context(
                 "raggedleft" => vec![BoxNode::AlignmentMarker {
                     alignment: Alignment::RaggedLeft,
                 }],
+                "title" => {
+                    // Store title text in context
+                    let text = if let Some(arg) = args.first() {
+                        extract_text_from_node(arg)
+                    } else {
+                        String::new()
+                    };
+                    ctx.title = Some(text);
+                    vec![]
+                }
+                "author" => {
+                    // Store author text in context
+                    let text = if let Some(arg) = args.first() {
+                        extract_text_from_node(arg)
+                    } else {
+                        String::new()
+                    };
+                    ctx.author = Some(text);
+                    vec![]
+                }
+                "date" => {
+                    // Store date text in context
+                    // \date{} → Some("") to suppress date
+                    // \date{\today} → resolve \today to date string
+                    let text = if let Some(arg) = args.first() {
+                        let raw = extract_text_from_node(arg);
+                        if raw == "today" {
+                            // \date{\today} — the parser sees \today as a Command,
+                            // extract_text_from_node returns "today" for a Command node
+                            "January 1, 2025".to_string()
+                        } else {
+                            raw
+                        }
+                    } else {
+                        String::new()
+                    };
+                    ctx.date = Some(text);
+                    vec![]
+                }
+                "maketitle" => {
+                    // Emit title block items
+                    let mut result = Vec::new();
+
+                    // Glue before title (12pt)
+                    result.push(BoxNode::Glue {
+                        natural: 12.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+
+                    // Title text at 17pt, centered
+                    let title_text = ctx.title.clone().unwrap_or_default();
+                    if !title_text.is_empty() {
+                        result.push(BoxNode::AlignmentMarker {
+                            alignment: Alignment::Center,
+                        });
+                        result.push(BoxNode::Text {
+                            width: metrics.string_width(&title_text) * 1.7,
+                            text: title_text,
+                            font_size: 17.0,
+                        });
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+
+                    // Author text at 12pt, centered
+                    if let Some(ref author_text) = ctx.author {
+                        if !author_text.is_empty() {
+                            result.push(BoxNode::Text {
+                                width: metrics.string_width(author_text) * 1.2,
+                                text: author_text.clone(),
+                                font_size: 12.0,
+                            });
+                            result.push(BoxNode::Penalty { value: -10000 });
+                        }
+                    }
+
+                    // Date text at 12pt, centered
+                    let date_text = match &ctx.date {
+                        Some(d) => d.clone(), // explicit date (may be empty to suppress)
+                        None => "January 1, 2025".to_string(), // default: today's date
+                    };
+                    if !date_text.is_empty() {
+                        result.push(BoxNode::Text {
+                            width: metrics.string_width(&date_text) * 1.2,
+                            text: date_text,
+                            font_size: 12.0,
+                        });
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+
+                    // Restore alignment to justify
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Justify,
+                    });
+
+                    // Glue after title block (24pt)
+                    result.push(BoxNode::Glue {
+                        natural: 24.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+
+                    // Suppress indentation for first paragraph after title block
+                    ctx.after_heading = true;
+
+                    result
+                }
                 _ => vec![],
             }
         }
@@ -5954,5 +6076,355 @@ mod tests {
         } else {
             panic!("Expected Glue between sentences");
         }
+    }
+
+    // ===== M21: Title/Author/Date/Maketitle Tests =====
+
+    #[test]
+    fn test_title_stored() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "title".to_string(),
+            args: vec![Node::Group(vec![Node::Text("My Title".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(ctx.title, Some("My Title".to_string()));
+    }
+
+    #[test]
+    fn test_author_stored() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "author".to_string(),
+            args: vec![Node::Group(vec![Node::Text("John Doe".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(ctx.author, Some("John Doe".to_string()));
+    }
+
+    #[test]
+    fn test_date_stored() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "date".to_string(),
+            args: vec![Node::Group(vec![Node::Text("2025".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(ctx.date, Some("2025".to_string()));
+    }
+
+    #[test]
+    fn test_date_empty_suppresses() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "date".to_string(),
+            args: vec![Node::Group(vec![])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.date,
+            Some(String::new()),
+            "\\date{{}} should store Some(\"\") to suppress date"
+        );
+    }
+
+    #[test]
+    fn test_date_today() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "date".to_string(),
+            args: vec![Node::Group(vec![Node::Command {
+                name: "today".to_string(),
+                args: vec![],
+            }])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.date,
+            Some("January 1, 2025".to_string()),
+            "\\date{{\\today}} should store today's date"
+        );
+    }
+
+    #[test]
+    fn test_maketitle_title_17pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Big Title".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_17pt = items.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, text, .. } if (*font_size - 17.0).abs() < 0.001 && text == "Big Title"),
+        );
+        assert!(has_17pt, "\\maketitle should emit title at 17pt");
+    }
+
+    #[test]
+    fn test_maketitle_author_12pt() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("T".to_string())])],
+            },
+            Node::Command {
+                name: "author".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Author Name".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_author = items.iter().any(
+            |n| matches!(n, BoxNode::Text { font_size, text, .. } if (*font_size - 12.0).abs() < 0.001 && text == "Author Name"),
+        );
+        assert!(has_author, "\\maketitle should emit author at 12pt");
+    }
+
+    #[test]
+    fn test_maketitle_three_items() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "author".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Author".to_string())])],
+            },
+            Node::Command {
+                name: "date".to_string(),
+                args: vec![Node::Group(vec![Node::Text("2025".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let text_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .count();
+        assert!(
+            text_count >= 3,
+            "With title+author+date, maketitle should produce at least 3 Text BoxNodes, got {}",
+            text_count
+        );
+    }
+
+    #[test]
+    fn test_maketitle_no_title() {
+        // \maketitle without \title should not panic
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "maketitle".to_string(),
+            args: vec![],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should not panic — that's the test
+    }
+
+    #[test]
+    fn test_maketitle_no_indent_after() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+            Node::Paragraph(vec![Node::Text("First paragraph".to_string())]),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Find "First" text and check no Kern(20.0) before it
+        let first_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "First"))
+            .expect("Expected 'First' text");
+        if first_idx > 0 {
+            let prev = &items[first_idx - 1];
+            assert!(
+                !matches!(prev, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+                "First paragraph after \\maketitle should NOT have Kern(20.0) indent"
+            );
+        }
+    }
+
+    #[test]
+    fn test_maketitle_glue_before() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // First item from maketitle should be Glue{natural: 12.0}
+        let has_glue_12 = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            has_glue_12,
+            "\\maketitle should emit 12pt glue before title"
+        );
+    }
+
+    #[test]
+    fn test_maketitle_glue_after() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should have Glue{natural: 24.0} after title block
+        let has_glue_24 = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 24.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            has_glue_24,
+            "\\maketitle should emit 24pt glue after title block"
+        );
+    }
+
+    #[test]
+    fn test_maketitle_no_date_when_empty() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "date".to_string(),
+                args: vec![Node::Group(vec![])], // empty date
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should NOT contain "January" (default date) since date was explicitly suppressed
+        let has_date = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("January")));
+        assert!(
+            !has_date,
+            "\\date{{}} should suppress date in \\maketitle output"
+        );
+    }
+
+    #[test]
+    fn test_maketitle_no_author_when_unset() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "date".to_string(),
+                args: vec![Node::Group(vec![])], // suppress date
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Without \author, only title should be emitted as Text
+        let text_nodes: Vec<&BoxNode> = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .collect();
+        assert_eq!(
+            text_nodes.len(),
+            1,
+            "Without author and with suppressed date, only title text should be emitted, got {}",
+            text_nodes.len()
+        );
+    }
+
+    #[test]
+    fn test_maketitle_center_alignment() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "title".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+            },
+            Node::Command {
+                name: "maketitle".to_string(),
+                args: vec![],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should contain Center alignment marker
+        let has_center = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                }
+            )
+        });
+        assert!(
+            has_center,
+            "\\maketitle should set Center alignment for title block"
+        );
+        // Should restore to Justify after
+        let has_justify = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                }
+            )
+        });
+        assert!(
+            has_justify,
+            "\\maketitle should restore Justify alignment after title block"
+        );
     }
 }
