@@ -67,7 +67,7 @@ fn is_cm_text_font(font_name: &[u8]) -> bool {
 /// Return true if kerning should be applied for this font name.
 /// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F3=cmbx10 Bold, F4=cmti10 Italic, F5=cmbxti10 BoldItalic).
 fn is_cmr10_kern_font(font_name: &[u8]) -> bool {
-    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5" | b"F7")
+    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5" | b"F7" | b"F8")
 }
 
 /// Look up the cmbx10 AFM kern pair value for a pair of byte-encoded glyphs.
@@ -971,6 +971,56 @@ pub fn cmbxti10_kern_pair(a: u8, b: u8) -> f32 {
     }
 }
 
+/// Look up the cmsy10 AFM kern pair value for a pair of byte-encoded glyphs.
+///
+/// Returns the kern value (kern_units/1000.0 * 10.0), or 0.0 if no kern pair
+/// exists. Based on the 26 KPX entries from cmsy10.afm for the prime glyph
+/// at position 48 (0x30).
+///
+/// Only the prime glyph (b=48) has kern pairs. Sign convention matches
+/// existing cmr10_kern_pair style (positive values; negation handled at call site).
+pub fn cmsy10_kern_pair(a: u8, b: u8) -> f32 {
+    if b != 48 {
+        return 0.0;
+    }
+    match a {
+        65 => 1.944444, // A + prime
+        66 => 1.388889, // B + prime
+        67 => 1.388889, // C + prime
+        68 => 0.833333, // D + prime
+        69 => 1.111111, // E + prime
+        70 => 1.111111, // F + prime
+        71 => 1.111111, // G + prime
+        72 => 1.111111, // H + prime
+        73 => 0.277778, // I + prime
+        74 => 1.666667, // J + prime
+        75 => 0.833333, // K + prime
+        76 => 1.388889, // L + prime
+        77 => 0.277778, // M + prime
+        78 => 0.277778, // N + prime
+        79 => 0.833333, // O + prime
+        80 => 1.388889, // P + prime
+        81 => 0.833333, // Q + prime
+        82 => 1.111111, // R + prime
+        83 => 1.944444, // S + prime
+        84 => 0.555556, // T + prime
+        85 => 0.277778, // U + prime
+        86 => 1.944444, // V + prime
+        87 => 1.388889, // W + prime
+        88 => 1.388889, // X + prime
+        89 => 1.944444, // Y + prime
+        90 => 1.111111, // Z + prime
+        _ => 0.0,
+    }
+}
+
+/// Check if any adjacent bytes have non-zero cmsy10 kern pairs.
+fn has_cmsy10_kern_pairs(bytes: &[u8]) -> bool {
+    bytes
+        .windows(2)
+        .any(|w| cmsy10_kern_pair(w[0], w[1]) != 0.0)
+}
+
 /// Check if any adjacent bytes have non-zero cmbxti10 kern pairs.
 fn has_cmbxti10_kern_pairs(bytes: &[u8]) -> bool {
     bytes
@@ -1295,6 +1345,7 @@ fn font_kern_pair(font_name: &[u8], a: u8, b: u8) -> f32 {
         b"F4" => cmti10_kern_pair(a, b),
         b"F5" => cmbxti10_kern_pair(a, b),
         b"F7" => cmmi10_kern_pair(a, b),
+        b"F8" => cmsy10_kern_pair(a, b),
         _ => cmr10_kern_pair(a, b),
     }
 }
@@ -1306,6 +1357,7 @@ fn font_has_kern_pairs(font_name: &[u8], bytes: &[u8]) -> bool {
         b"F4" => has_cmti10_kern_pairs(bytes),
         b"F5" => has_cmbxti10_kern_pairs(bytes),
         b"F7" => has_cmmi10_kern_pairs(bytes),
+        b"F8" => has_cmsy10_kern_pairs(bytes),
         _ => has_kern_pairs(bytes),
     }
 }
@@ -4092,7 +4144,7 @@ mod tests {
         );
         assert!(!is_cmr10_kern_font(b"F6"), "F6 should NOT have kerning");
         assert!(is_cmr10_kern_font(b"F7"), "F7 should have kerning (cmmi10)");
-        assert!(!is_cmr10_kern_font(b"F8"), "F8 should NOT have kerning");
+        assert!(is_cmr10_kern_font(b"F8"), "F8 should have kerning (cmsy10)");
     }
 
     #[test]
@@ -5006,5 +5058,232 @@ mod tests {
     #[test]
     fn test_m46_cmmi10_kern_pair_v_period() {
         assert_eq!(cmmi10_kern_pair(86, 58), -166.667);
+    }
+
+    // ============================================================
+    // M47: cmsy10 kern pairs tests
+    // ============================================================
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_a_prime() {
+        // A(65) + prime(48) = 1.944444
+        let k = cmsy10_kern_pair(65, 48);
+        assert!(
+            (k - 1.944444).abs() < 0.001,
+            "cmsy10 A+prime should be 1.944444, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_b_prime() {
+        let k = cmsy10_kern_pair(66, 48);
+        assert!(
+            (k - 1.388889).abs() < 0.001,
+            "cmsy10 B+prime should be 1.388889, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_i_prime() {
+        // I(73) + prime(48) = 0.277778
+        let k = cmsy10_kern_pair(73, 48);
+        assert!(
+            (k - 0.277778).abs() < 0.001,
+            "cmsy10 I+prime should be 0.277778, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_j_prime() {
+        // J(74) + prime(48) = 1.666667
+        let k = cmsy10_kern_pair(74, 48);
+        assert!(
+            (k - 1.666667).abs() < 0.001,
+            "cmsy10 J+prime should be 1.666667, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_s_prime() {
+        // S(83) + prime(48) = 1.944444
+        let k = cmsy10_kern_pair(83, 48);
+        assert!(
+            (k - 1.944444).abs() < 0.001,
+            "cmsy10 S+prime should be 1.944444, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_t_prime() {
+        // T(84) + prime(48) = 0.555556
+        let k = cmsy10_kern_pair(84, 48);
+        assert!(
+            (k - 0.555556).abs() < 0.001,
+            "cmsy10 T+prime should be 0.555556, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_v_prime() {
+        // V(86) + prime(48) = 1.944444
+        let k = cmsy10_kern_pair(86, 48);
+        assert!(
+            (k - 1.944444).abs() < 0.001,
+            "cmsy10 V+prime should be 1.944444, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_y_prime() {
+        // Y(89) + prime(48) = 1.944444
+        let k = cmsy10_kern_pair(89, 48);
+        assert!(
+            (k - 1.944444).abs() < 0.001,
+            "cmsy10 Y+prime should be 1.944444, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_z_prime() {
+        // Z(90) + prime(48) = 1.111111
+        let k = cmsy10_kern_pair(90, 48);
+        assert!(
+            (k - 1.111111).abs() < 0.001,
+            "cmsy10 Z+prime should be 1.111111, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_no_prime() {
+        // Any pair where b != 48 should return 0.0
+        assert_eq!(cmsy10_kern_pair(65, 49), 0.0, "A+non-prime should be 0");
+        assert_eq!(cmsy10_kern_pair(65, 65), 0.0, "A+A should be 0");
+        assert_eq!(cmsy10_kern_pair(90, 0), 0.0, "Z+0 should be 0");
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_non_letter_first() {
+        // Non-letter first byte with prime should return 0.0
+        assert_eq!(cmsy10_kern_pair(0, 48), 0.0, "0+prime should be 0");
+        assert_eq!(cmsy10_kern_pair(48, 48), 0.0, "prime+prime should be 0");
+        assert_eq!(
+            cmsy10_kern_pair(97, 48),
+            0.0,
+            "a+prime should be 0 (lowercase)"
+        );
+    }
+
+    #[test]
+    fn test_m47_has_cmsy10_kern_pairs_true() {
+        assert!(
+            has_cmsy10_kern_pairs(&[65, 48]),
+            "A+prime should have cmsy10 kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m47_has_cmsy10_kern_pairs_false() {
+        assert!(
+            !has_cmsy10_kern_pairs(&[65, 66]),
+            "A+B should NOT have cmsy10 kern pairs"
+        );
+        assert!(
+            !has_cmsy10_kern_pairs(&[]),
+            "empty should NOT have kern pairs"
+        );
+        assert!(
+            !has_cmsy10_kern_pairs(&[65]),
+            "single byte should NOT have kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m47_is_cmr10_kern_font_f8_true() {
+        assert!(is_cmr10_kern_font(b"F8"), "F8 should have kerning (cmsy10)");
+    }
+
+    #[test]
+    fn test_m47_font_kern_pair_f8_dispatches() {
+        let k = font_kern_pair(b"F8", 65, 48);
+        assert!(
+            (k - 1.944444).abs() < 0.001,
+            "font_kern_pair(F8, A, prime) should be 1.944444, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m47_font_has_kern_pairs_f8() {
+        assert!(
+            font_has_kern_pairs(b"F8", &[65, 48]),
+            "F8 with A+prime should have kern pairs"
+        );
+        assert!(
+            !font_has_kern_pairs(b"F8", &[65, 66]),
+            "F8 with A+B should NOT have kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m47_compute_kern_pair_total_f8() {
+        // A(65) + prime(48) = 1.944444
+        let total = compute_kern_pair_total(b"F8", &[65, 48]);
+        assert!(
+            (total - 1.944444).abs() < 0.001,
+            "compute_kern_pair_total(F8, A+prime) should be 1.944444, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m47_cmsy10_kern_pair_all_26_letters() {
+        // Verify all 26 uppercase letters have non-zero kern pairs with prime
+        let expected: [(u8, f32); 26] = [
+            (65, 1.944444),
+            (66, 1.388889),
+            (67, 1.388889),
+            (68, 0.833333),
+            (69, 1.111111),
+            (70, 1.111111),
+            (71, 1.111111),
+            (72, 1.111111),
+            (73, 0.277778),
+            (74, 1.666667),
+            (75, 0.833333),
+            (76, 1.388889),
+            (77, 0.277778),
+            (78, 0.277778),
+            (79, 0.833333),
+            (80, 1.388889),
+            (81, 0.833333),
+            (82, 1.111111),
+            (83, 1.944444),
+            (84, 0.555556),
+            (85, 0.277778),
+            (86, 1.944444),
+            (87, 1.388889),
+            (88, 1.388889),
+            (89, 1.944444),
+            (90, 1.111111),
+        ];
+        for (code, value) in &expected {
+            let k = cmsy10_kern_pair(*code, 48);
+            assert!(
+                (k - value).abs() < 0.001,
+                "cmsy10 {}+prime should be {}, got {}",
+                *code as char,
+                value,
+                k
+            );
+        }
     }
 }

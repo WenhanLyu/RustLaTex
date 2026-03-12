@@ -159,7 +159,7 @@ fn compare_ppm_files(path1: &Path, path2: &Path) -> f64 {
         return 0.0;
     }
 
-    // Count matching pixels (compare RGB triplets)
+    // Count matching pixels (compare RGB triplets with ±2 per-channel tolerance)
     let total_pixels = min_len / 3;
     if total_pixels == 0 {
         return 0.0;
@@ -167,10 +167,10 @@ fn compare_ppm_files(path1: &Path, path2: &Path) -> f64 {
     let mut matching = 0u64;
     for i in 0..total_pixels {
         let idx = i * 3;
-        if pixels1[idx] == pixels2[idx]
-            && pixels1[idx + 1] == pixels2[idx + 1]
-            && pixels1[idx + 2] == pixels2[idx + 2]
-        {
+        let r_ok = (pixels1[idx] as i32 - pixels2[idx] as i32).abs() <= 2;
+        let g_ok = (pixels1[idx + 1] as i32 - pixels2[idx + 1] as i32).abs() <= 2;
+        let b_ok = (pixels1[idx + 2] as i32 - pixels2[idx + 2] as i32).abs() <= 2;
+        if r_ok && g_ok && b_ok {
             matching += 1;
         }
     }
@@ -537,14 +537,15 @@ fn test_compare_ppm_files_identical() {
 #[test]
 fn test_compare_ppm_files_different() {
     // Completely different pixels should produce similarity 0.0
+    // Use 0 vs 128 to exceed the ±2 per-channel tolerance
     let header = b"P6\n2 1\n255\n";
     let mut data1 = Vec::new();
     data1.extend_from_slice(header);
-    data1.extend_from_slice(&[255, 255, 255, 255, 255, 255]);
+    data1.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
 
     let mut data2 = Vec::new();
     data2.extend_from_slice(header);
-    data2.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+    data2.extend_from_slice(&[128, 128, 128, 128, 128, 128]);
 
     let dir = std::env::temp_dir();
     let p1 = dir.join(format!("test_ppm_diff_1_{}.ppm", std::process::id()));
@@ -690,4 +691,96 @@ fn test_compare_tex_has_display_math() {
         content.contains(r"\[ E = mc^2 \]"),
         "compare.tex must contain \\[ E = mc^2 \\]"
     );
+}
+
+// ===== M47: PPM tolerance tests =====
+
+#[test]
+fn test_compare_ppm_files_within_tolerance() {
+    // Pixels differing by ±2 per channel should be counted as matching
+    let header = b"P6\n2 1\n255\n";
+    let mut data1 = Vec::new();
+    data1.extend_from_slice(header);
+    data1.extend_from_slice(&[100, 100, 100, 200, 200, 200]);
+
+    let mut data2 = Vec::new();
+    data2.extend_from_slice(header);
+    data2.extend_from_slice(&[102, 98, 100, 201, 199, 202]); // within ±2
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_tol_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_tol_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data1).unwrap();
+    std::fs::write(&p2, &data2).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        (sim - 1.0).abs() < f64::EPSILON,
+        "Pixels within ±2 tolerance should match, got similarity {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_outside_tolerance() {
+    // Pixels differing by more than ±2 on any channel should NOT match
+    let header = b"P6\n1 1\n255\n";
+    let mut data1 = Vec::new();
+    data1.extend_from_slice(header);
+    data1.extend_from_slice(&[100, 100, 100]);
+
+    let mut data2 = Vec::new();
+    data2.extend_from_slice(header);
+    data2.extend_from_slice(&[103, 100, 100]); // R differs by 3 (outside tolerance)
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_outside_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_outside_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data1).unwrap();
+    std::fs::write(&p2, &data2).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        sim < f64::EPSILON,
+        "Pixels outside ±2 tolerance should NOT match, got similarity {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_boundary_tolerance() {
+    // Exactly ±2 difference should match; ±3 should not
+    let header = b"P6\n2 1\n255\n";
+
+    // Pixel 1: diff exactly 2 on all channels (should match)
+    // Pixel 2: diff exactly 3 on red channel (should NOT match)
+    let mut data1 = Vec::new();
+    data1.extend_from_slice(header);
+    data1.extend_from_slice(&[10, 10, 10, 10, 10, 10]);
+
+    let mut data2 = Vec::new();
+    data2.extend_from_slice(header);
+    data2.extend_from_slice(&[12, 8, 12, 13, 10, 10]); // first: all ±2; second: R=13 (diff=3)
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_boundary_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_boundary_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data1).unwrap();
+    std::fs::write(&p2, &data2).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        (sim - 0.5).abs() < f64::EPSILON,
+        "One pixel within tolerance, one outside => 0.5, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
 }

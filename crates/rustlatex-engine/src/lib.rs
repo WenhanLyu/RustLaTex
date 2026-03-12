@@ -8745,7 +8745,7 @@ mod tests {
     #[test]
     fn test_paragraph_after_section_no_indent_in_context() {
         // In context-aware mode, paragraph after \section should NOT have Kern(20.0)
-        let metrics = StandardFontMetrics;
+        let _metrics = StandardFontMetrics;
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -8792,7 +8792,7 @@ mod tests {
 
     #[test]
     fn test_noindent_suppresses_indent_in_context() {
-        let metrics = StandardFontMetrics;
+        let _metrics = StandardFontMetrics;
         let node = Node::Document(vec![Node::Paragraph(vec![
             Node::Command {
                 name: "noindent".to_string(),
@@ -9090,7 +9090,7 @@ mod tests {
     fn test_second_paragraph_has_indent() {
         // First paragraph after section: no indent
         // Second paragraph: should have indent
-        let metrics = StandardFontMetrics;
+        let _metrics = StandardFontMetrics;
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -13857,7 +13857,7 @@ mod tests {
     #[test]
     fn test_m36_context_paragraph_indent_15pt() {
         // translate_node_with_context should also use 15pt indent
-        let metrics = StandardFontMetrics;
+        let _metrics = StandardFontMetrics;
         let node = Node::Document(vec![
             Node::Paragraph(vec![Node::Text("hello".to_string())]),
             Node::Paragraph(vec![Node::Text("world".to_string())]),
