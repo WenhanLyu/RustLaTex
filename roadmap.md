@@ -718,8 +718,19 @@ Improve math rendering quality by adding proper thin/thick spaces around math op
 2. **CI pixel similarity fix** — Change CI to capture the similarity score (write to file or use different mechanism).
 3. **10+ new tests** — verify operator spacing for +, =, ×, and that non-operators don't get spacing.
 
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit 263e476), 736 tests pass, CI green. Pixel similarity = 96.96%.
+
+### M40: Character Pair Kerning + Word Spacing Accuracy
+Improve text rendering quality by implementing cmr10 AFM kerning pairs and fixing inter-word spacing to match TeX's exact values.
+
+**Goals:**
+1. **Character pair kerning** — cmr10 AFM has 183 kern pairs (e.g., AV=-111pt, To=-83pt, ff=+78pt). Add kern pair lookup in PDF backend `render_text_node()`. Emit `Kern` spacing between adjacent characters with known kern pairs. Estimated +1-2% pixel similarity.
+2. **Exact inter-word spacing** — TeX standard: 3.333pt natural, 1.667pt stretch, 1.111pt shrink for cmr10 at 10pt. Verify and fix engine inter-word glue values.
+3. **10+ new tests** covering kern pair lookup and word spacing values.
+
 - **Cycles budget:** 2 | **Cycles actual:** pending
-- **Status:** 🔄 In progress (issue #43)
+- **Status:** 🔄 Planned
 
 ---
 
