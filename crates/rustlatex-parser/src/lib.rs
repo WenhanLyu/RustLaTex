@@ -58,6 +58,8 @@ pub enum Node {
     },
     /// A `{...}` group inside math mode.
     MathGroup(Vec<Node>),
+    /// An `\input{filename}` file inclusion directive.
+    Input { filename: String },
 }
 
 /// Internal sentinel returned when `\end{name}` is encountered during parsing.
@@ -387,6 +389,10 @@ impl Parser {
                 } else if name == "end" {
                     let env_name = self.parse_brace_name();
                     Some(ParseEvent::EndEnvironment(env_name))
+                } else if name == "input" || name == "include" {
+                    // \input{filename} or \include{filename}
+                    let filename = self.parse_brace_name();
+                    Some(ParseEvent::Node(Node::Input { filename }))
                 } else {
                     // Handle star-form commands: \vspace*{...} → Command{name:"vspace", args:[...]}
                     // \hspace*{...} → Command{name:"hspace", args:[...]}

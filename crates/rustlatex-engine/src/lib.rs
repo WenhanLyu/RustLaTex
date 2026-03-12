@@ -226,6 +226,15 @@ pub struct TranslationContext {
     pub has_toc: bool,
     /// Pre-scanned section info for TOC (title, level, number).
     pub prescan_sections: Vec<(String, u8, String)>,
+    /// Bibliography items: key → (label, auto_number).
+    /// auto_number is the 1-indexed position of the bibitem.
+    pub bib_items: HashMap<String, (String, usize)>,
+    /// Counter for auto-numbering bibitems.
+    pub bib_counter: usize,
+    /// User-defined environments: name → (begin_code, end_code).
+    pub user_environments: HashMap<String, (String, String)>,
+    /// Working directory for \input file resolution.
+    pub working_dir: Option<String>,
 }
 
 impl TranslationContext {
@@ -260,6 +269,10 @@ impl TranslationContext {
             toc_entries: Vec::new(),
             has_toc: false,
             prescan_sections: Vec::new(),
+            bib_items: HashMap::new(),
+            bib_counter: 0,
+            user_environments: HashMap::new(),
+            working_dir: None,
         }
     }
 
@@ -281,6 +294,10 @@ impl TranslationContext {
             toc_entries: Vec::new(),
             has_toc: false,
             prescan_sections: Vec::new(),
+            bib_items: HashMap::new(),
+            bib_counter: 0,
+            user_environments: HashMap::new(),
+            working_dir: None,
         }
     }
 }
@@ -2091,6 +2108,92 @@ pub fn translate_node_with_context(
                     ctx.has_toc = true;
                     result
                 }
+                "bibitem" => {
+                    // \bibitem{key} or \bibitem[label]{key}
+                    // In first pass: collect into bib_items map
+                    // In second pass: render the label
+                    ctx.bib_counter += 1;
+                    let bib_num = ctx.bib_counter;
+
+                    // Determine label and key
+                    let (label, key) = if args.len() >= 2 {
+                        // \bibitem[label]{key}
+                        let lbl = extract_text_from_node(&args[0]);
+                        let k = extract_text_from_node(&args[1]);
+                        (lbl, k)
+                    } else if args.len() == 1 {
+                        let k = extract_text_from_node(&args[0]);
+                        (format!("{}", bib_num), k)
+                    } else {
+                        (format!("{}", bib_num), String::new())
+                    };
+
+                    // Register in bib_items map
+                    if !key.is_empty() {
+                        ctx.bib_items.insert(key, (label.clone(), bib_num));
+                    }
+
+                    // Render the label prefix: [1]
+                    let label_text = format!("[{}] ", label);
+                    vec![
+                        BoxNode::Penalty { value: -10000 },
+                        BoxNode::Text {
+                            width: metrics.string_width(&label_text),
+                            text: label_text,
+                            font_size: 10.0,
+                            color: None,
+                        },
+                    ]
+                }
+                "cite" => {
+                    // \cite{key} or \cite[note]{key} or \cite{key1,key2}
+                    let (note, keys_str) = if args.len() >= 2 {
+                        // \cite[note]{key}
+                        let n = extract_text_from_node(&args[0]);
+                        let k = extract_text_from_node(&args[1]);
+                        (Some(n), k)
+                    } else if args.len() == 1 {
+                        let k = extract_text_from_node(&args[0]);
+                        (None, k)
+                    } else {
+                        (None, String::new())
+                    };
+
+                    // Split keys by comma for multi-cite
+                    let keys: Vec<&str> = keys_str.split(',').map(|s| s.trim()).collect();
+                    let mut labels_vec = Vec::new();
+                    for key in &keys {
+                        if let Some((label, _)) = ctx.bib_items.get(*key) {
+                            labels_vec.push(label.clone());
+                        } else {
+                            labels_vec.push("?".to_string());
+                        }
+                    }
+
+                    let cite_text = if let Some(n) = note {
+                        format!("[{}, {}]", labels_vec.join(", "), n)
+                    } else {
+                        format!("[{}]", labels_vec.join(", "))
+                    };
+
+                    vec![BoxNode::Text {
+                        width: metrics.string_width(&cite_text),
+                        text: cite_text,
+                        font_size: 10.0,
+                        color: None,
+                    }]
+                }
+                "newenvironment" | "renewenvironment" => {
+                    // \newenvironment{name}{begin-code}{end-code}
+                    if args.len() >= 3 {
+                        let env_name = extract_text_from_node(&args[0]);
+                        let begin_code = extract_text_content(&args[1]);
+                        let end_code = extract_text_content(&args[2]);
+                        ctx.user_environments
+                            .insert(env_name, (begin_code, end_code));
+                    }
+                    vec![]
+                }
                 _ => vec![],
             }
         }
@@ -2551,9 +2654,66 @@ pub fn translate_node_with_context(
                     });
                     result
                 }
+                "thebibliography" => {
+                    // Bibliography environment: render "References" heading + numbered list
+                    let mut result = Vec::new();
+                    // "References" heading at 14pt
+                    let heading = "References".to_string();
+                    result.push(BoxNode::Kern { amount: 12.0 });
+                    result.push(BoxNode::Text {
+                        width: metrics.string_width(&heading),
+                        text: heading,
+                        font_size: 14.0,
+                        color: None,
+                    });
+                    result.push(BoxNode::Kern { amount: 6.0 });
+                    result.push(BoxNode::Penalty { value: -10000 });
+                    // Translate content (which contains \bibitem commands and text)
+                    for node in content {
+                        result.extend(translate_node_with_context(node, metrics, ctx));
+                    }
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 2.0,
+                        shrink: 0.0,
+                    });
+                    result
+                }
                 other => {
+                    // Check if this is a user-defined environment
+                    if let Some((begin_code, end_code)) = ctx.user_environments.get(other).cloned()
+                    {
+                        let mut result = Vec::new();
+                        // Parse and translate begin_code
+                        if !begin_code.is_empty() {
+                            let mut begin_parser = rustlatex_parser::Parser::new(&begin_code);
+                            let begin_doc = begin_parser.parse();
+                            if let Node::Document(nodes) = begin_doc {
+                                for n in &nodes {
+                                    result.extend(translate_node_with_context(n, metrics, ctx));
+                                }
+                            }
+                        }
+                        // Translate the environment content
+                        for node in content {
+                            result.extend(translate_node_with_context(node, metrics, ctx));
+                        }
+                        // Parse and translate end_code
+                        if !end_code.is_empty() {
+                            let mut end_parser = rustlatex_parser::Parser::new(&end_code);
+                            let end_doc = end_parser.parse();
+                            if let Node::Document(nodes) = end_doc {
+                                for n in &nodes {
+                                    result.extend(translate_node_with_context(n, metrics, ctx));
+                                }
+                            }
+                        }
+                        result
+                    }
                     // Check if this is a theorem-like environment
-                    if let Some((display_name, counter)) = ctx.theorem_defs.get(other).cloned() {
+                    else if let Some((display_name, counter)) =
+                        ctx.theorem_defs.get(other).cloned()
+                    {
                         let new_counter = counter + 1;
                         ctx.theorem_defs
                             .insert(other.to_string(), (display_name.clone(), new_counter));
@@ -2649,6 +2809,44 @@ pub fn translate_node_with_context(
             .iter()
             .flat_map(|n| translate_node_with_context(n, metrics, ctx))
             .collect(),
+        Node::Input { filename } => {
+            // Resolve file relative to working directory
+            let file_path = if let Some(ref dir) = ctx.working_dir {
+                let p = std::path::Path::new(dir).join(filename);
+                p.to_string_lossy().to_string()
+            } else {
+                filename.clone()
+            };
+            // Add .tex extension if not present
+            let file_path = if !file_path.ends_with(".tex") {
+                format!("{}.tex", file_path)
+            } else {
+                file_path
+            };
+            match std::fs::read_to_string(&file_path) {
+                Ok(source) => {
+                    let mut parser = rustlatex_parser::Parser::new(&source);
+                    let doc = parser.parse();
+                    if let Node::Document(nodes) = doc {
+                        nodes
+                            .iter()
+                            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                            .collect()
+                    } else {
+                        translate_node_with_context(&doc, metrics, ctx)
+                    }
+                }
+                Err(_) => {
+                    let warning = format!("[Warning: file '{}' not found]", filename);
+                    vec![BoxNode::Text {
+                        width: metrics.string_width(&warning),
+                        text: warning,
+                        font_size: 10.0,
+                        color: None,
+                    }]
+                }
+            }
+        }
         _ => vec![],
     }
 }
@@ -2736,17 +2934,31 @@ pub fn extract_text_from_node(node: &Node) -> String {
 ///
 /// Returns the box items from the second pass and the label table.
 pub fn translate_two_pass(node: &Node, metrics: &dyn FontMetrics) -> (Vec<BoxNode>, LabelTable) {
+    translate_two_pass_with_dir(node, metrics, None)
+}
+
+/// Two-pass translation with optional working directory for `\input` file resolution.
+pub fn translate_two_pass_with_dir(
+    node: &Node,
+    metrics: &dyn FontMetrics,
+    working_dir: Option<&str>,
+) -> (Vec<BoxNode>, LabelTable) {
     // Pre-scan sections for TOC
     let scanned_sections = prescan_sections(node);
 
     // First pass: collect labels
     let mut ctx1 = TranslationContext::new_collecting();
     ctx1.prescan_sections = scanned_sections.clone();
+    ctx1.working_dir = working_dir.map(|s| s.to_string());
     let _ = translate_node_with_context(node, metrics, &mut ctx1);
 
     // Second pass: render with resolved labels
     let mut ctx2 = TranslationContext::new_rendering(ctx1.labels.clone());
     ctx2.prescan_sections = scanned_sections;
+    // Carry forward bib_items and user_environments from first pass
+    ctx2.bib_items = ctx1.bib_items.clone();
+    ctx2.user_environments = ctx1.user_environments.clone();
+    ctx2.working_dir = ctx1.working_dir.clone();
     let items = translate_node_with_context(node, metrics, &mut ctx2);
 
     (items, ctx1.labels)
@@ -3299,12 +3511,25 @@ pub struct Page {
 pub struct Engine {
     /// The parsed document AST.
     document: Node,
+    /// Working directory for `\input` file resolution.
+    working_dir: Option<String>,
 }
 
 impl Engine {
     /// Create a new engine from a parsed document.
     pub fn new(document: Node) -> Self {
-        Engine { document }
+        Engine {
+            document,
+            working_dir: None,
+        }
+    }
+
+    /// Create a new engine with a working directory for `\input` file resolution.
+    pub fn with_working_dir(document: Node, working_dir: String) -> Self {
+        Engine {
+            document,
+            working_dir: Some(working_dir),
+        }
     }
 
     /// Typeset the document and return pages.
@@ -3321,7 +3546,8 @@ impl Engine {
         let content = format!("(stub) document node: {:?}", self.document);
 
         // Two-pass rendering for cross-references
-        let (items, labels) = translate_two_pass(&self.document, &metrics);
+        let (items, labels) =
+            translate_two_pass_with_dir(&self.document, &metrics, self.working_dir.as_deref());
 
         let all_lines = break_items_with_alignment(&items, 345.0);
 
@@ -3413,6 +3639,7 @@ impl Engine {
             if has_pageref {
                 // Re-render with page numbers
                 let mut ctx = TranslationContext::new_rendering(resolved_labels);
+                ctx.working_dir = self.working_dir.clone();
                 let items = translate_node_with_context(&self.document, &metrics, &mut ctx);
                 collected_footnotes = ctx.footnotes.clone();
                 let all_lines = break_items_with_alignment(&items, 345.0);
@@ -8826,5 +9053,411 @@ mod tests {
             .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "Beta"));
         assert!(has_alpha, "Should render 'Alpha' term");
         assert!(has_beta, "Should render 'Beta' term");
+    }
+
+    // ===== M25: Bibliography System Tests =====
+
+    #[test]
+    fn test_bibitem_cite_resolves_to_number() {
+        // \bibitem{key} + \cite{key} → [1]
+        let src = r"\begin{thebibliography}{99}\bibitem{knuth} Knuth, The Art.\end{thebibliography}\cite{knuth}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(&doc, &metrics);
+        let has_cite = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[1]"));
+        assert!(
+            has_cite,
+            "\\cite{{knuth}} should resolve to [1], got: {:?}",
+            items
+                .iter()
+                .filter_map(|n| if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_bibitem_explicit_label_cite() {
+        // \bibitem[A]{key} + \cite{key} → [A]
+        let src = r"\begin{thebibliography}{99}\bibitem[A]{keyA} Author A.\end{thebibliography}\cite{keyA}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(&doc, &metrics);
+        let has_cite = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[A]"));
+        assert!(has_cite, "\\cite{{keyA}} should resolve to [A]");
+    }
+
+    #[test]
+    fn test_multiple_bibitems_number_correctly() {
+        let src = r"\begin{thebibliography}{99}\bibitem{b1} First.\bibitem{b2} Second.\end{thebibliography}\cite{b1} and \cite{b2}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(&doc, &metrics);
+        let has_1 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[1]"));
+        let has_2 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[2]"));
+        assert!(has_1, "\\cite{{b1}} should resolve to [1]");
+        assert!(has_2, "\\cite{{b2}} should resolve to [2]");
+    }
+
+    #[test]
+    fn test_cite_multiple_keys() {
+        // \cite{b1,b2} → [1, 2]
+        let src = r"\begin{thebibliography}{99}\bibitem{b1} First.\bibitem{b2} Second.\end{thebibliography}\cite{b1,b2}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(&doc, &metrics);
+        let has_multi = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[1, 2]"));
+        assert!(has_multi, "\\cite{{b1,b2}} should render as [1, 2]");
+    }
+
+    #[test]
+    fn test_cite_with_note() {
+        // \cite[p.~42]{key} → [1, p.~42]
+        let src = r"\begin{thebibliography}{99}\bibitem{ref1} Ref.\end{thebibliography}\cite[p. 42]{ref1}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(&doc, &metrics);
+        let has_note = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("1") && text.contains("p. 42")));
+        assert!(has_note, "\\cite[p. 42]{{ref1}} should include note");
+    }
+
+    #[test]
+    fn test_thebibliography_renders_references_heading() {
+        let src = r"\begin{thebibliography}{99}\bibitem{k} Entry.\end{thebibliography}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let has_heading = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "References"));
+        assert!(
+            has_heading,
+            "thebibliography should render 'References' heading"
+        );
+    }
+
+    #[test]
+    fn test_cite_unresolved_key() {
+        // \cite with unknown key renders [?]
+        let src = r"\cite{unknown}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let has_q = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "[?]"));
+        assert!(has_q, "Unresolved \\cite should render [?]");
+    }
+
+    // ===== M25: \newenvironment / \renewenvironment Tests =====
+
+    #[test]
+    fn test_newenvironment_expands() {
+        // \newenvironment{myenv}{PRE}{POST}
+        // \begin{myenv}content\end{myenv} → PRE content POST
+        let src = r"\newenvironment{myenv}{START}{END}\begin{myenv}body\end{myenv}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("START"),
+            "Should contain begin-code 'START', got: {}",
+            combined
+        );
+        assert!(
+            combined.contains("body"),
+            "Should contain content 'body', got: {}",
+            combined
+        );
+        assert!(
+            combined.contains("END"),
+            "Should contain end-code 'END', got: {}",
+            combined
+        );
+    }
+
+    #[test]
+    fn test_renewenvironment_overwrites() {
+        // \newenvironment{myenv}{OLD}{OLD}
+        // \renewenvironment{myenv}{NEW}{NEW}
+        let src = r"\newenvironment{myenv}{OLD}{OLD}\renewenvironment{myenv}{NEW}{NEW}\begin{myenv}mid\end{myenv}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("NEW"),
+            "Should contain overwritten 'NEW', got: {}",
+            combined
+        );
+        assert!(
+            !combined.contains("OLD"),
+            "Should NOT contain 'OLD' after renewenvironment, got: {}",
+            combined
+        );
+    }
+
+    #[test]
+    fn test_newenvironment_empty_begin_end() {
+        // \newenvironment{plain}{}{} — no wrapping
+        let src = r"\newenvironment{plain}{}{}\begin{plain}content\end{plain}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("content"),
+            "Should still contain 'content'"
+        );
+    }
+
+    // ===== M25: \input File Inclusion Tests =====
+
+    #[test]
+    fn test_input_includes_file_content() {
+        // Write a temp .tex file and include it
+        let dir = std::env::temp_dir();
+        let file_path = dir.join("test_input_m25.tex");
+        std::fs::write(&file_path, "included text here").unwrap();
+
+        let src = format!(
+            r"\input{{{}}}",
+            file_path.to_string_lossy().replace(".tex", "")
+        );
+        let mut parser = Parser::new(&src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("included"),
+            "Should include content from file, got: {}",
+            combined
+        );
+        assert!(
+            combined.contains("text"),
+            "Should include content from file, got: {}",
+            combined
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_file(&file_path);
+    }
+
+    #[test]
+    fn test_input_nonexistent_emits_warning() {
+        let src = r"\input{nonexistent_file_xyz}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let has_warning = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("Warning")));
+        assert!(has_warning, "Missing file should emit warning text");
+    }
+
+    #[test]
+    fn test_input_with_working_dir() {
+        // Write a temp file and use working_dir to resolve it
+        let dir = std::env::temp_dir().join("rustlatex_test_m25");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("chapter.tex");
+        std::fs::write(&file_path, "chapter content").unwrap();
+
+        let src = r"\input{chapter}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        ctx.working_dir = Some(dir.to_string_lossy().to_string());
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("chapter"),
+            "Should include 'chapter content', got: {}",
+            combined
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn test_input_parser_node() {
+        // Verify the parser produces Node::Input
+        let src = r"\input{myfile}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        if let Node::Document(nodes) = &doc {
+            assert_eq!(nodes.len(), 1);
+            assert!(
+                matches!(&nodes[0], Node::Input { filename } if filename == "myfile"),
+                "Expected Node::Input with filename 'myfile', got: {:?}",
+                nodes[0]
+            );
+        } else {
+            panic!("Expected Document node");
+        }
+    }
+
+    #[test]
+    fn test_bibitem_renders_label_prefix() {
+        // \bibitem in thebibliography renders [N] prefix
+        let src = r"\begin{thebibliography}{99}\bibitem{k1} Author, Title.\end{thebibliography}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let has_label = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with("[1]")));
+        assert!(has_label, "\\bibitem should render [1] prefix");
+    }
+
+    #[test]
+    fn test_thebibliography_heading_font_size() {
+        let src = r"\begin{thebibliography}{99}\bibitem{k} E.\end{thebibliography}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let heading_size = items.iter().find_map(|n| {
+            if let BoxNode::Text {
+                text, font_size, ..
+            } = n
+            {
+                if text == "References" {
+                    Some(*font_size)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        assert_eq!(
+            heading_size,
+            Some(14.0),
+            "References heading should be 14pt"
+        );
+    }
+
+    #[test]
+    fn test_newenvironment_with_commands() {
+        // newenvironment with LaTeX commands in begin/end code
+        let src = r"\newenvironment{boxed}{\textbf{Box:}}{(end)}\begin{boxed}inside\end{boxed}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let combined = texts.join(" ");
+        assert!(
+            combined.contains("Box:"),
+            "Should contain 'Box:' from \\textbf, got: {}",
+            combined
+        );
+        assert!(
+            combined.contains("inside"),
+            "Should contain 'inside' content, got: {}",
+            combined
+        );
     }
 }

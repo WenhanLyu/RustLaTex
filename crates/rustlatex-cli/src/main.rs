@@ -98,7 +98,12 @@ fn main() {
 
     // Stage 3: Engine + PDF
     println!("[3/3] Typesetting and generating PDF...");
-    let engine = Engine::new(ast);
+    // Determine working directory for \input file resolution
+    let working_dir = Path::new(input_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".to_string());
+    let engine = Engine::with_working_dir(ast, working_dir);
     let pages = engine.typeset();
     let writer = PdfWriter::new();
     let pdf = writer.write(&pages);
