@@ -177,6 +177,28 @@ pub enum Alignment {
 pub struct OutputLine {
     pub alignment: Alignment,
     pub nodes: Vec<BoxNode>,
+    /// Line height in points: max font_size of Text nodes × 1.2, or 12.0 if no Text nodes.
+    pub line_height: f64,
+}
+
+/// Compute the line height for a set of nodes.
+/// Returns max(font_size) * 1.2 for all BoxNode::Text nodes, or 12.0 if none found.
+pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
+    let max_font_size = nodes
+        .iter()
+        .filter_map(|n| {
+            if let BoxNode::Text { font_size, .. } = n {
+                Some(*font_size)
+            } else {
+                None
+            }
+        })
+        .fold(f64::NEG_INFINITY, f64::max);
+    if max_font_size == f64::NEG_INFINITY {
+        12.0
+    } else {
+        max_font_size * 1.2
+    }
 }
 
 // ===== Cross-Reference System =====
@@ -4654,13 +4676,19 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
     for (alignment, seg_items, has_page_break) in segments {
         let lines = breaker.break_lines(&seg_items, hsize);
         for nodes in lines {
-            result.push(OutputLine { alignment, nodes });
+            let line_height = compute_line_height(&nodes);
+            result.push(OutputLine {
+                alignment,
+                nodes,
+                line_height,
+            });
         }
         // If this segment ends with a page break, add a marker line
         if has_page_break {
             result.push(OutputLine {
                 alignment,
                 nodes: vec![BoxNode::Penalty { value: -10001 }],
+                line_height: 12.0,
             });
         }
     }
@@ -7285,19 +7313,280 @@ mod tests {
 
     #[test]
     fn test_output_line_struct() {
+        let nodes = vec![BoxNode::Text {
+            text: "x".to_string(),
+            width: 6.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
         let line = OutputLine {
             alignment: Alignment::Center,
-            nodes: vec![BoxNode::Text {
-                text: "x".to_string(),
+            nodes,
+            line_height: lh,
+        };
+        assert_eq!(line.alignment, Alignment::Center);
+        assert_eq!(line.nodes.len(), 1);
+        assert!((line.line_height - 12.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_output_line_has_line_height_field() {
+        // OutputLine must have a public line_height: f64 field
+        let nodes: Vec<BoxNode> = vec![];
+        let line = OutputLine {
+            alignment: Alignment::Justify,
+            nodes,
+            line_height: 12.0,
+        };
+        let _lh: f64 = line.line_height; // must compile as f64
+        assert!((line.line_height - 12.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compute_line_height_10pt() {
+        let nodes = vec![BoxNode::Text {
+            text: "Hello".to_string(),
+            width: 30.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.001,
+            "10pt text should give 12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_14pt() {
+        let nodes = vec![BoxNode::Text {
+            text: "Section".to_string(),
+            width: 50.0,
+            font_size: 14.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 16.8).abs() < 0.001,
+            "14pt text should give 16.8, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_12pt() {
+        let nodes = vec![BoxNode::Text {
+            text: "Subsection".to_string(),
+            width: 50.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 14.4).abs() < 0.001,
+            "12pt text should give 14.4, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_mixed_sizes() {
+        // Mixed 10pt and 14pt: max is 14pt → 16.8
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Normal".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Big".to_string(),
+                width: 20.0,
+                font_size: 14.0,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 16.8).abs() < 0.001,
+            "mixed 10+14pt should give 16.8, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_pure_glue() {
+        // No Text nodes → fallback 12.0
+        let nodes = vec![BoxNode::Glue {
+            natural: 5.0,
+            stretch: 1.0,
+            shrink: 1.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.001,
+            "pure glue line should give 12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_empty_nodes() {
+        let nodes: Vec<BoxNode> = vec![];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.001,
+            "empty nodes should give 12.0 fallback, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_penalty_marker() {
+        // Penalty node only (page break marker) → 12.0 fallback
+        let nodes = vec![BoxNode::Penalty { value: -10001 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.001,
+            "penalty-only line should give 12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_exact_16pt() {
+        // 16pt text → 16.0 * 1.2 = 19.2
+        let nodes = vec![BoxNode::Text {
+            text: "Large".to_string(),
+            width: 40.0,
+            font_size: 16.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 19.2).abs() < 0.001,
+            "16pt text should give 19.2, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_compute_line_height_three_sizes() {
+        // Three text nodes: 10, 12, 14 → max 14 → 16.8
+        let nodes = vec![
+            BoxNode::Text {
+                text: "a".to_string(),
                 width: 6.0,
                 font_size: 10.0,
                 color: None,
                 font_style: FontStyle::Normal,
                 vertical_offset: 0.0,
-            }],
-        };
-        assert_eq!(line.alignment, Alignment::Center);
-        assert_eq!(line.nodes.len(), 1);
+            },
+            BoxNode::Text {
+                text: "b".to_string(),
+                width: 7.0,
+                font_size: 12.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "c".to_string(),
+                width: 8.0,
+                font_size: 14.0,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 16.8).abs() < 0.001,
+            "max of 10/12/14 should give 16.8, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_break_items_line_height_10pt() {
+        let items = vec![BoxNode::Text {
+            text: "Hello".to_string(),
+            width: 30.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(!lines.is_empty());
+        for line in &lines {
+            if line.nodes.iter().any(|n| matches!(n, BoxNode::Text { .. })) {
+                assert!(
+                    (line.line_height - 12.0).abs() < 0.001,
+                    "10pt line should have line_height=12.0, got {}",
+                    line.line_height
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_break_items_line_height_14pt() {
+        let items = vec![BoxNode::Text {
+            text: "Section".to_string(),
+            width: 50.0,
+            font_size: 14.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(!lines.is_empty());
+        for line in &lines {
+            if line.nodes.iter().any(|n| matches!(n, BoxNode::Text { .. })) {
+                assert!(
+                    (line.line_height - 16.8).abs() < 0.001,
+                    "14pt line should have line_height=16.8, got {}",
+                    line.line_height
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_line_height_exact_formula() {
+        // Verify the formula: font_size * 1.2 matches expected values
+        assert!((10.0_f64 * 1.2 - 12.0).abs() < 0.001);
+        assert!((14.0_f64 * 1.2 - 16.8).abs() < 0.001);
+        assert!((12.0_f64 * 1.2 - 14.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compute_line_height_kern_only() {
+        // Kern-only line (no Text nodes) → fallback 12.0
+        let nodes = vec![BoxNode::Kern { amount: 5.0 }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.001,
+            "kern-only line should give 12.0, got {}",
+            lh
+        );
     }
 
     #[test]

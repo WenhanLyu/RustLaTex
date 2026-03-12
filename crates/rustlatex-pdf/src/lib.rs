@@ -1724,7 +1724,6 @@ impl PdfWriter {
         let margin_left: f32 = 72.27;
         let margin_top: f32 = 109.0;
         let font_size_outer: f32 = 10.0;
-        let line_height: f32 = 12.0;
 
         // Starting y position: page height - top margin = 842 - 109 = 733
         let start_y: f32 = 842.0 - margin_top;
@@ -1957,7 +1956,7 @@ impl PdfWriter {
                     }
                 }
 
-                current_y -= line_height;
+                current_y -= line.line_height as f32;
             }
 
             content.end_text();
@@ -2080,6 +2079,7 @@ mod tests {
                         vertical_offset: 0.0,
                     },
                 ],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2105,6 +2105,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2133,6 +2134,7 @@ mod tests {
                         font_style: FontStyle::Normal,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 }],
                 footnotes: vec![],
             },
@@ -2149,6 +2151,7 @@ mod tests {
                         font_style: FontStyle::Normal,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 }],
                 footnotes: vec![],
             },
@@ -2200,6 +2203,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2391,6 +2395,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2416,6 +2421,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2447,6 +2453,7 @@ mod tests {
                         font_style: FontStyle::Normal,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 }],
                 footnotes: vec![],
             },
@@ -2463,6 +2470,7 @@ mod tests {
                         font_style: FontStyle::Normal,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 }],
                 footnotes: vec![],
             },
@@ -2507,6 +2515,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2526,6 +2535,7 @@ mod tests {
                     width: 345.0,
                     height: 0.5,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2554,6 +2564,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2580,6 +2591,7 @@ mod tests {
                         font_style: FontStyle::Bold,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2591,6 +2603,7 @@ mod tests {
                         font_style: FontStyle::Italic,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2602,6 +2615,7 @@ mod tests {
                         font_style: FontStyle::BoldItalic,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2613,6 +2627,7 @@ mod tests {
                         font_style: FontStyle::Typewriter,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
             ],
             footnotes: vec![],
@@ -2657,6 +2672,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![FootnoteInfo {
                 number: 1,
@@ -2682,6 +2698,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2747,6 +2764,7 @@ mod tests {
                     font_style: FontStyle::Bold,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2771,6 +2789,7 @@ mod tests {
                     font_style: FontStyle::Italic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2795,6 +2814,7 @@ mod tests {
                     font_style: FontStyle::BoldItalic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2822,6 +2842,7 @@ mod tests {
                     font_style: FontStyle::Typewriter,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2846,6 +2867,7 @@ mod tests {
                     font_style: FontStyle::Bold,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2873,6 +2895,7 @@ mod tests {
                     font_style: FontStyle::Typewriter,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2900,6 +2923,7 @@ mod tests {
                     font_style: FontStyle::Bold,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -2930,6 +2954,7 @@ mod tests {
                         font_style: FontStyle::Bold,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2941,6 +2966,7 @@ mod tests {
                         font_style: FontStyle::Italic,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2952,6 +2978,7 @@ mod tests {
                         font_style: FontStyle::BoldItalic,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -2963,6 +2990,7 @@ mod tests {
                         font_style: FontStyle::Typewriter,
                         vertical_offset: 0.0,
                     }],
+                    line_height: 12.0,
                 },
             ],
             footnotes: vec![],
@@ -2993,6 +3021,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3194,6 +3223,7 @@ mod tests {
                         vertical_offset: 0.0,
                     },
                 ],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3264,6 +3294,7 @@ mod tests {
                     font_style: FontStyle::MathItalic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3294,6 +3325,7 @@ mod tests {
                     font_style: FontStyle::MathItalic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3315,6 +3347,7 @@ mod tests {
             box_lines: vec![OutputLine {
                 alignment: Alignment::Justify,
                 nodes: vec![BoxNode::Bullet],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3353,6 +3386,7 @@ mod tests {
                         vertical_offset: 0.0,
                     },
                 ],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3500,6 +3534,7 @@ mod tests {
                         vertical_offset: 3.5,
                     },
                 ],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3559,6 +3594,7 @@ mod tests {
                             vertical_offset: 0.0,
                         },
                     ],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -3573,6 +3609,7 @@ mod tests {
                             vertical_offset: 0.0,
                         },
                     ],
+                    line_height: 12.0,
                 },
                 OutputLine {
                     alignment: Alignment::Justify,
@@ -3587,6 +3624,7 @@ mod tests {
                             vertical_offset: 0.0,
                         },
                     ],
+                    line_height: 12.0,
                 },
             ],
             footnotes: vec![],
@@ -3803,6 +3841,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3831,6 +3870,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3859,6 +3899,7 @@ mod tests {
                     font_style: FontStyle::Normal,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -3887,6 +3928,7 @@ mod tests {
                     font_style: FontStyle::Bold,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
             footnotes: vec![],
         }];
@@ -4183,6 +4225,7 @@ mod tests {
                     font_style: FontStyle::Italic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
         }];
         let writer = PdfWriter::new();
@@ -4438,6 +4481,7 @@ mod tests {
                     font_style: FontStyle::BoldItalic,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
         }];
         let writer = PdfWriter::new();
@@ -4565,6 +4609,7 @@ mod tests {
                     font_style: FontStyle::Bold,
                     vertical_offset: 0.0,
                 }],
+                line_height: 12.0,
             }],
         }];
         let writer = PdfWriter::new();
