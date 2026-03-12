@@ -85,7 +85,8 @@ Binary-identical output requires:
 - **Diana's M36 research:** Identified 4 practical improvements: (1) Bullet fix — itemize uses '-' but pdflatex uses cmsy10 bullet; implement as BoxNode::Bullet rendered as PDF filled circle (+0.5-1.0%); (2) OT1 ligature substitution fi/fl/ff/ffi/ffl in PDF backend (+0.01-0.05%); (3) Fix parindent 20pt→15pt (+0.1%); (4) Display math spacing: abovedisplayskip/belowdisplayskip=12pt (+0.2-0.4%). cmmi10/cmsy10 pfb files not available locally but available in CI texlive.
 - **M36 scope:** Implement the 4 practical improvements from Diana's research. No new font embedding required. Target 662+ tests.
 - **Cycle (M36):** M36 completed in 1 implementation cycle. Leo delivered BoxNode::Bullet (PDF filled circle), OT1 ligature substitution (fi/fl/ff/ffi/ffl), parindent 20pt→15pt, display math 12pt spacing. 25+ new tests, 672 total tests pass, CI green.
-- **M37 scope:** Embed cmmi10.pfb (Computer Modern Math Italic) as new font (F7) in PDF output. Replace FontStyle::Italic for math variables with a new FontStyle::MathItalic that maps to cmmi10. Add OML (TeX Math Italic) encoding /Differences array. Add cmmi10 AFM width metrics. This is the main remaining visual difference vs pdflatex for math content. Target 690+ tests.
+- **Cycle (M37):** M37 completed in 1 implementation cycle. Ares/Leo delivered FontStyle::MathItalic variant, cmmi10 AFM width metrics for line-breaking, display math horizontal centering. 18+ new tests, 690 total tests pass. Note: MathItalic still maps to cmti10 in PDF (cmmi10.pfb not yet embedded — not available locally).
+- **M38 scope:** Embed actual cmmi10.pfb and cmsy10.pfb fonts in PDF output. cmmi10.pfb needs to be obtained (not locally available, but in CI texlive). Options: download from CTAN to repo, or use build.rs CI fetch script. This is the main remaining visual improvement for math rendering. Diana to research best approach.
 
 ## Milestones
 
@@ -676,7 +677,7 @@ Implement four targeted visual quality improvements identified by Diana's M36 re
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 524b22c), 672 tests pass
 
-### M37: FontStyle::MathItalic + cmmi10 Width Metrics + Display Math Centering
+### M37: FontStyle::MathItalic + cmmi10 Width Metrics + Display Math Centering ✅ COMPLETE
 Improve math rendering quality with accurate width metrics and visual centering.
 
 **Goals:**
@@ -686,9 +687,21 @@ Improve math rendering quality with accurate width metrics and visual centering.
 
 3. **Display math horizontal centering** — Center display math horizontally within text body (x = margin_left + (body_width - line_width) / 2). Use AlignmentMarker::Center for display math paragraphs.
 
-- **Tests:** 15+ new, 687+ total
-- **Cycles budget:** 2
-- **Status:** 📋 Planned
+- **Tests:** 18 new, 690 total
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit 13b2626), 690 tests pass, CI green
+
+### M38: Embed cmmi10.pfb + cmsy10.pfb Math Fonts
+Improve math font visual fidelity by embedding actual Computer Modern Math fonts.
+
+**Goals:**
+1. **Embed cmmi10.pfb (Math Italic font)** — Register as F7 in PDF with OML encoding /Differences array. FontStyle::MathItalic maps to F7 (instead of cmti10/F4). Visually different glyphs for math variables.
+2. **Embed cmsy10.pfb (Math Symbol font)** — Register as F8 in PDF with OMS encoding. Use for bullet character (cmsy10 byte 15 = bullet glyph).
+3. **Font acquisition** — cmmi10.pfb and cmsy10.pfb not available locally. Download from CTAN (freely licensed) or use CI texlive path. Diana to research best approach.
+
+- **Tests:** 15+ new, 705+ total
+- **Cycles budget:** 3
+- **Status:** 📋 Planned (Diana researching M38 approach)
 
 
 
