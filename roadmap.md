@@ -59,6 +59,8 @@ Binary-identical output requires:
 - **M23 scope:** Color support (\textcolor, \color, \colorbox, xcolor named colors) and image inclusion (\includegraphics with PNG XObject embedding). Color requires adding a color field to BoxNode::Text and DeviceRGB PDF operators. Image inclusion requires BoxNode::ImagePlaceholder and PNG XObject embedding.
 - **Cycle 95-98 (M23):** M23 completed in 1 implementation cycle + 1 verification. Leo delivered Color struct, 16 named colors, \textcolor/\color/\colorbox, BoxNode::ImagePlaceholder, \includegraphics with width/height/scale parsing, PDF rg operators for colored text, grey rectangle for image placeholders. 24 new tests, 426 total tests pass, CI green.
 - **M24 scope:** Equation environments (equation, align, align*) + theorem-like environments (\newtheorem, theorem, lemma, proof) + Table of Contents (\tableofcontents) + description list environment. These are the core missing academic document features present in virtually all research papers.
+- **Cycle 99-101 (M24):** M24 completed in 1 implementation cycle + 1 verification. Leo delivered equation/equation*/align/align* with auto-numbering, \newtheorem + pre-registered theorem/lemma/definition/corollary/proposition/remark/example, proof environment with QED □, \tableofcontents two-pass rendering, description list \item[term]. 16 new tests, 442 total tests pass, CI green.
+- **M25 scope:** Bibliography system (\cite/\bibitem/thebibliography), \newenvironment (custom environment definitions), and \input file inclusion. These complete the core academic LaTeX feature set — virtually every research paper uses citations and custom environments.
 
 ## Milestones
 
@@ -406,44 +408,48 @@ Implement color support and basic image inclusion — features present in virtua
 - **Cycles budget:** 4
 - **Status:** ✅ Complete — verified by Apollo (commit 372cdd3, 426 tests total)
 
-### M24: Equation Environments + Theorem-Like Environments + Table of Contents
+### M24: Equation Environments + Theorem-Like Environments + Table of Contents ✅ COMPLETE
 Implement key academic document features:
 
-**Equation environments (rustlatex-engine + rustlatex-parser):**
-- `\begin{equation}...\end{equation}` — numbered display math, renders as display math with "(N)" equation number on the right
-- `\begin{equation*}...\end{equation*}` — unnumbered display math (same as `\[...\]`)
-- `\begin{align}...\end{align}` — multi-line aligned math, split on `&` alignment point, numbered lines
-- `\begin{align*}...\end{align*}` — unnumbered multi-line aligned math
-- Equation counter: auto-increments, `\label` in equation captures number, `\ref` resolves
-- Display math: equation content rendered at full line width, equation number right-aligned
+- **Deliverables:** equation/equation*/align/align* with auto-numbering, \newtheorem + pre-registered theorem types, proof env with QED □, \tableofcontents two-pass, description list \item[term], \label in equations, 16 new tests
+- **Cycles budget:** 5 | **Cycles actual:** 1 (+ 1 verification)
+- **Status:** ✅ Complete — verified by Vera (commit 6084dfe, 442 tests total)
 
-**Theorem-like environments (rustlatex-engine + rustlatex-parser):**
-- `\newtheorem{theorem}{Theorem}` — define a theorem-like environment with a name and title
-- `\newtheorem{lemma}{Lemma}` — similarly for lemma, definition, etc.
-- `\begin{theorem}[optional title]...\end{theorem}` — renders: "**Theorem N** (optional title). content"
-- `\begin{proof}...\end{proof}` — renders: "*Proof.* content □" (QED symbol at end)
-- Auto-numbering per theorem type
-- Common pre-built: theorem, lemma, definition, corollary, proposition, remark, example (all handled if \newtheorem is called)
+### M25: Bibliography System + \newenvironment + \input File Inclusion
+Implement the remaining core academic LaTeX features:
 
-**Table of Contents (rustlatex-engine):**
-- `\tableofcontents` — renders a "Contents" section listing all sections/subsections with page numbers
-- Collected in two-pass: first pass collects section titles + page numbers, second pass substitutes
-- Output: "Contents" heading, then lines like "1 Introduction ... 1" (section title + dots + page number)
-- Format: section at 10pt, subsection indented 1em, subsubsection indented 2em
+**Bibliography system (rustlatex-engine + rustlatex-parser):**
+- `\begin{thebibliography}{99}...\end{thebibliography}` environment
+- `\bibitem{key}` inside thebibliography — registers a citation with auto-number
+- `\bibitem[label]{key}` — optional explicit label
+- `\cite{key}` — renders as "[N]" where N is the bibitem number
+- `\cite[note]{key}` — renders as "[N, note]"
+- Multiple citations: `\cite{key1,key2}` → "[1, 2]"
+- Two-pass: first pass collects \bibitem keys, second pass resolves \cite
 
-**Description list environment (rustlatex-engine + rustlatex-parser):**
-- `\begin{description}...\end{description}` — list where each `\item[term]` renders "**term** description"
-- Renders term in bold followed by description text on same or next line
+**\newenvironment (rustlatex-engine + rustlatex-parser):**
+- `\newenvironment{name}{begin-code}{end-code}` — defines a new environment
+- `\renewenvironment{name}{begin-code}{end-code}` — redefines existing environment
+- When `\begin{name}` is encountered: expand begin-code, then process content, then expand end-code
+- Parameters (#1..#9) in begin-code take arguments from `\begin{name}[opt]{arg1}`
+- This enables document-level abstractions like `\newenvironment{myquote}{\begin{quote}\itshape}{\end{quote}}`
+
+**\input file inclusion (rustlatex-cli + rustlatex-parser):**
+- `\input{filename}` — read and process the specified .tex file inline
+- `\include{filename}` — same as \input for now (full LaTeX \include has clearpage behavior, simplified here)
+- Parser reads the file from disk (relative to the main document) and inserts its tokens
+- If file not found: emit a warning text node, continue parsing
 
 **Tests (15+ new):**
-- Test `\begin{equation}...\end{equation}` produces numbered display math
-- Test `\begin{equation*}...\end{equation*}` produces unnumbered display math
-- Test `\begin{align}` with `&` alignment produces multi-line math
-- Test `\newtheorem{theorem}{Theorem}` + `\begin{theorem}` renders "Theorem 1."
-- Test `\begin{proof}` renders "Proof." and ends with "□"
-- Test `\tableofcontents` renders section headings with page numbers
-- Test `\begin{description}\item[term] text` renders "term" + description
-- All 426 existing tests continue to pass
+- Test `\bibitem{key}` + `\cite{key}` resolves to "[1]"
+- Test `\bibitem[A]{key}` + `\cite{key}` resolves to "[A]"
+- Test multiple `\bibitem` entries auto-number correctly
+- Test `\cite{key1,key2}` renders as "[1, 2]"
+- Test `\begin{thebibliography}` renders "References" heading
+- Test `\newenvironment{myenv}{prefix}{suffix}` + `\begin{myenv}content\end{myenv}` expands correctly
+- Test `\renewenvironment` overwrites the prior definition
+- Test `\input{file.tex}` includes file content (write a temp file during test)
+- All 442 existing tests continue to pass
 
 - **Cycles budget:** 5
 - **Status:** Pending
