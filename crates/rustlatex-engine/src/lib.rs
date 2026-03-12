@@ -433,6 +433,35 @@ pub trait FontMetrics {
     fn string_width(&self, s: &str) -> f64 {
         s.chars().map(|ch| self.char_width(ch)).sum()
     }
+
+    /// Return the width of a single character in points, adjusted for font style.
+    ///
+    /// Default implementation delegates to `char_width` (no style adjustment).
+    /// Implementations can override this to provide per-style metrics:
+    /// - **Normal**: standard width
+    /// - **Bold**: typically 1.05× the normal width
+    /// - **Italic**: same as normal
+    /// - **BoldItalic**: same as bold (1.05×)
+    /// - **Typewriter**: fixed-width (monospaced)
+    fn char_width_for_style(&self, ch: char, style: FontStyle) -> f64 {
+        let _ = style;
+        self.char_width(ch)
+    }
+
+    /// Return the width of a space in points, adjusted for font style.
+    ///
+    /// Default implementation delegates to `space_width`.
+    fn space_width_for_style(&self, style: FontStyle) -> f64 {
+        let _ = style;
+        self.space_width()
+    }
+
+    /// Return the total width of a string for a given font style.
+    fn string_width_for_style(&self, s: &str, style: FontStyle) -> f64 {
+        s.chars()
+            .map(|ch| self.char_width_for_style(ch, style))
+            .sum()
+    }
 }
 
 /// Font metrics using Computer Modern Roman 10pt (CM Roman) AFM widths (WX / 100 = pt at 10pt).
@@ -508,6 +537,22 @@ impl FontMetrics for StandardFontMetrics {
     fn space_width(&self) -> f64 {
         // CM Roman space width (from AFM: WX=333.333 / 100 = 3.333pt)
         3.333
+    }
+
+    fn char_width_for_style(&self, ch: char, style: FontStyle) -> f64 {
+        match style {
+            FontStyle::Normal | FontStyle::Italic => self.char_width(ch),
+            FontStyle::Bold | FontStyle::BoldItalic => self.char_width(ch) * 1.05,
+            FontStyle::Typewriter => 6.0,
+        }
+    }
+
+    fn space_width_for_style(&self, style: FontStyle) -> f64 {
+        match style {
+            FontStyle::Normal | FontStyle::Italic => self.space_width(),
+            FontStyle::Bold | FontStyle::BoldItalic => self.space_width() * 1.05,
+            FontStyle::Typewriter => 6.0,
+        }
     }
 }
 
@@ -672,7 +717,7 @@ pub fn math_node_to_text(node: &Node) -> String {
 ///
 /// Exception: do NOT apply extra space after abbreviations
 /// (a capital letter followed by `.`, e.g., "Dr." or "U.S.").
-fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str) -> BoxNode {
+fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str, style: FontStyle) -> BoxNode {
     let ends_sentence =
         prev_word.ends_with('.') || prev_word.ends_with('!') || prev_word.ends_with('?');
 
@@ -686,16 +731,18 @@ fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str) -> BoxNode {
         false
     };
 
+    let sw = metrics.space_width_for_style(style);
+
     if ends_sentence && !is_abbreviation {
         // Inter-sentence spacing: 1.5x natural width
         BoxNode::Glue {
-            natural: metrics.space_width() * 1.5,
+            natural: sw * 1.5,
             stretch: 2.5,
             shrink: 1.11,
         }
     } else {
         BoxNode::Glue {
-            natural: metrics.space_width(),
+            natural: sw,
             stretch: 1.67,
             shrink: 1.11,
         }
@@ -917,14 +964,26 @@ impl Hyphenator {
         font_size: f64,
         color: Option<Color>,
     ) -> Vec<BoxNode> {
+        self.hyphenate_word_styled(word, metrics, font_size, color, FontStyle::Normal)
+    }
+
+    /// Hyphenate a word with a specific font style and return box nodes with discretionary break points.
+    pub fn hyphenate_word_styled(
+        &self,
+        word: &str,
+        metrics: &dyn FontMetrics,
+        font_size: f64,
+        color: Option<Color>,
+        style: FontStyle,
+    ) -> Vec<BoxNode> {
         let points = self.hyphenate(word);
         if points.is_empty() {
             return vec![BoxNode::Text {
                 text: word.to_string(),
-                width: metrics.string_width(word),
+                width: metrics.string_width_for_style(word, style),
                 font_size,
                 color,
-                font_style: FontStyle::Normal,
+                font_style: style,
             }];
         }
 
@@ -937,10 +996,10 @@ impl Hyphenator {
                 let fragment: String = chars[prev..pt].iter().collect();
                 result.push(BoxNode::Text {
                     text: fragment.clone(),
-                    width: metrics.string_width(&fragment),
+                    width: metrics.string_width_for_style(&fragment, style),
                     font_size,
                     color: color.clone(),
-                    font_style: FontStyle::Normal,
+                    font_style: style,
                 });
                 // Discretionary hyphen: Penalty(50) allows break with a hyphen
                 result.push(BoxNode::Penalty { value: 50 });
@@ -953,10 +1012,10 @@ impl Hyphenator {
             let fragment: String = chars[prev..].iter().collect();
             result.push(BoxNode::Text {
                 text: fragment.clone(),
-                width: metrics.string_width(&fragment),
+                width: metrics.string_width_for_style(&fragment, style),
                 font_size,
                 color,
-                font_style: FontStyle::Normal,
+                font_style: style,
             });
         }
 
@@ -973,7 +1032,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             let words: Vec<&str> = s.split_whitespace().collect();
             for (i, word) in words.iter().enumerate() {
                 if i > 0 {
-                    result.push(inter_word_glue(metrics, words[i - 1]));
+                    result.push(inter_word_glue(metrics, words[i - 1], FontStyle::Normal));
                 }
                 result.push(BoxNode::Text {
                     text: word.to_string(),
@@ -1837,17 +1896,18 @@ pub fn translate_node_with_context(
     match node {
         Node::Text(s) => {
             let mut result = Vec::new();
+            let style = ctx.current_font_style;
             let words: Vec<&str> = s.split_whitespace().collect();
             for (i, word) in words.iter().enumerate() {
                 if i > 0 {
-                    result.push(inter_word_glue(metrics, words[i - 1]));
+                    result.push(inter_word_glue(metrics, words[i - 1], style));
                 }
                 result.push(BoxNode::Text {
                     text: word.to_string(),
-                    width: metrics.string_width(word),
+                    width: metrics.string_width_for_style(word, style),
                     font_size: 10.0,
                     color: ctx.current_color.clone(),
-                    font_style: ctx.current_font_style,
+                    font_style: style,
                 });
             }
             result
@@ -1943,19 +2003,20 @@ pub fn translate_node_with_context(
                         String::new()
                     };
                     let upper = text.to_uppercase();
+                    let style = ctx.current_font_style;
                     let mut result = Vec::new();
                     let words: Vec<&str> = upper.split_whitespace().collect();
                     for (i, word) in words.iter().enumerate() {
                         if i > 0 {
                             result.push(BoxNode::Glue {
-                                natural: metrics.space_width(),
+                                natural: metrics.space_width_for_style(style),
                                 stretch: 1.67,
                                 shrink: 1.11,
                             });
                         }
                         result.push(BoxNode::Text {
                             text: word.to_string(),
-                            width: metrics.string_width(word),
+                            width: metrics.string_width_for_style(word, style),
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
@@ -2043,7 +2104,8 @@ pub fn translate_node_with_context(
                     });
 
                     let numbered_title = format!("{} {}", ctx.counters.last_counter_value, title);
-                    let width = metrics.string_width(&numbered_title);
+                    let width =
+                        metrics.string_width_for_style(&numbered_title, ctx.current_font_style);
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     vec![
@@ -2101,7 +2163,8 @@ pub fn translate_node_with_context(
                             "??".to_string()
                         };
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&resolved),
+                            width: metrics
+                                .string_width_for_style(&resolved, ctx.current_font_style),
                             text: resolved,
                             font_size: 10.0,
                             color: None,
@@ -2124,7 +2187,8 @@ pub fn translate_node_with_context(
                             "??".to_string()
                         };
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&resolved),
+                            width: metrics
+                                .string_width_for_style(&resolved, ctx.current_font_style),
                             text: resolved,
                             font_size: 10.0,
                             color: None,
@@ -2149,7 +2213,7 @@ pub fn translate_node_with_context(
                         String::new()
                     };
                     let label = format!("Figure {}: {}", ctx.counters.figure, caption_text);
-                    let width = metrics.string_width(&label);
+                    let width = metrics.string_width_for_style(&label, ctx.current_font_style);
                     vec![
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::AlignmentMarker {
@@ -2209,7 +2273,8 @@ pub fn translate_node_with_context(
                         vec![]
                     } else {
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&url_text),
+                            width: metrics
+                                .string_width_for_style(&url_text, ctx.current_font_style),
                             text: url_text,
                             font_size: 10.0,
                             color: None,
@@ -2251,7 +2316,7 @@ pub fn translate_node_with_context(
                     // Emit superscript marker in main text
                     let marker = footnote_marker(fn_num);
                     vec![BoxNode::Text {
-                        width: metrics.string_width(&marker),
+                        width: metrics.string_width_for_style(&marker, ctx.current_font_style),
                         text: marker,
                         font_size: 7.0,
                         color: None,
@@ -2260,14 +2325,14 @@ pub fn translate_node_with_context(
                 }
                 "LaTeX" => vec![BoxNode::Text {
                     text: "LaTeX".to_string(),
-                    width: metrics.string_width("LaTeX"),
+                    width: metrics.string_width_for_style("LaTeX", ctx.current_font_style),
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
-                    width: metrics.string_width("TeX"),
+                    width: metrics.string_width_for_style("TeX", ctx.current_font_style),
                     font_size: 10.0,
                     color: None,
                     font_style: FontStyle::Normal,
@@ -2276,7 +2341,7 @@ pub fn translate_node_with_context(
                     let date_str = "January 1, 2025".to_string();
                     vec![BoxNode::Text {
                         text: date_str.clone(),
-                        width: metrics.string_width(&date_str),
+                        width: metrics.string_width_for_style(&date_str, ctx.current_font_style),
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
@@ -2344,12 +2409,13 @@ pub fn translate_node_with_context(
 
                     // Title text at 17pt, centered
                     let title_text = ctx.title.clone().unwrap_or_default();
+                    let style = ctx.current_font_style;
                     if !title_text.is_empty() {
                         result.push(BoxNode::AlignmentMarker {
                             alignment: Alignment::Center,
                         });
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&title_text) * 1.7,
+                            width: metrics.string_width_for_style(&title_text, style) * 1.7,
                             text: title_text,
                             font_size: 17.0,
                             color: None,
@@ -2362,7 +2428,7 @@ pub fn translate_node_with_context(
                     if let Some(ref author_text) = ctx.author {
                         if !author_text.is_empty() {
                             result.push(BoxNode::Text {
-                                width: metrics.string_width(author_text) * 1.2,
+                                width: metrics.string_width_for_style(author_text, style) * 1.2,
                                 text: author_text.clone(),
                                 font_size: 12.0,
                                 color: None,
@@ -2379,7 +2445,7 @@ pub fn translate_node_with_context(
                     };
                     if !date_text.is_empty() {
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&date_text) * 1.2,
+                            width: metrics.string_width_for_style(&date_text, style) * 1.2,
                             text: date_text,
                             font_size: 12.0,
                             color: None,
@@ -2485,12 +2551,13 @@ pub fn translate_node_with_context(
                 }
                 "tableofcontents" => {
                     // Emit TOC using pre-scanned sections
+                    let style = ctx.current_font_style;
                     let mut result = Vec::new();
                     // "Contents" heading at 14pt
                     let heading = "Contents".to_string();
                     result.push(BoxNode::Kern { amount: 12.0 });
                     result.push(BoxNode::Text {
-                        width: metrics.string_width(&heading),
+                        width: metrics.string_width_for_style(&heading, style),
                         text: heading,
                         font_size: 14.0,
                         color: None,
@@ -2510,7 +2577,7 @@ pub fn translate_node_with_context(
                         }
                         let entry_text = format!("{} {}", number, title);
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&entry_text),
+                            width: metrics.string_width_for_style(&entry_text, style),
                             text: entry_text,
                             font_size: 10.0,
                             color: None,
@@ -2556,7 +2623,8 @@ pub fn translate_node_with_context(
                     vec![
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Text {
-                            width: metrics.string_width(&label_text),
+                            width: metrics
+                                .string_width_for_style(&label_text, ctx.current_font_style),
                             text: label_text,
                             font_size: 10.0,
                             color: None,
@@ -2596,7 +2664,7 @@ pub fn translate_node_with_context(
                     };
 
                     vec![BoxNode::Text {
-                        width: metrics.string_width(&cite_text),
+                        width: metrics.string_width_for_style(&cite_text, ctx.current_font_style),
                         text: cite_text,
                         font_size: 10.0,
                         color: None,
@@ -2664,7 +2732,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = format!("{}", val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2681,7 +2749,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = to_roman(val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2698,7 +2766,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = to_roman(val).to_uppercase();
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2715,7 +2783,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = to_alph(val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2732,7 +2800,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = to_alph_upper(val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2749,7 +2817,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = to_fnsymbol(val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2766,7 +2834,7 @@ pub fn translate_node_with_context(
                         let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
                         let text = format!("{}", val);
                         vec![BoxNode::Text {
-                            width: metrics.string_width(&text),
+                            width: metrics.string_width_for_style(&text, ctx.current_font_style),
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
@@ -2821,7 +2889,7 @@ pub fn translate_node_with_context(
                     for line in raw_text.lines() {
                         result.push(BoxNode::Text {
                             text: line.to_string(),
-                            width: metrics.string_width(line),
+                            width: metrics.string_width_for_style(line, ctx.current_font_style),
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
@@ -2946,7 +3014,7 @@ pub fn translate_node_with_context(
                     });
                     let heading = "Abstract".to_string();
                     result.push(BoxNode::Text {
-                        width: metrics.string_width(&heading),
+                        width: metrics.string_width_for_style(&heading, ctx.current_font_style),
                         text: heading,
                         font_size: 12.0,
                         color: None,
@@ -3017,7 +3085,8 @@ pub fn translate_node_with_context(
                             shrink: 0.0,
                         },
                         BoxNode::Text {
-                            width: metrics.string_width(&math_text),
+                            width: metrics
+                                .string_width_for_style(&math_text, ctx.current_font_style),
                             text: math_text,
                             font_size: 10.0,
                             color: None,
@@ -3029,7 +3098,8 @@ pub fn translate_node_with_context(
                             shrink: 0.0,
                         },
                         BoxNode::Text {
-                            width: metrics.string_width(&eq_label),
+                            width: metrics
+                                .string_width_for_style(&eq_label, ctx.current_font_style),
                             text: eq_label,
                             font_size: 10.0,
                             color: None,
@@ -3069,7 +3139,8 @@ pub fn translate_node_with_context(
                     vec![
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Text {
-                            width: metrics.string_width(&math_text),
+                            width: metrics
+                                .string_width_for_style(&math_text, ctx.current_font_style),
                             text: math_text,
                             font_size: 10.0,
                             color: None,
@@ -3106,7 +3177,7 @@ pub fn translate_node_with_context(
                             .insert("equation".to_string(), eq_num as i64);
                         let eq_label = format!("({})", eq_num);
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&trimmed),
+                            width: metrics.string_width_for_style(&trimmed, ctx.current_font_style),
                             text: trimmed,
                             font_size: 10.0,
                             color: None,
@@ -3118,7 +3189,8 @@ pub fn translate_node_with_context(
                             shrink: 0.0,
                         });
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&eq_label),
+                            width: metrics
+                                .string_width_for_style(&eq_label, ctx.current_font_style),
                             text: eq_label,
                             font_size: 10.0,
                             color: None,
@@ -3149,7 +3221,7 @@ pub fn translate_node_with_context(
                             continue;
                         }
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&trimmed),
+                            width: metrics.string_width_for_style(&trimmed, ctx.current_font_style),
                             text: trimmed,
                             font_size: 10.0,
                             color: None,
@@ -3169,14 +3241,14 @@ pub fn translate_node_with_context(
                     let mut result = Vec::new();
                     let prefix = "Proof.".to_string();
                     result.push(BoxNode::Text {
-                        width: metrics.string_width(&prefix),
+                        width: metrics.string_width_for_style(&prefix, ctx.current_font_style),
                         text: prefix,
                         font_size: 10.0,
                         color: None,
                         font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Glue {
-                        natural: metrics.space_width(),
+                        natural: metrics.space_width_for_style(ctx.current_font_style),
                         stretch: 1.67,
                         shrink: 1.11,
                     });
@@ -3190,7 +3262,7 @@ pub fn translate_node_with_context(
                         shrink: 0.0,
                     });
                     result.push(BoxNode::Text {
-                        width: metrics.string_width(&qed),
+                        width: metrics.string_width_for_style(&qed, ctx.current_font_style),
                         text: qed,
                         font_size: 10.0,
                         color: None,
@@ -3261,14 +3333,14 @@ pub fn translate_node_with_context(
                         if let Some(t) = term {
                             // Bold term
                             result.push(BoxNode::Text {
-                                width: metrics.string_width(t),
+                                width: metrics.string_width_for_style(t, ctx.current_font_style),
                                 text: t.clone(),
                                 font_size: 10.0,
                                 color: None,
                                 font_style: FontStyle::Normal,
                             });
                             result.push(BoxNode::Glue {
-                                natural: metrics.space_width(),
+                                natural: metrics.space_width_for_style(ctx.current_font_style),
                                 stretch: 1.67,
                                 shrink: 1.11,
                             });
@@ -3292,7 +3364,7 @@ pub fn translate_node_with_context(
                     let heading = "References".to_string();
                     result.push(BoxNode::Kern { amount: 12.0 });
                     result.push(BoxNode::Text {
-                        width: metrics.string_width(&heading),
+                        width: metrics.string_width_for_style(&heading, ctx.current_font_style),
                         text: heading,
                         font_size: 14.0,
                         color: None,
@@ -3375,14 +3447,14 @@ pub fn translate_node_with_context(
                         heading.push('.');
 
                         result.push(BoxNode::Text {
-                            width: metrics.string_width(&heading),
+                            width: metrics.string_width_for_style(&heading, ctx.current_font_style),
                             text: heading,
                             font_size: 10.0,
                             color: None,
                             font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Glue {
-                            natural: metrics.space_width(),
+                            natural: metrics.space_width_for_style(ctx.current_font_style),
                             stretch: 1.67,
                             shrink: 1.11,
                         });
@@ -3410,7 +3482,7 @@ pub fn translate_node_with_context(
         Node::InlineMath(nodes) => {
             let text: String = nodes.iter().map(math_node_to_text).collect();
             vec![BoxNode::Text {
-                width: metrics.string_width(&text),
+                width: metrics.string_width_for_style(&text, ctx.current_font_style),
                 text,
                 font_size: 10.0,
                 color: None,
@@ -3422,7 +3494,7 @@ pub fn translate_node_with_context(
             vec![
                 BoxNode::Penalty { value: -10000 },
                 BoxNode::Text {
-                    width: metrics.string_width(&text),
+                    width: metrics.string_width_for_style(&text, ctx.current_font_style),
                     text,
                     font_size: 10.0,
                     color: None,
@@ -3481,7 +3553,7 @@ pub fn translate_node_with_context(
                 Err(_) => {
                     let warning = format!("[Warning: file '{}' not found]", filename);
                     vec![BoxNode::Text {
-                        width: metrics.string_width(&warning),
+                        width: metrics.string_width_for_style(&warning, ctx.current_font_style),
                         text: warning,
                         font_size: 10.0,
                         color: None,
@@ -8108,8 +8180,8 @@ mod tests {
     #[test]
     fn test_inter_sentence_spacing_wider_after_period() {
         let metrics = StandardFontMetrics;
-        let normal_glue = inter_word_glue(&metrics, "hello");
-        let sentence_glue = inter_word_glue(&metrics, "hello.");
+        let normal_glue = inter_word_glue(&metrics, "hello", FontStyle::Normal);
+        let sentence_glue = inter_word_glue(&metrics, "hello.", FontStyle::Normal);
 
         let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
             natural
@@ -8133,8 +8205,8 @@ mod tests {
     #[test]
     fn test_inter_sentence_spacing_wider_after_exclamation() {
         let metrics = StandardFontMetrics;
-        let normal_glue = inter_word_glue(&metrics, "hello");
-        let sentence_glue = inter_word_glue(&metrics, "hello!");
+        let normal_glue = inter_word_glue(&metrics, "hello", FontStyle::Normal);
+        let sentence_glue = inter_word_glue(&metrics, "hello!", FontStyle::Normal);
 
         let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
             natural
@@ -8153,8 +8225,8 @@ mod tests {
     #[test]
     fn test_inter_sentence_spacing_wider_after_question() {
         let metrics = StandardFontMetrics;
-        let normal_glue = inter_word_glue(&metrics, "what");
-        let sentence_glue = inter_word_glue(&metrics, "what?");
+        let normal_glue = inter_word_glue(&metrics, "what", FontStyle::Normal);
+        let sentence_glue = inter_word_glue(&metrics, "what?", FontStyle::Normal);
 
         let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
             natural
@@ -8175,8 +8247,8 @@ mod tests {
         // "A." ends with uppercase letter before dot → abbreviation, no extra space
         // (TeX convention: capital letter + period = abbreviation)
         let metrics = StandardFontMetrics;
-        let abbrev_glue = inter_word_glue(&metrics, "A.");
-        let normal_glue = inter_word_glue(&metrics, "hello");
+        let abbrev_glue = inter_word_glue(&metrics, "A.", FontStyle::Normal);
+        let normal_glue = inter_word_glue(&metrics, "hello", FontStyle::Normal);
 
         let abbrev_nat = if let BoxNode::Glue { natural, .. } = abbrev_glue {
             natural
@@ -11248,5 +11320,412 @@ mod tests {
             )
         });
         assert!(has_bi, "\\bfseries + \\itshape should produce BoldItalic");
+    }
+
+    // ===== M28: Per-Font-Style Character Width Metrics Tests =====
+
+    #[test]
+    fn test_m28_typewriter_char_width_6pt() {
+        // Courier/Typewriter: every printable character should be 6.0pt at 10pt
+        let m = StandardFontMetrics;
+        for ch in 'a'..='z' {
+            assert!(
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
+                "Typewriter char '{}' should be 6.0pt, got {}",
+                ch,
+                m.char_width_for_style(ch, FontStyle::Typewriter)
+            );
+        }
+        for ch in 'A'..='Z' {
+            assert!(
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
+                "Typewriter char '{}' should be 6.0pt",
+                ch
+            );
+        }
+        for ch in '0'..='9' {
+            assert!(
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
+                "Typewriter digit '{}' should be 6.0pt",
+                ch
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_typewriter_space_width_6pt() {
+        let m = StandardFontMetrics;
+        assert!(
+            (m.space_width_for_style(FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
+            "Typewriter space should be 6.0pt"
+        );
+    }
+
+    #[test]
+    fn test_m28_bold_width_is_1_05x_normal() {
+        let m = StandardFontMetrics;
+        for ch in 'a'..='z' {
+            let normal_w = m.char_width_for_style(ch, FontStyle::Normal);
+            let bold_w = m.char_width_for_style(ch, FontStyle::Bold);
+            let expected = normal_w * 1.05;
+            assert!(
+                (bold_w - expected).abs() < 0.001,
+                "Bold char '{}': expected {}, got {}",
+                ch,
+                expected,
+                bold_w
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_bold_space_is_1_05x_normal() {
+        let m = StandardFontMetrics;
+        let normal_sw = m.space_width_for_style(FontStyle::Normal);
+        let bold_sw = m.space_width_for_style(FontStyle::Bold);
+        assert!(
+            (bold_sw - normal_sw * 1.05).abs() < 0.001,
+            "Bold space should be 1.05x normal: expected {}, got {}",
+            normal_sw * 1.05,
+            bold_sw
+        );
+    }
+
+    #[test]
+    fn test_m28_italic_same_as_normal_width() {
+        let m = StandardFontMetrics;
+        for ch in 'a'..='z' {
+            let normal_w = m.char_width_for_style(ch, FontStyle::Normal);
+            let italic_w = m.char_width_for_style(ch, FontStyle::Italic);
+            assert!(
+                (normal_w - italic_w).abs() < f64::EPSILON,
+                "Italic char '{}' should equal Normal width",
+                ch
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_bolditalic_same_as_bold_width() {
+        let m = StandardFontMetrics;
+        for ch in 'a'..='z' {
+            let bold_w = m.char_width_for_style(ch, FontStyle::Bold);
+            let bi_w = m.char_width_for_style(ch, FontStyle::BoldItalic);
+            assert!(
+                (bold_w - bi_w).abs() < f64::EPSILON,
+                "BoldItalic char '{}' should equal Bold width",
+                ch
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_normal_vs_typewriter_widths_differ() {
+        let m = StandardFontMetrics;
+        // 'a' in Normal = 5.0pt, in Typewriter = 6.0pt → different
+        let normal_a = m.char_width_for_style('a', FontStyle::Normal);
+        let tt_a = m.char_width_for_style('a', FontStyle::Typewriter);
+        assert!(
+            (normal_a - tt_a).abs() > 0.5,
+            "Normal 'a' ({}) and Typewriter 'a' ({}) should differ",
+            normal_a,
+            tt_a
+        );
+        // 'm' in Normal = 8.333pt, in Typewriter = 6.0pt → different
+        let normal_m = m.char_width_for_style('m', FontStyle::Normal);
+        let tt_m = m.char_width_for_style('m', FontStyle::Typewriter);
+        assert!(
+            (normal_m - tt_m).abs() > 1.0,
+            "Normal 'm' ({}) and Typewriter 'm' ({}) should differ significantly",
+            normal_m,
+            tt_m
+        );
+    }
+
+    #[test]
+    fn test_m28_string_width_for_style_hello_typewriter() {
+        let m = StandardFontMetrics;
+        // "hello" in Typewriter: 5 chars * 6.0 = 30.0
+        let w = m.string_width_for_style("hello", FontStyle::Typewriter);
+        assert!(
+            (w - 30.0).abs() < f64::EPSILON,
+            "string_width_for_style('hello', Typewriter) should be 30.0, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m28_string_width_for_style_hello_bold() {
+        let m = StandardFontMetrics;
+        let normal_w = m.string_width_for_style("hello", FontStyle::Normal);
+        let bold_w = m.string_width_for_style("hello", FontStyle::Bold);
+        assert!(
+            (bold_w - normal_w * 1.05).abs() < 0.01,
+            "Bold 'hello' should be 1.05x Normal: expected {}, got {}",
+            normal_w * 1.05,
+            bold_w
+        );
+    }
+
+    #[test]
+    fn test_m28_string_width_for_style_empty() {
+        let m = StandardFontMetrics;
+        assert!((m.string_width_for_style("", FontStyle::Typewriter) - 0.0).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("", FontStyle::Bold) - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_m28_context_text_uses_style_width_typewriter() {
+        // \texttt{hello} should produce Text node with width = 5 * 6.0 = 30.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "texttt".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let hello_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "hello"));
+        assert!(hello_node.is_some(), "Expected 'hello' text node");
+        if let Some(BoxNode::Text {
+            width, font_style, ..
+        }) = hello_node
+        {
+            assert_eq!(
+                *font_style,
+                FontStyle::Typewriter,
+                "Should have Typewriter font_style"
+            );
+            assert!(
+                (*width - 30.0).abs() < f64::EPSILON,
+                "Typewriter 'hello' width should be 30.0, got {}",
+                width
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_context_text_uses_style_width_bold() {
+        // \textbf{hello} should produce Text node with width = Normal * 1.05
+        let metrics = StandardFontMetrics;
+        let normal_w = metrics.string_width_for_style("hello", FontStyle::Normal);
+        let expected_bold_w = metrics.string_width_for_style("hello", FontStyle::Bold);
+        let node = Node::Document(vec![Node::Command {
+            name: "textbf".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let hello_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "hello"));
+        assert!(hello_node.is_some(), "Expected 'hello' text node");
+        if let Some(BoxNode::Text {
+            width, font_style, ..
+        }) = hello_node
+        {
+            assert_eq!(*font_style, FontStyle::Bold);
+            assert!(
+                (*width - expected_bold_w).abs() < 0.01,
+                "Bold 'hello' width should be {}, got {} (normal was {})",
+                expected_bold_w,
+                width,
+                normal_w
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_inter_word_glue_typewriter_style() {
+        let metrics = StandardFontMetrics;
+        let normal_glue = inter_word_glue(&metrics, "hello", FontStyle::Normal);
+        let tt_glue = inter_word_glue(&metrics, "hello", FontStyle::Typewriter);
+
+        let normal_nat = if let BoxNode::Glue { natural, .. } = normal_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+        let tt_nat = if let BoxNode::Glue { natural, .. } = tt_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        // Typewriter space = 6.0, Normal space = 3.333
+        assert!(
+            (tt_nat - 6.0).abs() < f64::EPSILON,
+            "Typewriter inter-word glue should be 6.0, got {}",
+            tt_nat
+        );
+        assert!(
+            (normal_nat - 3.333).abs() < f64::EPSILON,
+            "Normal inter-word glue should be 3.333, got {}",
+            normal_nat
+        );
+    }
+
+    #[test]
+    fn test_m28_inter_word_glue_bold_style() {
+        let metrics = StandardFontMetrics;
+        let bold_glue = inter_word_glue(&metrics, "hello", FontStyle::Bold);
+
+        let bold_nat = if let BoxNode::Glue { natural, .. } = bold_glue {
+            natural
+        } else {
+            panic!("Expected Glue");
+        };
+
+        // Bold space = 3.333 * 1.05 ≈ 3.49965
+        let expected = 3.333 * 1.05;
+        assert!(
+            (bold_nat - expected).abs() < 0.001,
+            "Bold inter-word glue should be {}, got {}",
+            expected,
+            bold_nat
+        );
+    }
+
+    #[test]
+    fn test_m28_context_multiword_typewriter_glue() {
+        // \texttt{hello world} should have Typewriter glue (6.0pt natural) between words
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "texttt".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello world".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should be: Text("hello"), Glue, Text("world")
+        let glue_node = items.iter().find(|n| matches!(n, BoxNode::Glue { .. }));
+        assert!(glue_node.is_some(), "Expected Glue between words");
+        if let Some(BoxNode::Glue { natural, .. }) = glue_node {
+            assert!(
+                (*natural - 6.0).abs() < f64::EPSILON,
+                "Typewriter inter-word glue should be 6.0, got {}",
+                natural
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_typewriter_all_printable_chars_uniform() {
+        // Every printable ASCII character should have the same width in Typewriter
+        let m = StandardFontMetrics;
+        for code in 32u8..=126 {
+            let ch = code as char;
+            let w = m.char_width_for_style(ch, FontStyle::Typewriter);
+            assert!(
+                (w - 6.0).abs() < f64::EPSILON,
+                "Typewriter char '{}' (code {}) should be 6.0pt, got {}",
+                ch,
+                code,
+                w
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_hyphenate_word_styled_typewriter() {
+        let mut hyph = Hyphenator::new();
+        hyph.add_exception("al-go-rithm");
+        let metrics = StandardFontMetrics;
+        let nodes =
+            hyph.hyphenate_word_styled("algorithm", &metrics, 10.0, None, FontStyle::Typewriter);
+
+        // Should produce: Text("al"), Penalty(50), Text("go"), Penalty(50), Text("rithm")
+        assert_eq!(nodes.len(), 5, "Expected 5 nodes for al-go-rithm");
+
+        // Check first fragment width: "al" = 2 * 6.0 = 12.0
+        if let BoxNode::Text {
+            text,
+            width,
+            font_style,
+            ..
+        } = &nodes[0]
+        {
+            assert_eq!(text, "al");
+            assert!(
+                (*width - 12.0).abs() < f64::EPSILON,
+                "Typewriter 'al' should be 12.0pt, got {}",
+                width
+            );
+            assert_eq!(*font_style, FontStyle::Typewriter);
+        } else {
+            panic!("Expected Text node");
+        }
+
+        // Check last fragment width: "rithm" = 5 * 6.0 = 30.0
+        if let BoxNode::Text {
+            text,
+            width,
+            font_style,
+            ..
+        } = &nodes[4]
+        {
+            assert_eq!(text, "rithm");
+            assert!(
+                (*width - 30.0).abs() < f64::EPSILON,
+                "Typewriter 'rithm' should be 30.0pt, got {}",
+                width
+            );
+            assert_eq!(*font_style, FontStyle::Typewriter);
+        } else {
+            panic!("Expected Text node");
+        }
+    }
+
+    #[test]
+    fn test_m28_string_width_for_style_single_char_typewriter() {
+        let m = StandardFontMetrics;
+        // Each single character = 6.0 in Typewriter
+        assert!((m.string_width_for_style("a", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("M", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("W", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("i", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_m28_context_normal_text_uses_normal_width() {
+        // Plain text (no style command) in context should use Normal widths
+        let metrics = StandardFontMetrics;
+        let expected_w = metrics.string_width_for_style("test", FontStyle::Normal);
+        let node = Node::Document(vec![Node::Text("test".to_string())]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let test_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "test"));
+        assert!(test_node.is_some());
+        if let Some(BoxNode::Text {
+            width, font_style, ..
+        }) = test_node
+        {
+            assert_eq!(*font_style, FontStyle::Normal);
+            assert!(
+                (*width - expected_w).abs() < f64::EPSILON,
+                "Normal 'test' width should be {}, got {}",
+                expected_w,
+                width
+            );
+        }
+    }
+
+    #[test]
+    fn test_m28_bold_italic_space_width() {
+        let m = StandardFontMetrics;
+        let bold_sw = m.space_width_for_style(FontStyle::Bold);
+        let bi_sw = m.space_width_for_style(FontStyle::BoldItalic);
+        assert!(
+            (bold_sw - bi_sw).abs() < f64::EPSILON,
+            "Bold and BoldItalic space widths should be equal"
+        );
+        let normal_sw = m.space_width_for_style(FontStyle::Normal);
+        let italic_sw = m.space_width_for_style(FontStyle::Italic);
+        assert!(
+            (normal_sw - italic_sw).abs() < f64::EPSILON,
+            "Normal and Italic space widths should be equal"
+        );
     }
 }
