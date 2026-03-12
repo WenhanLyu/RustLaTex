@@ -418,11 +418,63 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
         }
         Node::Command { name, args } => {
             match name.as_str() {
-                "textbf" | "textit" | "emph" => {
+                "textbf" | "textit" | "emph" | "texttt" | "mbox" => {
                     // For known formatting commands, translate their arguments
                     args.iter()
                         .flat_map(|n| translate_node_with_metrics(n, metrics))
                         .collect()
+                }
+                "underline" => {
+                    // Render arg text, then append a Rule with the text width
+                    let inner: Vec<BoxNode> = args
+                        .iter()
+                        .flat_map(|n| translate_node_with_metrics(n, metrics))
+                        .collect();
+                    let text_width: f64 = inner
+                        .iter()
+                        .map(|n| match n {
+                            BoxNode::Text { width, .. } => *width,
+                            BoxNode::Kern { amount } => *amount,
+                            BoxNode::Glue { natural, .. } => *natural,
+                            _ => 0.0,
+                        })
+                        .sum();
+                    let mut result = inner;
+                    result.push(BoxNode::Rule {
+                        width: text_width,
+                        height: 0.5,
+                    });
+                    result
+                }
+                "textsc" => {
+                    // Small caps simulation: render arg text converted to UPPERCASE
+                    let text = if let Some(arg) = args.first() {
+                        extract_text_content(arg)
+                    } else {
+                        String::new()
+                    };
+                    let upper = text.to_uppercase();
+                    let mut result = Vec::new();
+                    let words: Vec<&str> = upper.split_whitespace().collect();
+                    for (i, word) in words.iter().enumerate() {
+                        if i > 0 {
+                            result.push(BoxNode::Glue {
+                                natural: metrics.space_width(),
+                                stretch: 1.67,
+                                shrink: 1.11,
+                            });
+                        }
+                        result.push(BoxNode::Text {
+                            text: word.to_string(),
+                            width: metrics.string_width(word),
+                            font_size: 10.0,
+                        });
+                    }
+                    result
+                }
+                "noindent" => {
+                    // No-op
+                    vec![]
                 }
                 "section" | "subsection" | "subsubsection" => {
                     let font_size = match name.as_str() {
@@ -497,6 +549,24 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
         }
         Node::Environment { name, content, .. } => {
             match name.as_str() {
+                "verbatim" => {
+                    // Render each line as monospace text (font_size=10.0), no line-breaking
+                    let raw_text = if let Some(Node::Text(t)) = content.first() {
+                        t.clone()
+                    } else {
+                        String::new()
+                    };
+                    let mut result = Vec::new();
+                    for line in raw_text.lines() {
+                        result.push(BoxNode::Text {
+                            text: line.to_string(),
+                            width: metrics.string_width(line),
+                            font_size: 10.0,
+                        });
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+                    result
+                }
                 "itemize" | "enumerate" => {
                     let is_enumerate = name == "enumerate";
                     // Split content at \item boundaries
@@ -817,10 +887,57 @@ pub fn translate_node_with_context(
         }
         Node::Command { name, args } => {
             match name.as_str() {
-                "textbf" | "textit" | "emph" => args
+                "textbf" | "textit" | "emph" | "texttt" | "mbox" => args
                     .iter()
                     .flat_map(|n| translate_node_with_context(n, metrics, ctx))
                     .collect(),
+                "underline" => {
+                    let inner: Vec<BoxNode> = args
+                        .iter()
+                        .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                        .collect();
+                    let text_width: f64 = inner
+                        .iter()
+                        .map(|n| match n {
+                            BoxNode::Text { width, .. } => *width,
+                            BoxNode::Kern { amount } => *amount,
+                            BoxNode::Glue { natural, .. } => *natural,
+                            _ => 0.0,
+                        })
+                        .sum();
+                    let mut result = inner;
+                    result.push(BoxNode::Rule {
+                        width: text_width,
+                        height: 0.5,
+                    });
+                    result
+                }
+                "textsc" => {
+                    let text = if let Some(arg) = args.first() {
+                        extract_text_content(arg)
+                    } else {
+                        String::new()
+                    };
+                    let upper = text.to_uppercase();
+                    let mut result = Vec::new();
+                    let words: Vec<&str> = upper.split_whitespace().collect();
+                    for (i, word) in words.iter().enumerate() {
+                        if i > 0 {
+                            result.push(BoxNode::Glue {
+                                natural: metrics.space_width(),
+                                stretch: 1.67,
+                                shrink: 1.11,
+                            });
+                        }
+                        result.push(BoxNode::Text {
+                            text: word.to_string(),
+                            width: metrics.string_width(word),
+                            font_size: 10.0,
+                        });
+                    }
+                    result
+                }
+                "noindent" => vec![],
                 "section" | "subsection" | "subsubsection" => {
                     // Update counters
                     match name.as_str() {
@@ -1004,6 +1121,23 @@ pub fn translate_node_with_context(
         }
         Node::Environment { name, content, .. } => {
             match name.as_str() {
+                "verbatim" => {
+                    let raw_text = if let Some(Node::Text(t)) = content.first() {
+                        t.clone()
+                    } else {
+                        String::new()
+                    };
+                    let mut result = Vec::new();
+                    for line in raw_text.lines() {
+                        result.push(BoxNode::Text {
+                            text: line.to_string(),
+                            width: metrics.string_width(line),
+                            font_size: 10.0,
+                        });
+                        result.push(BoxNode::Penalty { value: -10000 });
+                    }
+                    result
+                }
                 "figure" => {
                     let was_in_figure = ctx.counters.in_figure;
                     ctx.counters.in_figure = true;
@@ -1165,6 +1299,18 @@ pub fn translate_node_with_context(
             .flat_map(|n| translate_node_with_context(n, metrics, ctx))
             .collect(),
         _ => vec![],
+    }
+}
+
+/// Recursively extract all plain text content from a node, including nested groups.
+fn extract_text_content(node: &Node) -> String {
+    match node {
+        Node::Text(s) => s.clone(),
+        Node::Group(nodes) | Node::MathGroup(nodes) | Node::Paragraph(nodes) => {
+            nodes.iter().map(extract_text_content).collect()
+        }
+        Node::Command { args, .. } => args.iter().map(extract_text_content).collect(),
+        _ => String::new(),
     }
 }
 
@@ -4876,6 +5022,297 @@ mod tests {
             "Expected \\ref to resolve to '1' in typeset output, got {:?}",
             all_text
         );
+    }
+
+    // ===== M19: New text commands and verbatim tests =====
+
+    #[test]
+    fn test_texttt_produces_text() {
+        let node = Node::Command {
+            name: "texttt".to_string(),
+            args: vec![Node::Group(vec![Node::Text("mono text".to_string())])],
+        };
+        let items = translate_node(&node);
+        // "mono text" → Text("mono"), Glue, Text("text")
+        assert_eq!(items.len(), 3);
+        assert_eq!(
+            items[0],
+            BoxNode::Text {
+                text: "mono".to_string(),
+                width: cm10_width("mono"),
+                font_size: 10.0,
+            }
+        );
+        assert!(matches!(items[1], BoxNode::Glue { .. }));
+        assert_eq!(
+            items[2],
+            BoxNode::Text {
+                text: "text".to_string(),
+                width: cm10_width("text"),
+                font_size: 10.0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_underline_produces_text_and_rule() {
+        let node = Node::Command {
+            name: "underline".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello".to_string())])],
+        };
+        let items = translate_node(&node);
+        // Should produce: Text("hello"), Rule{width: hello_width, height: 0.5}
+        assert_eq!(items.len(), 2);
+        let hello_width = cm10_width("hello");
+        assert_eq!(
+            items[0],
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: hello_width,
+                font_size: 10.0,
+            }
+        );
+        if let BoxNode::Rule { width, height } = &items[1] {
+            assert!(
+                (*width - hello_width).abs() < f64::EPSILON,
+                "Rule width should match text width ({} vs {})",
+                width,
+                hello_width
+            );
+            assert!(
+                (*height - 0.5).abs() < f64::EPSILON,
+                "Rule height should be 0.5"
+            );
+        } else {
+            panic!("Expected BoxNode::Rule after underlined text");
+        }
+    }
+
+    #[test]
+    fn test_textsc_produces_uppercase() {
+        let node = Node::Command {
+            name: "textsc".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello".to_string())])],
+        };
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert_eq!(text, "HELLO", "\\textsc should produce uppercase text");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_textsc_with_multiple_words() {
+        let node = Node::Command {
+            name: "textsc".to_string(),
+            args: vec![Node::Group(vec![Node::Text("hello world".to_string())])],
+        };
+        let items = translate_node(&node);
+        // "HELLO WORLD" → Text("HELLO"), Glue, Text("WORLD")
+        assert_eq!(items.len(), 3);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert_eq!(text, "HELLO");
+        }
+        assert!(matches!(items[1], BoxNode::Glue { .. }));
+        if let BoxNode::Text { text, .. } = &items[2] {
+            assert_eq!(text, "WORLD");
+        }
+    }
+
+    #[test]
+    fn test_noindent_produces_empty_vec() {
+        let node = Node::Command {
+            name: "noindent".to_string(),
+            args: vec![],
+        };
+        let items = translate_node(&node);
+        assert!(items.is_empty(), "\\noindent should produce empty vec");
+    }
+
+    #[test]
+    fn test_mbox_produces_text() {
+        let node = Node::Command {
+            name: "mbox".to_string(),
+            args: vec![Node::Group(vec![Node::Text("boxed".to_string())])],
+        };
+        let items = translate_node(&node);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Text {
+                text: "boxed".to_string(),
+                width: cm10_width("boxed"),
+                font_size: 10.0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_verbatim_renders_lines() {
+        let node = Node::Environment {
+            name: "verbatim".to_string(),
+            options: None,
+            content: vec![Node::Text("line1\nline2\nline3".to_string())],
+        };
+        let items = translate_node(&node);
+        // Should produce: Text("line1"), Penalty, Text("line2"), Penalty, Text("line3"), Penalty
+        let text_nodes: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(text_nodes.contains(&"line1"));
+        assert!(text_nodes.contains(&"line2"));
+        assert!(text_nodes.contains(&"line3"));
+        // Each line should be followed by a forced break
+        let penalty_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000))
+            .count();
+        assert_eq!(
+            penalty_count, 3,
+            "Each verbatim line should be followed by a forced break"
+        );
+    }
+
+    #[test]
+    fn test_verbatim_does_not_interpret_commands() {
+        // Verbatim content with \textbf should appear as literal text
+        let node = Node::Environment {
+            name: "verbatim".to_string(),
+            options: None,
+            content: vec![Node::Text("\\textbf{bold}".to_string())],
+        };
+        let items = translate_node(&node);
+        let text_nodes: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let joined = text_nodes.join("");
+        assert!(
+            joined.contains("\\textbf"),
+            "Verbatim should preserve \\textbf literally, got '{}'",
+            joined
+        );
+    }
+
+    #[test]
+    fn test_verbatim_font_size_is_10() {
+        let node = Node::Environment {
+            name: "verbatim".to_string(),
+            options: None,
+            content: vec![Node::Text("code here".to_string())],
+        };
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { font_size, .. } = item {
+                assert!(
+                    (*font_size - 10.0).abs() < f64::EPSILON,
+                    "Verbatim font size should be 10.0"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_underline_multi_word() {
+        let node = Node::Command {
+            name: "underline".to_string(),
+            args: vec![Node::Group(vec![Node::Text("two words".to_string())])],
+        };
+        let items = translate_node(&node);
+        // "two words" → Text("two"), Glue, Text("words"), Rule
+        assert_eq!(items.len(), 4);
+        assert!(matches!(items[3], BoxNode::Rule { .. }));
+    }
+
+    #[test]
+    fn test_cli_output_path_args() {
+        // This test validates the logic: if args.len() >= 3, use args[2] as output
+        let args = vec![
+            "rustlatex".to_string(),
+            "input.tex".to_string(),
+            "/tmp/output.pdf".to_string(),
+        ];
+        let pdf_filename = if args.len() >= 3 {
+            args[2].clone()
+        } else {
+            let input = std::path::Path::new(&args[1]);
+            let basename = input.file_stem().unwrap_or_else(|| input.as_ref());
+            format!("{}.pdf", basename.to_string_lossy())
+        };
+        assert_eq!(pdf_filename, "/tmp/output.pdf");
+    }
+
+    #[test]
+    fn test_cli_output_path_default() {
+        let args = vec!["rustlatex".to_string(), "input.tex".to_string()];
+        let pdf_filename = if args.len() >= 3 {
+            args[2].clone()
+        } else {
+            let input = std::path::Path::new(&args[1]);
+            let basename = input.file_stem().unwrap_or_else(|| input.as_ref());
+            format!("{}.pdf", basename.to_string_lossy())
+        };
+        assert_eq!(pdf_filename, "input.pdf");
+    }
+
+    #[test]
+    fn test_verbatim_in_context() {
+        // Verify verbatim also works via context-aware translation
+        let node = Node::Document(vec![Node::Environment {
+            name: "verbatim".to_string(),
+            options: None,
+            content: vec![Node::Text("raw code".to_string())],
+        }]);
+        let items = translate_with_context(&node);
+        let has_text = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "raw code"));
+        assert!(has_text, "Verbatim should render in context-aware mode");
+    }
+
+    #[test]
+    fn test_noindent_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "noindent".to_string(),
+            args: vec![],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            items.is_empty(),
+            "\\noindent should produce empty vec in context"
+        );
+    }
+
+    #[test]
+    fn test_textsc_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "textsc".to_string(),
+            args: vec![Node::Group(vec![Node::Text("test".to_string())])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_upper = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "TEST"));
+        assert!(has_upper, "\\textsc should produce uppercase in context");
     }
 
     #[test]

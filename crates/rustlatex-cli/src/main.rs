@@ -104,10 +104,14 @@ fn main() {
     let pdf = writer.write(&pages);
     println!("      {} page(s) typeset.", pages.len());
 
-    // Derive output filename: replace .tex extension with .pdf, or append .pdf
-    let input = Path::new(input_path);
-    let basename = input.file_stem().unwrap_or_else(|| input.as_ref());
-    let pdf_filename = format!("{}.pdf", basename.to_string_lossy());
+    // Derive output filename: use second arg if provided, else replace .tex extension with .pdf
+    let pdf_filename = if args.len() >= 3 {
+        args[2].clone()
+    } else {
+        let input = Path::new(input_path);
+        let basename = input.file_stem().unwrap_or_else(|| input.as_ref());
+        format!("{}.pdf", basename.to_string_lossy())
+    };
 
     // Write PDF bytes to file
     match fs::write(&pdf_filename, &pdf.bytes) {

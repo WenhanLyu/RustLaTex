@@ -71,6 +71,9 @@ enum ParseEvent {
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// The original source text, used for verbatim environments.
+    #[allow(dead_code)]
+    source: Option<String>,
 }
 
 impl Parser {
@@ -78,12 +81,20 @@ impl Parser {
     pub fn new(source: &str) -> Self {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            source: Some(source.to_string()),
+        }
     }
 
     /// Create a parser from a pre-built token vector (used by the expander).
     pub fn from_tokens(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            source: None,
+        }
     }
 
     /// Peek at the current token.
@@ -357,12 +368,22 @@ impl Parser {
                 if name == "begin" {
                     // Parse environment
                     let env_name = self.parse_brace_name();
-                    let content = self.parse_body(Some(&env_name));
-                    Some(ParseEvent::Node(Node::Environment {
-                        name: env_name,
-                        options: None,
-                        content,
-                    }))
+                    if env_name == "verbatim" {
+                        // Verbatim environment: consume raw tokens until \end{verbatim}
+                        let raw_content = self.parse_verbatim_content();
+                        Some(ParseEvent::Node(Node::Environment {
+                            name: env_name,
+                            options: None,
+                            content: vec![Node::Text(raw_content)],
+                        }))
+                    } else {
+                        let content = self.parse_body(Some(&env_name));
+                        Some(ParseEvent::Node(Node::Environment {
+                            name: env_name,
+                            options: None,
+                            content,
+                        }))
+                    }
                 } else if name == "end" {
                     let env_name = self.parse_brace_name();
                     Some(ParseEvent::EndEnvironment(env_name))
@@ -725,6 +746,67 @@ impl Parser {
         }
 
         nodes
+    }
+
+    /// Consume tokens inside a verbatim environment until `\end{verbatim}` is found.
+    /// Returns the raw text content without interpreting LaTeX commands.
+    fn parse_verbatim_content(&mut self) -> String {
+        let mut raw = String::new();
+        loop {
+            match self.peek().clone() {
+                Token::EndOfInput => break,
+                Token::ControlSequence(ref cs_name) if cs_name == "end" => {
+                    // Check if this is \end{verbatim}
+                    let saved_pos = self.pos;
+                    self.advance(); // consume \end
+                                    // Check for {verbatim}
+                    if matches!(self.peek(), Token::Character('{', Category::BeginGroup)) {
+                        let env_name = self.parse_brace_name();
+                        if env_name == "verbatim" {
+                            // Done — consumed \end{verbatim}
+                            break;
+                        }
+                        // Not verbatim — add \end{name} as raw text and continue
+                        raw.push_str(&format!("\\end{{{}}}", env_name));
+                    } else {
+                        // \end not followed by { — treat as raw text
+                        raw.push_str("\\end");
+                        // pos already advanced past \end, don't restore
+                        let _ = saved_pos;
+                    }
+                }
+                Token::ControlSequence(ref cs_name) => {
+                    let cs = cs_name.clone();
+                    self.advance();
+                    raw.push('\\');
+                    raw.push_str(&cs);
+                }
+                Token::Character(ch, _) => {
+                    self.advance();
+                    raw.push(ch);
+                }
+                Token::Space => {
+                    self.advance();
+                    raw.push(' ');
+                }
+                Token::Par => {
+                    self.advance();
+                    raw.push('\n');
+                    raw.push('\n');
+                }
+                Token::Active(ch) => {
+                    self.advance();
+                    raw.push(ch);
+                }
+                Token::Parameter(n) => {
+                    self.advance();
+                    raw.push('#');
+                    // n is a u8 digit
+                    raw.push(char::from(b'0' + n));
+                }
+            }
+        }
+        raw
     }
 
     // Keep the old method signature for backward compatibility in case anything references it,
@@ -1349,6 +1431,81 @@ mod tests {
                 exponent: Box::new(Node::MathGroup(vec![Node::Text("n".to_string())])),
             }])])
         );
+    }
+
+    // ===== M19: Verbatim environment tests =====
+
+    #[test]
+    fn test_verbatim_preserves_raw_text() {
+        let src = r"\begin{verbatim}hello world\end{verbatim}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        match doc {
+            Node::Document(ref nodes) => {
+                assert_eq!(nodes.len(), 1);
+                if let Node::Environment {
+                    name,
+                    options,
+                    content,
+                } = &nodes[0]
+                {
+                    assert_eq!(name, "verbatim");
+                    assert_eq!(*options, None);
+                    assert_eq!(content.len(), 1);
+                    if let Node::Text(t) = &content[0] {
+                        assert!(t.contains("hello world"), "Expected raw text, got '{}'", t);
+                    } else {
+                        panic!("Expected Text node inside verbatim");
+                    }
+                } else {
+                    panic!("Expected Environment node");
+                }
+            }
+            _ => panic!("Expected Document"),
+        }
+    }
+
+    #[test]
+    fn test_verbatim_does_not_parse_commands() {
+        let src = r"\begin{verbatim}\textbf{bold}\end{verbatim}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        match doc {
+            Node::Document(ref nodes) => {
+                assert_eq!(nodes.len(), 1);
+                if let Node::Environment { content, .. } = &nodes[0] {
+                    assert_eq!(content.len(), 1);
+                    if let Node::Text(t) = &content[0] {
+                        // The raw content should contain \textbf literally
+                        assert!(
+                            t.contains("\\textbf"),
+                            "Expected \\textbf in raw verbatim text, got '{}'",
+                            t
+                        );
+                    } else {
+                        panic!("Expected Text node");
+                    }
+                }
+            }
+            _ => panic!("Expected Document"),
+        }
+    }
+
+    #[test]
+    fn test_verbatim_preserves_special_chars() {
+        let src = r"\begin{verbatim}$x^2$ & # % ~\end{verbatim}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        if let Node::Document(ref nodes) = doc {
+            if let Node::Environment { content, .. } = &nodes[0] {
+                if let Node::Text(t) = &content[0] {
+                    assert!(t.contains('$'), "Expected $ in verbatim, got '{}'", t);
+                    assert!(t.contains('^'), "Expected ^ in verbatim, got '{}'", t);
+                } else {
+                    panic!("Expected Text node");
+                }
+            }
+        }
     }
 
     /// `$\frac{\sqrt{a}}{b^2}$` — fraction with sqrt in numerator
