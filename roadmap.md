@@ -80,6 +80,7 @@ Binary-identical output requires:
 - **Cycle (M33):** M33 completed in 1 implementation cycle. Leo delivered OT1 /Differences encoding array for all 5 CM fonts (cmr10/cmbx10/cmti10/cmbxti10/cmtt10), NON_SYMBOLIC→SYMBOLIC font descriptor flag change, bullet "•" replaced with "-", CI nocapture step added. 15 new tests, 609 total tests pass, CI green.
 - **M33 scope:** OT1 encoding fix + bullet fix + CI visibility. Superscript rendering deferred to M34.
 - **Cycle (M34):** M34 completed in 1 implementation cycle. Leo delivered vertical_offset field on BoxNode::Text, math_node_to_boxes() with proper superscript (font_size=7.0, vertical_offset=+4.0) and subscript (font_size=7.0, vertical_offset=-2.0) rendering, PDF Ts operator via set_rise(). 17 new tests, 626 total tests pass, CI green.
+- **Cycle (M35):** M35 completed in 1 implementation cycle. Ares delivered math italic for single ASCII letter variables (FontStyle::Italic in math_node_to_boxes_inner), PPM pixel comparison (render_pdf_to_ppm + compare_ppm_files helpers), expanded compare.tex with subsection and display math. 22 new tests, 647 total tests pass, CI green.
 - **M35 scope:** Math variables use Italic font style (matches cmmi10 in pdflatex). Fix pixel similarity comparison to use PPM raw pixel data (not PNG bytes) for accurate visual measurement. Expand compare.tex. Target 641+ tests.
 
 ## Milestones
@@ -655,9 +656,9 @@ Improve math rendering quality and fix visual similarity measurement infrastruct
 2. **Fix pixel similarity** — Change GS rendering from PNG to PPM (uncompressed), compute actual per-pixel similarity score. Add compare_ppm_files() helper.
 3. **Expand compare.tex** — Add subsection and display math to get better pixel comparison coverage.
 
-- **Tests:** 15+ new, 641+ total
-- **Cycles budget:** 2
-- **Status:** 🔄 Implementation phase (Ares team)
+- **Tests:** 22 new, 647 total
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented, 647 tests pass, CI green (commit 0969eab)
 
 
 
