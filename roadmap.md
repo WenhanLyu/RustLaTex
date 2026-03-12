@@ -93,6 +93,8 @@ Binary-identical output requires:
 - **M40 research (Athena direct):** cmr10 AFM has exactly 183 kern pairs. Word spacing (stretch=1.67, shrink=1.11) is already correct (TeX standard 1.667/1.111). Main remaining improvement is implementing kern pair lookups in the PDF backend. Diana was consistently hitting 200K token limit — skipped Diana for M40 planning.
 - **Cycle (M40):** M40 completed in 1 implementation cycle + 1 verification. Leo delivered cmr10_kern_pair() function with all 183 AFM kern pairs, TJ operator usage for kerned text, is_cmr10_kern_font() guard (F1 only). Apollo verified 757 tests pass, CI green. Pixel similarity unchanged at 96.96% (compare.tex has few kern-pair characters).
 - **M41 scope:** cmbx10 kern pairs (F2/Bold), exact word spacing precision (1.66667/1.11111), expand compare.tex for better visual coverage, target 770+ tests. Bold text in section headings benefits from cmbx10 kern pairs.
+- **Cycle (M41):** M41 completed in 1 implementation cycle. Leo delivered cmbx10_kern_pair() with 181 pairs from cmbx10.afm, font_kern_pair()/font_has_kern_pairs() dispatch for F1/F2, word spacing precision (1.66667/1.11111), expanded compare.tex (bold text, kern pair test words, math). 15 new tests, 772 total tests pass, CI green. Pixel similarity = 95.88% (slightly lower due to compare.tex expansion showing more differences).
+- **M42 scope:** Superscript/subscript geometry correction (size=7.07pt instead of 7.0pt, rise=3.45pt instead of 4.0pt, subscript offset=-2.5pt instead of -2.0pt). Add cmti10 kern pairs (F4/Italic) from CI texlive AFM at `/usr/share/texmf/fonts/afm/public/cm/cmti10.afm`. Target 785+ tests.
 
 ## Milestones
 
@@ -741,6 +743,17 @@ Improve rendering accuracy with bold text kern pairs and precise word spacing.
 2. **Precise word spacing** — cmr10 word space: natural=3.333pt, stretch=1.66667pt (not 1.67), shrink=1.11111pt (not 1.11). Use exact float values. cmbx10 word space: same 333/1000*10 = 3.333pt from AFM.
 3. **Expand compare.tex** — Add: `\textbf{bold text}` (exercises cmbx10 kern pairs), a paragraph with "AV To Fo" (classic kern test), footnote, math fraction `$\frac{a+b}{c}$`.
 4. **12+ new tests** covering cmbx10 kern pairs, precise word spacing, expanded compare.tex content.
+
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit f419b55), 772 tests pass, CI green. Pixel similarity = 95.88%.
+
+### M42: Superscript/Subscript Precision + cmti10 Kern Pairs
+Improve math rendering quality and italic text kerning.
+
+**Goals:**
+1. **Superscript geometry correction** — Fix superscript size from 7.0pt to 7.07pt (70.7% of 10pt, matching TeX `\scriptspace` fontdimen). Fix rise from +4.0pt to +3.45pt (matching cmr10 sup_shift). Fix subscript offset from -2.0pt to -2.5pt.
+2. **cmti10 kern pairs (F4/Italic)** — cmti10.afm available in CI texlive at `/usr/share/texmf/fonts/afm/public/cm/cmti10.afm`. Add `cmti10_kern_pair(a: u8, b: u8) -> f32` function with pairs from that file. Update `is_cmr10_kern_font()` to return true for F1, F2, F4. Italic text uses F4 (cmti10).
+3. **12+ new tests** covering corrected superscript geometry, cmti10 kern pairs.
 
 - **Cycles budget:** 2 | **Cycles actual:** pending
 - **Status:** 🔄 Planned
