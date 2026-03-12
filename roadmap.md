@@ -676,18 +676,15 @@ Implement four targeted visual quality improvements identified by Diana's M36 re
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 524b22c), 672 tests pass
 
-### M37: Embed cmmi10 Math Italic Font
-Embed cmmi10.pfb (Computer Modern Math Italic) as a new font in the PDF backend, replacing cmti10 for math variable rendering.
+### M37: FontStyle::MathItalic + cmmi10 Width Metrics + Display Math Centering
+Improve math rendering quality with accurate width metrics and visual centering.
 
 **Goals:**
-1. **Add cmmi10.pfb to fonts directory** — The .pfb is available on CI via texlive packages. Create a build script or fetch it, OR extract it from CI artifacts. As cmmi10.pfb is not locally available, use a CI-based approach: add a `build.rs` that copies the font from the texlive installation in CI (or add a placeholder for local builds and use the actual file in CI).
-   - Simpler alternative: Use cmmi10.afm (available at matplotlib path) for accurate width metrics, but keep cmti10.pfb for rendering (acceptable for now). Focus on width metrics accuracy instead.
+1. **FontStyle::MathItalic variant** — Add new FontStyle::MathItalic to engine enum (distinct from Italic). Use for single-letter math variables in math_node_to_boxes_inner(). In PDF backend, map MathItalic to cmti10 (F4) for now.
 
-2. **Add FontStyle::MathItalic** — New variant in FontStyle enum (in rustlatex-engine). Map it to cmti10 for rendering (same as Italic) but use cmmi10 AFM widths for metrics.
+2. **cmmi10 AFM width metrics** — Extract character widths from cmmi10.afm at matplotlib path. Add char_width_for_style() for MathItalic using these widths. More accurate line-breaking for math content.
 
-3. **cmmi10 AFM width metrics** — Add width table from cmmi10.afm. Key math letter widths differ from cmti10 (cmmi10 has different italic angle -14.04° and different widths). Update math_node_to_boxes_inner() to use FontStyle::MathItalic for single-letter variables.
-
-4. **OML encoding /Differences array** — Not needed if we're reusing cmti10 for rendering. If cmmi10.pfb is embedded, add OML /Differences array for proper glyph mapping.
+3. **Display math horizontal centering** — Center display math horizontally within text body (x = margin_left + (body_width - line_width) / 2). Use AlignmentMarker::Center for display math paragraphs.
 
 - **Tests:** 15+ new, 687+ total
 - **Cycles budget:** 2
