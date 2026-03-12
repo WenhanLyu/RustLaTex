@@ -84,6 +84,8 @@ Binary-identical output requires:
 - **M35 scope:** Math variables use Italic font style (matches cmmi10 in pdflatex). Fix pixel similarity comparison to use PPM raw pixel data (not PNG bytes) for accurate visual measurement. Expand compare.tex. Target 641+ tests.
 - **Diana's M36 research:** Identified 4 practical improvements: (1) Bullet fix — itemize uses '-' but pdflatex uses cmsy10 bullet; implement as BoxNode::Bullet rendered as PDF filled circle (+0.5-1.0%); (2) OT1 ligature substitution fi/fl/ff/ffi/ffl in PDF backend (+0.01-0.05%); (3) Fix parindent 20pt→15pt (+0.1%); (4) Display math spacing: abovedisplayskip/belowdisplayskip=12pt (+0.2-0.4%). cmmi10/cmsy10 pfb files not available locally but available in CI texlive.
 - **M36 scope:** Implement the 4 practical improvements from Diana's research. No new font embedding required. Target 662+ tests.
+- **Cycle (M36):** M36 completed in 1 implementation cycle. Leo delivered BoxNode::Bullet (PDF filled circle), OT1 ligature substitution (fi/fl/ff/ffi/ffl), parindent 20pt→15pt, display math 12pt spacing. 25+ new tests, 672 total tests pass, CI green.
+- **M37 scope:** Embed cmmi10.pfb (Computer Modern Math Italic) as new font (F7) in PDF output. Replace FontStyle::Italic for math variables with a new FontStyle::MathItalic that maps to cmmi10. Add OML (TeX Math Italic) encoding /Differences array. Add cmmi10 AFM width metrics. This is the main remaining visual difference vs pdflatex for math content. Target 690+ tests.
 
 ## Milestones
 
@@ -662,7 +664,7 @@ Improve math rendering quality and fix visual similarity measurement infrastruct
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented, 647 tests pass, CI green (commit 0969eab)
 
-### M36: Rendering Quality Improvements (bullet, ligatures, parindent, display math)
+### M36: Rendering Quality Improvements (bullet, ligatures, parindent, display math) ✅ COMPLETE
 Implement four targeted visual quality improvements identified by Diana's M36 research:
 
 1. **Bullet fix** — Add BoxNode::Bullet variant in engine, render as PDF filled circle. Change itemize to emit Bullet instead of Text("-"). Estimated +0.5-1.0% pixel similarity.
@@ -670,9 +672,26 @@ Implement four targeted visual quality improvements identified by Diana's M36 re
 3. **Fix parindent 20pt→15pt** — Paragraph indent Kern changes from 20.0 to 15.0. ~+0.1%.
 4. **Display math spacing** — abovedisplayskip/belowdisplayskip = 12pt. ~+0.2-0.4%.
 
-- **Tests:** 15+ new, 662+ total
+- **Tests:** 25+ new, 672 total
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit 524b22c), 672 tests pass
+
+### M37: Embed cmmi10 Math Italic Font
+Embed cmmi10.pfb (Computer Modern Math Italic) as a new font in the PDF backend, replacing cmti10 for math variable rendering.
+
+**Goals:**
+1. **Add cmmi10.pfb to fonts directory** — The .pfb is available on CI via texlive packages. Create a build script or fetch it, OR extract it from CI artifacts. As cmmi10.pfb is not locally available, use a CI-based approach: add a `build.rs` that copies the font from the texlive installation in CI (or add a placeholder for local builds and use the actual file in CI).
+   - Simpler alternative: Use cmmi10.afm (available at matplotlib path) for accurate width metrics, but keep cmti10.pfb for rendering (acceptable for now). Focus on width metrics accuracy instead.
+
+2. **Add FontStyle::MathItalic** — New variant in FontStyle enum (in rustlatex-engine). Map it to cmti10 for rendering (same as Italic) but use cmmi10 AFM widths for metrics.
+
+3. **cmmi10 AFM width metrics** — Add width table from cmmi10.afm. Key math letter widths differ from cmti10 (cmmi10 has different italic angle -14.04° and different widths). Update math_node_to_boxes_inner() to use FontStyle::MathItalic for single-letter variables.
+
+4. **OML encoding /Differences array** — Not needed if we're reusing cmti10 for rendering. If cmmi10.pfb is embedded, add OML /Differences array for proper glyph mapping.
+
+- **Tests:** 15+ new, 687+ total
 - **Cycles budget:** 2
-- **Status:** 🔄 In progress
+- **Status:** 📋 Planned
 
 
 
