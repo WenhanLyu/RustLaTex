@@ -65,23 +65,40 @@ impl PdfWriter {
         // 1 = catalog
         // 2 = page tree
         // 3 = font file stream (cmr10.pfb, embedded Type1)
-        // 4 = font dictionary (CMR10 Type1)
-        // 5 = font descriptor
-        // 6-9 = Base-14 font dictionaries (Helvetica, Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique)
-        // 10 = Base-14 Courier font dictionary
+        // 4 = font dictionary (CMR10 Type1, F1/Normal)
+        // 5 = font descriptor (CMR10)
+        // 6 = cmbx10 file stream
+        // 7 = cmbx10 descriptor
+        // 8 = cmbx10 dict (F3/Bold)
+        // 9 = cmti10 file stream
+        // 10 = cmti10 descriptor
+        // 11 = cmti10 dict (F4/Italic)
+        // 12 = cmbxti10 file stream
+        // 13 = cmbxti10 descriptor
+        // 14 = cmbxti10 dict (F5/BoldItalic)
+        // 15 = cmtt10 file stream
+        // 16 = cmtt10 descriptor
+        // 17 = cmtt10 dict (F6/Typewriter)
         // For each page i (0-indexed):
-        //   11 + i*2     = page object
-        //   11 + i*2 + 1 = content stream
+        //   18 + i*2     = page object
+        //   18 + i*2 + 1 = content stream
         let catalog_id = Ref::new(1);
         let page_tree_id = Ref::new(2);
         let font_file_id = Ref::new(3);
         let font_id = Ref::new(4);
         let font_descriptor_id = Ref::new(5);
-        let font_helv_id = Ref::new(6);
-        let font_helv_bold_id = Ref::new(7);
-        let font_helv_oblique_id = Ref::new(8);
-        let font_helv_boldoblique_id = Ref::new(9);
-        let font_courier_id = Ref::new(10);
+        let cmbx10_file_id = Ref::new(6);
+        let cmbx10_descriptor_id = Ref::new(7);
+        let cmbx10_id = Ref::new(8);
+        let cmti10_file_id = Ref::new(9);
+        let cmti10_descriptor_id = Ref::new(10);
+        let cmti10_id = Ref::new(11);
+        let cmbxti10_file_id = Ref::new(12);
+        let cmbxti10_descriptor_id = Ref::new(13);
+        let cmbxti10_id = Ref::new(14);
+        let cmtt10_file_id = Ref::new(15);
+        let cmtt10_descriptor_id = Ref::new(16);
+        let cmtt10_id = Ref::new(17);
 
         let mut pdf = Pdf::new();
 
@@ -90,7 +107,7 @@ impl PdfWriter {
 
         // Collect page Refs
         let page_refs: Vec<Ref> = (0..page_count)
-            .map(|i| Ref::new((11 + i * 2) as i32))
+            .map(|i| Ref::new((18 + i * 2) as i32))
             .collect();
 
         // Page tree
@@ -223,20 +240,155 @@ impl PdfWriter {
             .font_descriptor(font_descriptor_id)
             .encoding_predefined(Name(b"StandardEncoding"));
 
-        // Base-14 fonts for font style differentiation
-        // F2 = Helvetica (Normal)
-        pdf.type1_font(font_helv_id).base_font(Name(b"Helvetica"));
-        // F3 = Helvetica-Bold
-        pdf.type1_font(font_helv_bold_id)
-            .base_font(Name(b"Helvetica-Bold"));
-        // F4 = Helvetica-Oblique (Italic)
-        pdf.type1_font(font_helv_oblique_id)
-            .base_font(Name(b"Helvetica-Oblique"));
-        // F5 = Helvetica-BoldOblique (BoldItalic)
-        pdf.type1_font(font_helv_boldoblique_id)
-            .base_font(Name(b"Helvetica-BoldOblique"));
-        // F6 = Courier (Typewriter)
-        pdf.type1_font(font_courier_id).base_font(Name(b"Courier"));
+        // Embed cmbx10.pfb (Bold Roman)
+        let cmbx10_bytes: &[u8] = include_bytes!("../fonts/cmbx10.pfb");
+        pdf.stream(cmbx10_file_id, cmbx10_bytes);
+
+        // Embed cmti10.pfb (Italic)
+        let cmti10_bytes: &[u8] = include_bytes!("../fonts/cmti10.pfb");
+        pdf.stream(cmti10_file_id, cmti10_bytes);
+
+        // Embed cmbxti10.pfb (Bold Italic)
+        let cmbxti10_bytes: &[u8] = include_bytes!("../fonts/cmbxti10.pfb");
+        pdf.stream(cmbxti10_file_id, cmbxti10_bytes);
+
+        // Embed cmtt10.pfb (Typewriter/Monospace)
+        let cmtt10_bytes: &[u8] = include_bytes!("../fonts/cmtt10.pfb");
+        pdf.stream(cmtt10_file_id, cmtt10_bytes);
+
+        // cmbx10 descriptor
+        pdf.font_descriptor(cmbx10_descriptor_id)
+            .name(Name(b"CMBX10"))
+            .flags(FontFlags::SERIF | FontFlags::NON_SYMBOLIC | FontFlags::FORCE_BOLD)
+            .bbox(Rect::new(-56.0, -250.0, 1164.0, 750.0))
+            .italic_angle(0.0)
+            .ascent(694.4)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(114.0)
+            .font_file(cmbx10_file_id);
+
+        // cmti10 descriptor
+        pdf.font_descriptor(cmti10_descriptor_id)
+            .name(Name(b"CMTI10"))
+            .flags(FontFlags::SERIF | FontFlags::NON_SYMBOLIC | FontFlags::ITALIC)
+            .bbox(Rect::new(-163.0, -250.0, 1130.0, 750.0))
+            .italic_angle(-14.0)
+            .ascent(694.4)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(50.0)
+            .font_file(cmti10_file_id);
+
+        // cmbxti10 descriptor
+        pdf.font_descriptor(cmbxti10_descriptor_id)
+            .name(Name(b"CMBXTI10"))
+            .flags(
+                FontFlags::SERIF
+                    | FontFlags::NON_SYMBOLIC
+                    | FontFlags::ITALIC
+                    | FontFlags::FORCE_BOLD,
+            )
+            .bbox(Rect::new(-163.0, -250.0, 1180.0, 750.0))
+            .italic_angle(-14.0)
+            .ascent(694.4)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(114.0)
+            .font_file(cmbxti10_file_id);
+
+        // cmtt10 descriptor
+        pdf.font_descriptor(cmtt10_descriptor_id)
+            .name(Name(b"CMTT10"))
+            .flags(FontFlags::NON_SYMBOLIC | FontFlags::FIXED_PITCH)
+            .bbox(Rect::new(-4.0, -250.0, 529.0, 750.0))
+            .italic_angle(0.0)
+            .ascent(611.1)
+            .descent(-194.4)
+            .cap_height(611.1)
+            .stem_v(50.0)
+            .font_file(cmtt10_file_id);
+
+        // cmbx10 widths (Bold Roman, chars 32-126, 95 entries)
+        let cmbx10_widths: Vec<f32> = vec![
+            333.333, 277.778, 500.0, 833.333, 500.0, 833.333, 777.778, 277.778, 388.889, 388.889,
+            500.0, 777.778, 277.778, 333.333, 277.778, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0,
+            500.0, 500.0, 500.0, 500.0, 500.0, 277.778, 277.778, 277.778, 777.778, 472.222,
+            472.222, 777.778, 869.444, 818.056, 831.944, 882.639, 756.944, 723.611, 899.306,
+            882.639, 436.806, 583.333, 880.556, 723.611, 1010.417, 882.639, 869.444, 756.944,
+            869.444, 831.944, 642.361, 809.028, 869.444, 869.444, 1170.139, 819.444, 880.556,
+            723.611, 277.778, 500.0, 277.778, 500.0, 277.778, 277.778, 619.444, 651.389, 530.556,
+            651.389, 530.556, 366.667, 601.389, 651.389, 338.194, 366.667, 628.472, 338.194,
+            984.722, 651.389, 601.389, 651.389, 601.389, 456.944, 451.389, 480.556, 651.389,
+            651.389, 866.667, 590.278, 651.389, 530.556, 319.444, 319.444, 319.444, 319.444,
+        ];
+
+        // cmti10 widths (Italic, chars 32-126, 95 entries)
+        let cmti10_widths: Vec<f32> = vec![
+            333.333, 388.889, 500.0, 833.333, 500.0, 833.333, 777.778, 277.778, 388.889, 388.889,
+            500.0, 777.778, 277.778, 333.333, 277.778, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0,
+            500.0, 500.0, 500.0, 500.0, 500.0, 277.778, 277.778, 472.222, 777.778, 472.222,
+            472.222, 777.778, 763.889, 722.222, 694.444, 763.889, 680.556, 652.778, 784.722, 750.0,
+            361.111, 513.889, 777.778, 625.0, 916.667, 750.0, 763.889, 680.556, 777.778, 736.111,
+            555.556, 722.222, 750.0, 750.0, 1027.778, 750.0, 750.0, 611.111, 333.333, 500.0,
+            333.333, 694.444, 500.0, 277.778, 527.778, 555.556, 444.444, 555.556, 444.444, 305.556,
+            527.778, 555.556, 305.556, 305.556, 527.778, 277.778, 833.333, 555.556, 527.778,
+            555.556, 527.778, 391.667, 394.444, 388.889, 555.556, 527.778, 722.222, 527.778,
+            527.778, 444.444, 319.444, 319.444, 319.444, 319.444,
+        ];
+
+        // cmbxti10 widths (Bold Italic, chars 32-126, 95 entries)
+        let cmbxti10_widths: Vec<f32> = vec![
+            333.333, 388.889, 500.0, 833.333, 500.0, 833.333, 777.778, 277.778, 388.889, 388.889,
+            500.0, 777.778, 277.778, 333.333, 277.778, 500.0, 500.0, 500.0, 500.0, 500.0, 500.0,
+            500.0, 500.0, 500.0, 500.0, 500.0, 277.778, 277.778, 472.222, 777.778, 472.222,
+            472.222, 777.778, 869.444, 818.056, 831.944, 882.639, 756.944, 723.611, 899.306,
+            882.639, 436.806, 583.333, 880.556, 723.611, 1010.417, 882.639, 869.444, 756.944,
+            869.444, 831.944, 642.361, 809.028, 869.444, 869.444, 1170.139, 819.444, 880.556,
+            723.611, 277.778, 500.0, 277.778, 694.444, 500.0, 277.778, 619.444, 651.389, 530.556,
+            651.389, 530.556, 366.667, 601.389, 651.389, 338.194, 366.667, 628.472, 338.194,
+            984.722, 651.389, 601.389, 651.389, 601.389, 456.944, 451.389, 480.556, 651.389,
+            651.389, 866.667, 590.278, 651.389, 530.556, 319.444, 319.444, 319.444, 319.444,
+        ];
+
+        // cmtt10 widths (Typewriter — all 525.0, monospaced)
+        let cmtt10_widths: Vec<f32> = vec![525.0; 95];
+
+        // F3 = CMBX10 (Bold)
+        pdf.type1_font(cmbx10_id)
+            .base_font(Name(b"CMBX10"))
+            .first_char(32)
+            .last_char(126)
+            .widths(cmbx10_widths)
+            .font_descriptor(cmbx10_descriptor_id)
+            .encoding_predefined(Name(b"StandardEncoding"));
+
+        // F4 = CMTI10 (Italic)
+        pdf.type1_font(cmti10_id)
+            .base_font(Name(b"CMTI10"))
+            .first_char(32)
+            .last_char(126)
+            .widths(cmti10_widths)
+            .font_descriptor(cmti10_descriptor_id)
+            .encoding_predefined(Name(b"StandardEncoding"));
+
+        // F5 = CMBXTI10 (BoldItalic)
+        pdf.type1_font(cmbxti10_id)
+            .base_font(Name(b"CMBXTI10"))
+            .first_char(32)
+            .last_char(126)
+            .widths(cmbxti10_widths)
+            .font_descriptor(cmbxti10_descriptor_id)
+            .encoding_predefined(Name(b"StandardEncoding"));
+
+        // F6 = CMTT10 (Typewriter)
+        pdf.type1_font(cmtt10_id)
+            .base_font(Name(b"CMTT10"))
+            .first_char(32)
+            .last_char(126)
+            .widths(cmtt10_widths)
+            .font_descriptor(cmtt10_descriptor_id)
+            .encoding_predefined(Name(b"StandardEncoding"));
 
         // A4 dimensions
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
@@ -251,8 +403,8 @@ impl PdfWriter {
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
-            let page_id = Ref::new((11 + i * 2) as i32);
-            let content_id = Ref::new((11 + i * 2 + 1) as i32);
+            let page_id = Ref::new((18 + i * 2) as i32);
+            let content_id = Ref::new((18 + i * 2 + 1) as i32);
 
             // Build content stream
             let mut content = Content::new();
@@ -439,11 +591,10 @@ impl PdfWriter {
                 let mut resources = page_writer.resources();
                 let mut fonts = resources.fonts();
                 fonts.pair(Name(b"F1"), font_id);
-                fonts.pair(Name(b"F2"), font_helv_id);
-                fonts.pair(Name(b"F3"), font_helv_bold_id);
-                fonts.pair(Name(b"F4"), font_helv_oblique_id);
-                fonts.pair(Name(b"F5"), font_helv_boldoblique_id);
-                fonts.pair(Name(b"F6"), font_courier_id);
+                fonts.pair(Name(b"F3"), cmbx10_id);
+                fonts.pair(Name(b"F4"), cmti10_id);
+                fonts.pair(Name(b"F5"), cmbxti10_id);
+                fonts.pair(Name(b"F6"), cmtt10_id);
             }
         }
 
@@ -975,8 +1126,8 @@ mod tests {
     }
 
     #[test]
-    fn test_pdf_bytes_contain_base14_font_names() {
-        // Verify that the PDF byte output contains all Base-14 font name strings
+    fn test_pdf_bytes_contain_cm_font_names() {
+        // Verify that the PDF byte output contains all Computer Modern font name strings
         // for bold, italic, bold-italic, and typewriter fonts.
         let pages = vec![EnginePage {
             number: 1,
@@ -1029,23 +1180,23 @@ mod tests {
         let output = writer.write(&pages);
         assert!(!output.bytes.is_empty(), "PDF output should not be empty");
         assert_eq!(&output.bytes[0..5], b"%PDF-", "Should be valid PDF");
-        // Verify Base-14 font names appear in the PDF byte stream
+        // Verify Computer Modern font names appear in the PDF byte stream
         let bytes_str = String::from_utf8_lossy(&output.bytes);
         assert!(
-            bytes_str.contains("Helvetica-Bold"),
-            "PDF bytes should contain 'Helvetica-Bold' for Bold font style"
+            bytes_str.contains("CMBX10"),
+            "PDF bytes should contain 'CMBX10' for Bold font style"
         );
         assert!(
-            bytes_str.contains("Helvetica-Oblique"),
-            "PDF bytes should contain 'Helvetica-Oblique' for Italic font style"
+            bytes_str.contains("CMTI10"),
+            "PDF bytes should contain 'CMTI10' for Italic font style"
         );
         assert!(
-            bytes_str.contains("Helvetica-BoldOblique"),
-            "PDF bytes should contain 'Helvetica-BoldOblique' for BoldItalic font style"
+            bytes_str.contains("CMBXTI10"),
+            "PDF bytes should contain 'CMBXTI10' for BoldItalic font style"
         );
         assert!(
-            bytes_str.contains("Courier"),
-            "PDF bytes should contain 'Courier' for Typewriter font style"
+            bytes_str.contains("CMTT10"),
+            "PDF bytes should contain 'CMTT10' for Typewriter font style"
         );
     }
 
@@ -1134,5 +1285,240 @@ mod tests {
         let margin_top: f32 = 109.0;
         let start_y: f32 = 842.0 - margin_top;
         assert!((start_y - 733.0).abs() < 0.01);
+    }
+
+    // ===== M32 tests: Computer Modern font embedding =====
+
+    #[test]
+    fn test_pdf_contains_cmbx10_font_name() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "bold".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Bold,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(s.contains("CMBX10"), "PDF should contain CMBX10 font name");
+    }
+
+    #[test]
+    fn test_pdf_contains_cmti10_font_name() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "italic".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Italic,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(s.contains("CMTI10"), "PDF should contain CMTI10 font name");
+    }
+
+    #[test]
+    fn test_pdf_contains_cmbxti10_font_name() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "bolditalic".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::BoldItalic,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            s.contains("CMBXTI10"),
+            "PDF should contain CMBXTI10 font name"
+        );
+    }
+
+    #[test]
+    fn test_pdf_contains_cmtt10_font_name() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "mono".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Typewriter,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(s.contains("CMTT10"), "PDF should contain CMTT10 font name");
+    }
+
+    #[test]
+    fn test_pdf_does_not_contain_helvetica() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "text".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Bold,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            !s.contains("Helvetica"),
+            "PDF should not contain Helvetica font name"
+        );
+    }
+
+    #[test]
+    fn test_pdf_does_not_contain_courier() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "code".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Typewriter,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            !s.contains("Courier"),
+            "PDF should not contain Courier font name"
+        );
+    }
+
+    #[test]
+    fn test_pdf_cmbx10_has_font_file() {
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "bold".to_string(),
+                    width: 20.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Bold,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // PDF should be large due to embedded font files
+        assert!(
+            output.bytes.len() > 100_000,
+            "PDF should contain embedded font data (>100KB), got {} bytes",
+            output.bytes.len()
+        );
+    }
+
+    #[test]
+    fn test_pdf_all_cm_fonts_embedded() {
+        // All 4 new CM fonts should appear in a multi-style PDF
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "bold".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "italic".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Italic,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "bolditalic".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::BoldItalic,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "mono".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Typewriter,
+                    }],
+                },
+            ],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let s = String::from_utf8_lossy(&output.bytes);
+        assert!(s.contains("CMBX10"), "should have CMBX10");
+        assert!(s.contains("CMTI10"), "should have CMTI10");
+        assert!(s.contains("CMBXTI10"), "should have CMBXTI10");
+        assert!(s.contains("CMTT10"), "should have CMTT10");
     }
 }

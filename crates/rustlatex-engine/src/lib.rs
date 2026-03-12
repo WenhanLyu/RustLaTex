@@ -439,9 +439,9 @@ pub trait FontMetrics {
     /// Default implementation delegates to `char_width` (no style adjustment).
     /// Implementations can override this to provide per-style metrics:
     /// - **Normal**: standard width
-    /// - **Bold**: typically 1.05× the normal width
+    /// - **Bold**: uses cmbx10 AFM widths at 10pt
     /// - **Italic**: same as normal
-    /// - **BoldItalic**: same as bold (1.05×)
+    /// - **BoldItalic**: same as bold (cmbxti10 ≈ cmbx10)
     /// - **Typewriter**: fixed-width (monospaced)
     fn char_width_for_style(&self, ch: char, style: FontStyle) -> f64 {
         let _ = style;
@@ -542,16 +542,74 @@ impl FontMetrics for StandardFontMetrics {
     fn char_width_for_style(&self, ch: char, style: FontStyle) -> f64 {
         match style {
             FontStyle::Normal | FontStyle::Italic => self.char_width(ch),
-            FontStyle::Bold | FontStyle::BoldItalic => self.char_width(ch) * 1.05,
-            FontStyle::Typewriter => 6.0,
+            FontStyle::Bold | FontStyle::BoldItalic => {
+                // cmbx10 AFM widths at 10pt (WX/100)
+                match ch {
+                    'A' => 8.694,
+                    'B' => 8.181,
+                    'C' => 8.319,
+                    'D' => 8.826,
+                    'E' => 7.569,
+                    'F' => 7.236,
+                    'G' => 8.993,
+                    'H' => 8.826,
+                    'I' => 4.368,
+                    'J' => 5.833,
+                    'K' => 8.806,
+                    'L' => 7.236,
+                    'M' => 10.104,
+                    'N' => 8.826,
+                    'O' => 8.694,
+                    'P' => 7.569,
+                    'Q' => 8.694,
+                    'R' => 8.319,
+                    'S' => 6.424,
+                    'T' => 8.090,
+                    'U' => 8.694,
+                    'V' => 8.694,
+                    'W' => 11.701,
+                    'X' => 8.194,
+                    'Y' => 8.806,
+                    'Z' => 7.236,
+                    'a' => 6.194,
+                    'b' => 6.514,
+                    'c' => 5.306,
+                    'd' => 6.514,
+                    'e' => 5.306,
+                    'f' => 3.667,
+                    'g' => 6.014,
+                    'h' => 6.514,
+                    'i' => 3.382,
+                    'j' => 3.667,
+                    'k' => 6.285,
+                    'l' => 3.382,
+                    'm' => 9.847,
+                    'n' => 6.514,
+                    'o' => 6.014,
+                    'p' => 6.514,
+                    'q' => 6.014,
+                    'r' => 4.569,
+                    's' => 4.514,
+                    't' => 4.806,
+                    'u' => 6.514,
+                    'v' => 6.514,
+                    'w' => 8.667,
+                    'x' => 5.903,
+                    'y' => 6.514,
+                    'z' => 5.306,
+                    '0'..='9' => 5.000,
+                    _ => self.char_width(ch), // fallback to cmr10
+                }
+            }
+            FontStyle::Typewriter => 5.25, // cmtt10: 525/1000 * 10pt
         }
     }
 
     fn space_width_for_style(&self, style: FontStyle) -> f64 {
         match style {
             FontStyle::Normal | FontStyle::Italic => self.space_width(),
-            FontStyle::Bold | FontStyle::BoldItalic => self.space_width() * 1.05,
-            FontStyle::Typewriter => 6.0,
+            FontStyle::Bold | FontStyle::BoldItalic => 3.333, // cmbx10 space ≈ 333/1000 * 10pt
+            FontStyle::Typewriter => 5.25,
         }
     }
 }
@@ -11362,68 +11420,76 @@ mod tests {
     // ===== M28: Per-Font-Style Character Width Metrics Tests =====
 
     #[test]
-    fn test_m28_typewriter_char_width_6pt() {
-        // Courier/Typewriter: every printable character should be 6.0pt at 10pt
+    fn test_m28_typewriter_char_width_5_25pt() {
+        // cmtt10/Typewriter: every printable character should be 5.25pt at 10pt
         let m = StandardFontMetrics;
         for ch in 'a'..='z' {
             assert!(
-                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
-                "Typewriter char '{}' should be 6.0pt, got {}",
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON,
+                "Typewriter char '{}' should be 5.25pt, got {}",
                 ch,
                 m.char_width_for_style(ch, FontStyle::Typewriter)
             );
         }
         for ch in 'A'..='Z' {
             assert!(
-                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
-                "Typewriter char '{}' should be 6.0pt",
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON,
+                "Typewriter char '{}' should be 5.25pt",
                 ch
             );
         }
         for ch in '0'..='9' {
             assert!(
-                (m.char_width_for_style(ch, FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
-                "Typewriter digit '{}' should be 6.0pt",
+                (m.char_width_for_style(ch, FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON,
+                "Typewriter digit '{}' should be 5.25pt",
                 ch
             );
         }
     }
 
     #[test]
-    fn test_m28_typewriter_space_width_6pt() {
+    fn test_m28_typewriter_space_width_5_25pt() {
         let m = StandardFontMetrics;
         assert!(
-            (m.space_width_for_style(FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON,
-            "Typewriter space should be 6.0pt"
+            (m.space_width_for_style(FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON,
+            "Typewriter space should be 5.25pt"
         );
     }
 
     #[test]
-    fn test_m28_bold_width_is_1_05x_normal() {
+    fn test_m28_bold_width_uses_cmbx10_metrics() {
         let m = StandardFontMetrics;
-        for ch in 'a'..='z' {
-            let normal_w = m.char_width_for_style(ch, FontStyle::Normal);
-            let bold_w = m.char_width_for_style(ch, FontStyle::Bold);
-            let expected = normal_w * 1.05;
-            assert!(
-                (bold_w - expected).abs() < 0.001,
-                "Bold char '{}': expected {}, got {}",
-                ch,
-                expected,
-                bold_w
-            );
-        }
+        // Bold uses cmbx10 AFM widths, which are generally wider than cmr10
+        // Spot-check a few characters
+        assert!(
+            (m.char_width_for_style('a', FontStyle::Bold) - 6.194).abs() < 0.001,
+            "Bold 'a' should be 6.194pt"
+        );
+        assert!(
+            (m.char_width_for_style('A', FontStyle::Bold) - 8.694).abs() < 0.001,
+            "Bold 'A' should be 8.694pt"
+        );
+        assert!(
+            (m.char_width_for_style('m', FontStyle::Bold) - 9.847).abs() < 0.001,
+            "Bold 'm' should be 9.847pt"
+        );
+        assert!(
+            (m.char_width_for_style('W', FontStyle::Bold) - 11.701).abs() < 0.001,
+            "Bold 'W' should be 11.701pt"
+        );
+        assert!(
+            (m.char_width_for_style('i', FontStyle::Bold) - 3.382).abs() < 0.001,
+            "Bold 'i' should be 3.382pt"
+        );
     }
 
     #[test]
-    fn test_m28_bold_space_is_1_05x_normal() {
+    fn test_m28_bold_space_is_3_333pt() {
         let m = StandardFontMetrics;
-        let normal_sw = m.space_width_for_style(FontStyle::Normal);
         let bold_sw = m.space_width_for_style(FontStyle::Bold);
         assert!(
-            (bold_sw - normal_sw * 1.05).abs() < 0.001,
-            "Bold space should be 1.05x normal: expected {}, got {}",
-            normal_sw * 1.05,
+            (bold_sw - 3.333).abs() < 0.001,
+            "Bold space should be 3.333pt (cmbx10), got {}",
             bold_sw
         );
     }
@@ -11459,16 +11525,16 @@ mod tests {
     #[test]
     fn test_m28_normal_vs_typewriter_widths_differ() {
         let m = StandardFontMetrics;
-        // 'a' in Normal = 5.0pt, in Typewriter = 6.0pt → different
+        // 'a' in Normal = 5.0pt, in Typewriter = 5.25pt → different
         let normal_a = m.char_width_for_style('a', FontStyle::Normal);
         let tt_a = m.char_width_for_style('a', FontStyle::Typewriter);
         assert!(
-            (normal_a - tt_a).abs() > 0.5,
+            (normal_a - tt_a).abs() > 0.1,
             "Normal 'a' ({}) and Typewriter 'a' ({}) should differ",
             normal_a,
             tt_a
         );
-        // 'm' in Normal = 8.333pt, in Typewriter = 6.0pt → different
+        // 'm' in Normal = 8.333pt, in Typewriter = 5.25pt → different
         let normal_m = m.char_width_for_style('m', FontStyle::Normal);
         let tt_m = m.char_width_for_style('m', FontStyle::Typewriter);
         assert!(
@@ -11482,11 +11548,11 @@ mod tests {
     #[test]
     fn test_m28_string_width_for_style_hello_typewriter() {
         let m = StandardFontMetrics;
-        // "hello" in Typewriter: 5 chars * 6.0 = 30.0
+        // "hello" in Typewriter: 5 chars * 5.25 = 26.25
         let w = m.string_width_for_style("hello", FontStyle::Typewriter);
         assert!(
-            (w - 30.0).abs() < f64::EPSILON,
-            "string_width_for_style('hello', Typewriter) should be 30.0, got {}",
+            (w - 26.25).abs() < f64::EPSILON,
+            "string_width_for_style('hello', Typewriter) should be 26.25, got {}",
             w
         );
     }
@@ -11494,12 +11560,11 @@ mod tests {
     #[test]
     fn test_m28_string_width_for_style_hello_bold() {
         let m = StandardFontMetrics;
-        let normal_w = m.string_width_for_style("hello", FontStyle::Normal);
+        // "hello" in Bold (cmbx10): h(6.514) + e(5.306) + l(3.382) + l(3.382) + o(6.014) = 24.598
         let bold_w = m.string_width_for_style("hello", FontStyle::Bold);
         assert!(
-            (bold_w - normal_w * 1.05).abs() < 0.01,
-            "Bold 'hello' should be 1.05x Normal: expected {}, got {}",
-            normal_w * 1.05,
+            (bold_w - 24.598).abs() < 0.01,
+            "Bold 'hello' should be ~24.598pt (cmbx10), got {}",
             bold_w
         );
     }
@@ -11513,7 +11578,7 @@ mod tests {
 
     #[test]
     fn test_m28_context_text_uses_style_width_typewriter() {
-        // \texttt{hello} should produce Text node with width = 5 * 6.0 = 30.0
+        // \texttt{hello} should produce Text node with width = 5 * 5.25 = 26.25
         let metrics = StandardFontMetrics;
         let node = Node::Document(vec![Node::Command {
             name: "texttt".to_string(),
@@ -11535,8 +11600,8 @@ mod tests {
                 "Should have Typewriter font_style"
             );
             assert!(
-                (*width - 30.0).abs() < f64::EPSILON,
-                "Typewriter 'hello' width should be 30.0, got {}",
+                (*width - 26.25).abs() < f64::EPSILON,
+                "Typewriter 'hello' width should be 26.25, got {}",
                 width
             );
         }
@@ -11544,7 +11609,7 @@ mod tests {
 
     #[test]
     fn test_m28_context_text_uses_style_width_bold() {
-        // \textbf{hello} should produce Text node with width = Normal * 1.05
+        // \textbf{hello} should produce Text node with width from cmbx10 metrics
         let metrics = StandardFontMetrics;
         let normal_w = metrics.string_width_for_style("hello", FontStyle::Normal);
         let expected_bold_w = metrics.string_width_for_style("hello", FontStyle::Bold);
@@ -11590,10 +11655,10 @@ mod tests {
             panic!("Expected Glue");
         };
 
-        // Typewriter space = 6.0, Normal space = 3.333
+        // Typewriter space = 5.25, Normal space = 3.333
         assert!(
-            (tt_nat - 6.0).abs() < f64::EPSILON,
-            "Typewriter inter-word glue should be 6.0, got {}",
+            (tt_nat - 5.25).abs() < f64::EPSILON,
+            "Typewriter inter-word glue should be 5.25, got {}",
             tt_nat
         );
         assert!(
@@ -11614,8 +11679,8 @@ mod tests {
             panic!("Expected Glue");
         };
 
-        // Bold space = 3.333 * 1.05 ≈ 3.49965
-        let expected = 3.333 * 1.05;
+        // Bold space = 3.333 (cmbx10)
+        let expected = 3.333;
         assert!(
             (bold_nat - expected).abs() < 0.001,
             "Bold inter-word glue should be {}, got {}",
@@ -11626,7 +11691,7 @@ mod tests {
 
     #[test]
     fn test_m28_context_multiword_typewriter_glue() {
-        // \texttt{hello world} should have Typewriter glue (6.0pt natural) between words
+        // \texttt{hello world} should have Typewriter glue (5.25pt natural) between words
         let metrics = StandardFontMetrics;
         let node = Node::Document(vec![Node::Command {
             name: "texttt".to_string(),
@@ -11639,8 +11704,8 @@ mod tests {
         assert!(glue_node.is_some(), "Expected Glue between words");
         if let Some(BoxNode::Glue { natural, .. }) = glue_node {
             assert!(
-                (*natural - 6.0).abs() < f64::EPSILON,
-                "Typewriter inter-word glue should be 6.0, got {}",
+                (*natural - 5.25).abs() < f64::EPSILON,
+                "Typewriter inter-word glue should be 5.25, got {}",
                 natural
             );
         }
@@ -11654,8 +11719,8 @@ mod tests {
             let ch = code as char;
             let w = m.char_width_for_style(ch, FontStyle::Typewriter);
             assert!(
-                (w - 6.0).abs() < f64::EPSILON,
-                "Typewriter char '{}' (code {}) should be 6.0pt, got {}",
+                (w - 5.25).abs() < f64::EPSILON,
+                "Typewriter char '{}' (code {}) should be 5.25pt, got {}",
                 ch,
                 code,
                 w
@@ -11674,7 +11739,7 @@ mod tests {
         // Should produce: Text("al"), Penalty(50), Text("go"), Penalty(50), Text("rithm")
         assert_eq!(nodes.len(), 5, "Expected 5 nodes for al-go-rithm");
 
-        // Check first fragment width: "al" = 2 * 6.0 = 12.0
+        // Check first fragment width: "al" = 2 * 5.25 = 10.5
         if let BoxNode::Text {
             text,
             width,
@@ -11684,8 +11749,8 @@ mod tests {
         {
             assert_eq!(text, "al");
             assert!(
-                (*width - 12.0).abs() < f64::EPSILON,
-                "Typewriter 'al' should be 12.0pt, got {}",
+                (*width - 10.5).abs() < f64::EPSILON,
+                "Typewriter 'al' should be 10.5pt, got {}",
                 width
             );
             assert_eq!(*font_style, FontStyle::Typewriter);
@@ -11693,7 +11758,7 @@ mod tests {
             panic!("Expected Text node");
         }
 
-        // Check last fragment width: "rithm" = 5 * 6.0 = 30.0
+        // Check last fragment width: "rithm" = 5 * 5.25 = 26.25
         if let BoxNode::Text {
             text,
             width,
@@ -11703,8 +11768,8 @@ mod tests {
         {
             assert_eq!(text, "rithm");
             assert!(
-                (*width - 30.0).abs() < f64::EPSILON,
-                "Typewriter 'rithm' should be 30.0pt, got {}",
+                (*width - 26.25).abs() < f64::EPSILON,
+                "Typewriter 'rithm' should be 26.25pt, got {}",
                 width
             );
             assert_eq!(*font_style, FontStyle::Typewriter);
@@ -11716,11 +11781,11 @@ mod tests {
     #[test]
     fn test_m28_string_width_for_style_single_char_typewriter() {
         let m = StandardFontMetrics;
-        // Each single character = 6.0 in Typewriter
-        assert!((m.string_width_for_style("a", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
-        assert!((m.string_width_for_style("M", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
-        assert!((m.string_width_for_style("W", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
-        assert!((m.string_width_for_style("i", FontStyle::Typewriter) - 6.0).abs() < f64::EPSILON);
+        // Each single character = 5.25 in Typewriter (cmtt10)
+        assert!((m.string_width_for_style("a", FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("M", FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("W", FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON);
+        assert!((m.string_width_for_style("i", FontStyle::Typewriter) - 5.25).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -12249,5 +12314,79 @@ mod tests {
             matches!(&nodes[2], BoxNode::Kern { amount } if (*amount - 6.0).abs() < 0.001),
             "subsubsection after kern should be exactly 6pt"
         );
+    }
+
+    // ===== M32 tests: Computer Modern font metrics =====
+
+    #[test]
+    fn test_m32_typewriter_width_is_5_25pt() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width_for_style('a', FontStyle::Typewriter);
+        assert_eq!(w, 5.25, "Typewriter char width should be 5.25pt");
+    }
+
+    #[test]
+    fn test_m32_typewriter_space_width_is_5_25pt() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.space_width_for_style(FontStyle::Typewriter);
+        assert_eq!(w, 5.25, "Typewriter space width should be 5.25pt");
+    }
+
+    #[test]
+    fn test_m32_bold_capital_a_width_approx_8_69pt() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width_for_style('A', FontStyle::Bold);
+        assert!(
+            (w - 8.694).abs() < 0.01,
+            "Bold 'A' width should be ~8.694pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m32_bold_italic_capital_a_width_approx_8_69pt() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width_for_style('A', FontStyle::BoldItalic);
+        assert!(
+            (w - 8.694).abs() < 0.01,
+            "BoldItalic 'A' width should be ~8.694pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m32_bold_lowercase_a_width() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.char_width_for_style('a', FontStyle::Bold);
+        assert!(
+            (w - 6.194).abs() < 0.01,
+            "Bold 'a' width should be ~6.194pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m32_bold_space_width() {
+        let metrics = StandardFontMetrics;
+        let w = metrics.space_width_for_style(FontStyle::Bold);
+        assert!(
+            (w - 3.333).abs() < 0.01,
+            "Bold space width should be ~3.333pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m32_typewriter_width_is_same_for_all_chars() {
+        let metrics = StandardFontMetrics;
+        let chars = ['a', 'b', 'A', 'Z', '1'];
+        for ch in chars {
+            let w = metrics.char_width_for_style(ch, FontStyle::Typewriter);
+            assert_eq!(
+                w, 5.25,
+                "Typewriter '{}' width should be 5.25pt, got {}",
+                ch, w
+            );
+        }
     }
 }
