@@ -102,6 +102,8 @@ Binary-identical output requires:
 - **Cycle (M44):** M44 completed in 1 implementation cycle. Ares fixed F2→F3 cmbx10 kern pair routing + updated tests. 14 new tests, 826 total tests pass, CI green.
 - **M45 scope:** Per-line height adaptation in PDF. Currently line_height is a flat 12pt constant. Section headings (14pt font) and subsections (12pt) need larger baselineskip. Fix: add `line_height: f64` to `OutputLine`, compute as max_font_size×1.2 in engine, use it in PDF backend. Target 840+ tests.
 - **M44 scope:** Fix cmbx10 kern pairs to apply to F3 (not dead-code F2). Fix `is_cmr10_kern_font` (add F3, remove F2), `font_kern_pair` (F3→cmbx10_kern_pair), `font_has_kern_pairs` (F3 dispatch), `compute_kern_pair_total` (F3 dispatch), `line_nat_width` computation for F3. Update tests that assert F3 should NOT have kerning. Estimated similarity improvement: +0.3-0.5% for bold text in section headings. Target 825+ tests.
+- **Cycle (M45):** M45 completed in 1 implementation cycle + 1 verification. Ares delivered line_height field on OutputLine, compute_line_height() helper (max font_size × 1.2), break_items_with_alignment() sets per-line height, PDF backend uses line.line_height. 14 new tests, 840 total tests pass. NOTE: Bug found: Engine::typeset() page accumulation still uses flat 12.0 for accumulated_height — this is fixed in M46.
+- **M46 scope:** (1) Fix page accumulation in Engine::typeset() to use line.line_height instead of flat 12.0 (bug from M45 — the OutputLine now has line_height but typeset() still uses flat 12.0 for page breaking). (2) Add cmmi10 kern pairs (F7/MathItalic) — 166 pairs from cmmi10.afm. 15+ new tests. Target 855+ tests. Pixel similarity: 95.69% after M45.
 
 ## Milestones
 
@@ -782,7 +784,18 @@ Fix the flat 12pt line_height in the PDF backend to properly reflect each line's
 4. **Glue-carrying lines**: lines that contain only Glue/Kern/Rule nodes (no Text) should still advance by their glue amount (already handled by Glue nodes) — use 0.0 or line.line_height for those.
 5. **12+ new tests** verifying line_height is 12.0 for normal text, 16.8 for 14pt sections, 14.4 for 12pt subsections.
 
-- **Cycles budget:** 2 | **Cycles actual:** pending
+- **Cycles budget:** 2 | **Cycles actual:** 1 + 1 verification
+- **Status:** ✅ Complete — Ares implemented (commit c11ee9b), 840 tests pass. NOTE: Page accumulation bug found (flat 12.0), fixed in M46.
+
+### M46: Fix Page Accumulation + cmmi10 Kern Pairs
+Fix the page accumulation bug from M45 and add cmmi10 kern pairs.
+
+**Goals:**
+1. **Fix page accumulation** — Engine::typeset() still uses flat 12.0 for accumulated_height. Replace with line.line_height (per-line value). Two locations: main loop (line 4796) and re-render loop (line 4883). Remove dead `let line_height = 12.0_f64;` at line 4757.
+2. **cmmi10 kern pairs (F7/MathItalic)** — 166 pairs from cmmi10.afm. Add cmmi10_kern_pair(), update is_cmr10_kern_font() to include F7, add has_cmmi10_kern_pairs() helper, update font_kern_pair() and font_has_kern_pairs() dispatch. Note: cmmi10 uses OML encoding, Latin letters at standard ASCII positions — kern pair lookups work same as cmr10.
+3. **15+ new tests** verifying page accumulation and cmmi10 kern pairs.
+
+- **Cycles budget:** 2
 - **Status:** 🔄 Planned
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
