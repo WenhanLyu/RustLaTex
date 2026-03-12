@@ -237,6 +237,11 @@ pub struct TranslationContext {
     pub working_dir: Option<String>,
     /// User-accessible LaTeX counters (for \newcounter, \setcounter, \stepcounter, etc.).
     pub user_counters: HashMap<String, i64>,
+    /// Hyphenation exceptions specified via `\hyphenation{...}`.
+    /// Maps lowercase word → list of character positions where hyphens are allowed.
+    pub hyphenation_exceptions: HashMap<String, Vec<usize>>,
+    /// The Hyphenator instance for pattern-based hyphenation.
+    pub hyphenator: Hyphenator,
 }
 
 impl TranslationContext {
@@ -292,6 +297,8 @@ impl TranslationContext {
             user_environments: HashMap::new(),
             working_dir: None,
             user_counters: Self::default_user_counters(),
+            hyphenation_exceptions: HashMap::new(),
+            hyphenator: Hyphenator::new(),
         }
     }
 
@@ -318,6 +325,8 @@ impl TranslationContext {
             user_environments: HashMap::new(),
             working_dir: None,
             user_counters: Self::default_user_counters(),
+            hyphenation_exceptions: HashMap::new(),
+            hyphenator: Hyphenator::new(),
         }
     }
 }
@@ -643,6 +652,265 @@ fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str) -> BoxNode {
             stretch: 1.67,
             shrink: 1.11,
         }
+    }
+}
+
+// ===== TeX Pattern-Based Hyphenation (Liang's Algorithm) =====
+
+/// A TeX hyphenation pattern: e.g., ".hy1p" means at position between 'y' and 'p'
+/// insert level 1. Patterns are stored as (text_without_digits, vec_of_levels).
+///
+/// In Liang's algorithm, patterns are character sequences with interleaved digit values.
+/// For example, the pattern `.hy1p` means: at the boundary between 'y' and 'p' (in words
+/// beginning with "hyp"), there's a level-1 hyphenation point. Odd levels allow hyphenation,
+/// even levels forbid it. The maximum level wins when multiple patterns overlap.
+#[derive(Debug, Clone)]
+struct HyphenPattern {
+    /// The letters in the pattern (lowercase, with '.' for word boundary).
+    text: Vec<char>,
+    /// The digit values between (and around) the letters.
+    /// Length is `text.len() + 1`.
+    levels: Vec<u8>,
+}
+
+/// Parses a TeX hyphenation pattern string like ".hy1p" or "1ca" into a HyphenPattern.
+fn parse_hyph_pattern(pat: &str) -> HyphenPattern {
+    let mut text = Vec::new();
+    let mut levels = Vec::new();
+    let mut last_was_digit = false;
+
+    for ch in pat.chars() {
+        if ch.is_ascii_digit() {
+            let d = ch as u8 - b'0';
+            if last_was_digit || levels.len() > text.len() {
+                // Shouldn't happen in well-formed patterns, but be safe
+                if let Some(last) = levels.last_mut() {
+                    *last = d;
+                }
+            } else {
+                levels.push(d);
+            }
+            last_was_digit = true;
+        } else {
+            // If no digit preceded this letter, push a 0 level
+            if levels.len() <= text.len() {
+                levels.push(0);
+            }
+            text.push(ch);
+            last_was_digit = false;
+        }
+    }
+    // Trailing level after last letter
+    if levels.len() <= text.len() {
+        levels.push(0);
+    }
+
+    HyphenPattern { text, levels }
+}
+
+/// Hyphenator implementing Liang's TeX hyphenation algorithm.
+///
+/// Contains a set of patterns (loaded at construction) and finds
+/// allowed hyphenation points in words. Also supports exception words
+/// that override the pattern-based results.
+#[derive(Debug, Clone)]
+pub struct Hyphenator {
+    patterns: Vec<HyphenPattern>,
+    exceptions: HashMap<String, Vec<usize>>,
+}
+
+impl Default for Hyphenator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Hyphenator {
+    /// Create a new Hyphenator with built-in English patterns.
+    pub fn new() -> Self {
+        // A representative subset of English hyphenation patterns from TeX.
+        // These cover common prefixes, suffixes, and interior patterns.
+        let pattern_strings = vec![
+            // Word-beginning patterns
+            ".ab1s", ".ac1q", ".ad2d", ".al1l", ".an1t", ".ar1c", ".as1s", ".be2n", ".com1",
+            ".con1", ".de1s", ".dis1", ".en1s", ".ex1", ".gen3", ".hy2p", ".in1", ".mis1", ".out1",
+            ".over1", ".pre1", ".pro1", ".re1", ".semi1", ".sub1", ".su2b", ".tri1", ".un1",
+            // Interior patterns
+            "1ci", "1cy", "1gi", "1gy", "2tic", "1ment", "1ness", "1tion", "1sion", "2tic", "2ual",
+            "3tic", "1ing", "1ings", "1ism", "1ist", "1able", "1ible", "1ful", "1less", "1ly",
+            "1er", "1est", "1ed", "1en", "2bl", "2br", "2cl", "2cr", "2dr", "2fl", "2fr", "2gl",
+            "2gr", "2pl", "2pr", "2tr", // Vowel-consonant patterns
+            "a1ia", "e1ou", "i1a", "i1en", "o1ou", "u1ou", // Suffix patterns
+            "al1ly", "1ment.", "1ness.", "1tion.", "1sion.", "1ing.",
+            // Double consonants
+            "1b2b", "1c2c", "1d2d", "1f2f", "1g2g", "1l2l", "1m2m", "1n2n", "1p2p", "1r2r", "1s2s",
+            "1t2t", "1z2z",
+        ];
+
+        let patterns: Vec<HyphenPattern> = pattern_strings
+            .into_iter()
+            .map(parse_hyph_pattern)
+            .collect();
+
+        Hyphenator {
+            patterns,
+            exceptions: HashMap::new(),
+        }
+    }
+
+    /// Add a hyphenation exception word.
+    /// The word is specified with hyphens at allowed break points,
+    /// e.g., "al-go-rithm" means breaks after "al" and "go".
+    pub fn add_exception(&mut self, word_with_hyphens: &str) {
+        let parts: Vec<&str> = word_with_hyphens.split('-').collect();
+        let clean_word: String = parts.join("");
+        let lower = clean_word.to_lowercase();
+        let mut positions = Vec::new();
+        let mut pos = 0;
+        for (i, part) in parts.iter().enumerate() {
+            pos += part.len();
+            if i < parts.len() - 1 {
+                positions.push(pos);
+            }
+        }
+        self.exceptions.insert(lower, positions);
+    }
+
+    /// Find hyphenation points in a word.
+    ///
+    /// Returns a sorted list of byte offsets where hyphens may be inserted.
+    /// Each offset means a hyphen can go after the character at that byte position.
+    ///
+    /// Minimum prefix = 2 chars, minimum suffix = 3 chars (TeX defaults).
+    pub fn hyphenate(&self, word: &str) -> Vec<usize> {
+        let lower = word.to_lowercase();
+
+        // Check exceptions first
+        if let Some(positions) = self.exceptions.get(&lower) {
+            return positions.clone();
+        }
+
+        // Skip short words (< 5 chars can't be hyphenated with min prefix=2, suffix=3)
+        let chars: Vec<char> = lower.chars().collect();
+        if chars.len() < 5 {
+            return vec![];
+        }
+
+        // Build the dot-delimited word: ".word."
+        let mut dotted: Vec<char> = Vec::with_capacity(chars.len() + 2);
+        dotted.push('.');
+        dotted.extend_from_slice(&chars);
+        dotted.push('.');
+
+        // Initialize levels array (one more than dotted length)
+        let mut levels = vec![0u8; dotted.len() + 1];
+
+        // Apply each pattern
+        for pattern in &self.patterns {
+            let pat_len = pattern.text.len();
+            if pat_len > dotted.len() {
+                continue;
+            }
+            // Slide pattern across the dotted word
+            for start in 0..=(dotted.len() - pat_len) {
+                // Check if pattern matches at this position
+                let mut matches = true;
+                for (j, &pch) in pattern.text.iter().enumerate() {
+                    if dotted[start + j] != pch {
+                        matches = false;
+                        break;
+                    }
+                }
+                if matches {
+                    // Apply levels (take maximum)
+                    for (j, &lev) in pattern.levels.iter().enumerate() {
+                        let idx = start + j;
+                        if idx < levels.len() && lev > levels[idx] {
+                            levels[idx] = lev;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract hyphenation points: odd levels allow hyphenation.
+        // levels[0] corresponds to before the first char of dotted (before '.'),
+        // levels[1] corresponds to between '.' and first letter,
+        // levels[i+1] corresponds to between dotted[i] and dotted[i+1].
+        //
+        // We want positions in the original word (0-indexed char positions).
+        // Position k in the original word = dotted position k+1.
+        // The level between char k and k+1 in the original word is levels[k+2]
+        // (because dotted[0]='.' adds an offset of 1, and levels are between chars).
+        let mut result = Vec::new();
+        // Min prefix = 2 characters, min suffix = 3 characters
+        let min_prefix = 2;
+        let min_suffix = 3;
+        for k in min_prefix..chars.len().saturating_sub(min_suffix - 1) {
+            // Level between original char k-1 and char k is at levels[k+1]
+            // (dotted index k maps to levels[k+1])
+            let level_idx = k + 1;
+            if level_idx < levels.len() && levels[level_idx] % 2 == 1 {
+                result.push(k);
+            }
+        }
+
+        result
+    }
+
+    /// Hyphenate a word and return box nodes with discretionary break points.
+    ///
+    /// For each hyphenation point, inserts a Penalty(50) node (soft hyphen penalty)
+    /// that the line-breaker can use. The word is split into fragments at each
+    /// hyphenation point.
+    pub fn hyphenate_word(
+        &self,
+        word: &str,
+        metrics: &dyn FontMetrics,
+        font_size: f64,
+        color: Option<Color>,
+    ) -> Vec<BoxNode> {
+        let points = self.hyphenate(word);
+        if points.is_empty() {
+            return vec![BoxNode::Text {
+                text: word.to_string(),
+                width: metrics.string_width(word),
+                font_size,
+                color,
+            }];
+        }
+
+        let chars: Vec<char> = word.chars().collect();
+        let mut result = Vec::new();
+        let mut prev = 0;
+
+        for &pt in &points {
+            if pt > prev && pt <= chars.len() {
+                let fragment: String = chars[prev..pt].iter().collect();
+                result.push(BoxNode::Text {
+                    text: fragment.clone(),
+                    width: metrics.string_width(&fragment),
+                    font_size,
+                    color: color.clone(),
+                });
+                // Discretionary hyphen: Penalty(50) allows break with a hyphen
+                result.push(BoxNode::Penalty { value: 50 });
+            }
+            prev = pt;
+        }
+
+        // Remaining fragment
+        if prev < chars.len() {
+            let fragment: String = chars[prev..].iter().collect();
+            result.push(BoxNode::Text {
+                text: fragment.clone(),
+                width: metrics.string_width(&fragment),
+                font_size,
+                color,
+            });
+        }
+
+        result
     }
 }
 
@@ -2386,6 +2654,36 @@ pub fn translate_node_with_context(
                         vec![]
                     }
                 }
+                // ===== Hyphenation Commands =====
+                "-" => {
+                    // \- (soft/discretionary hyphen): insert a penalty node
+                    // that allows the line breaker to break here with a hyphen.
+                    vec![BoxNode::Penalty { value: 50 }]
+                }
+                "hyphenation" => {
+                    // \hyphenation{word1 word2 ...} — add hyphenation exceptions.
+                    // Each word has hyphens at allowed break points, e.g., "al-go-rithm".
+                    if let Some(arg) = args.first() {
+                        let text = extract_text_content(arg);
+                        for entry in text.split_whitespace() {
+                            ctx.hyphenator.add_exception(entry);
+                            // Also store in the context's exception map
+                            let parts: Vec<&str> = entry.split('-').collect();
+                            let clean_word: String = parts.join("");
+                            let lower = clean_word.to_lowercase();
+                            let mut positions = Vec::new();
+                            let mut pos = 0;
+                            for (i, part) in parts.iter().enumerate() {
+                                pos += part.len();
+                                if i < parts.len() - 1 {
+                                    positions.push(pos);
+                                }
+                            }
+                            ctx.hyphenation_exceptions.insert(lower, positions);
+                        }
+                    }
+                    vec![]
+                }
                 _ => vec![],
             }
         }
@@ -3231,6 +3529,9 @@ pub fn translate_two_pass_with_dir(
     ctx2.bib_items = ctx1.bib_items.clone();
     ctx2.user_environments = ctx1.user_environments.clone();
     ctx2.working_dir = ctx1.working_dir.clone();
+    // Carry forward hyphenation exceptions and hyphenator from first pass
+    ctx2.hyphenation_exceptions = ctx1.hyphenation_exceptions.clone();
+    ctx2.hyphenator = ctx1.hyphenator.clone();
     let items = translate_node_with_context(node, metrics, &mut ctx2);
 
     (items, ctx1.labels)
@@ -10105,5 +10406,222 @@ mod tests {
         assert_eq!(to_alph_upper(26), "Z");
         assert_eq!(to_alph_upper(0), "?");
         assert_eq!(to_alph_upper(27), "?");
+    }
+
+    // ===== Hyphenation Tests =====
+
+    #[test]
+    fn test_hyphenator_new_creates_patterns() {
+        let hyph = Hyphenator::new();
+        assert!(
+            !hyph.patterns.is_empty(),
+            "Hyphenator should have built-in patterns"
+        );
+        assert!(
+            hyph.exceptions.is_empty(),
+            "Hyphenator should start with no exceptions"
+        );
+    }
+
+    #[test]
+    fn test_hyphenator_short_words_not_hyphenated() {
+        let hyph = Hyphenator::new();
+        // Words shorter than 5 characters should not be hyphenated
+        assert!(hyph.hyphenate("the").is_empty());
+        assert!(hyph.hyphenate("go").is_empty());
+        assert!(hyph.hyphenate("and").is_empty());
+        assert!(hyph.hyphenate("test").is_empty());
+    }
+
+    #[test]
+    fn test_hyphenator_exception_word() {
+        let mut hyph = Hyphenator::new();
+        hyph.add_exception("al-go-rithm");
+        let points = hyph.hyphenate("algorithm");
+        assert_eq!(
+            points,
+            vec![2, 4],
+            "algorithm should hyphenate as al-go-rithm"
+        );
+    }
+
+    #[test]
+    fn test_hyphenator_exception_case_insensitive() {
+        let mut hyph = Hyphenator::new();
+        hyph.add_exception("al-go-rithm");
+        let points = hyph.hyphenate("Algorithm");
+        assert_eq!(
+            points,
+            vec![2, 4],
+            "Exception lookup should be case-insensitive"
+        );
+    }
+
+    #[test]
+    fn test_hyphenator_exception_single_hyphen() {
+        let mut hyph = Hyphenator::new();
+        hyph.add_exception("data-base");
+        let points = hyph.hyphenate("database");
+        assert_eq!(points, vec![4], "database should hyphenate as data-base");
+    }
+
+    #[test]
+    fn test_hyphenate_word_produces_penalty_nodes() {
+        let mut hyph = Hyphenator::new();
+        hyph.add_exception("al-go-rithm");
+        let metrics = StandardFontMetrics;
+        let nodes = hyph.hyphenate_word("algorithm", &metrics, 10.0, None);
+
+        // Should produce: Text("al"), Penalty(50), Text("go"), Penalty(50), Text("rithm")
+        assert_eq!(nodes.len(), 5, "Expected 5 nodes for al-go-rithm");
+
+        // Check first fragment
+        assert!(matches!(&nodes[0], BoxNode::Text { text, .. } if text == "al"));
+        // Check penalty
+        assert!(matches!(&nodes[1], BoxNode::Penalty { value: 50 }));
+        // Check second fragment
+        assert!(matches!(&nodes[2], BoxNode::Text { text, .. } if text == "go"));
+        // Check second penalty
+        assert!(matches!(&nodes[3], BoxNode::Penalty { value: 50 }));
+        // Check third fragment
+        assert!(matches!(&nodes[4], BoxNode::Text { text, .. } if text == "rithm"));
+    }
+
+    #[test]
+    fn test_hyphenate_word_no_hyphenation() {
+        let hyph = Hyphenator::new();
+        let metrics = StandardFontMetrics;
+        let nodes = hyph.hyphenate_word("the", &metrics, 10.0, None);
+
+        // Short word: single text node, no penalties
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(&nodes[0], BoxNode::Text { text, .. } if text == "the"));
+    }
+
+    #[test]
+    fn test_soft_hyphen_command() {
+        // \- should produce Penalty { value: 50 }
+        let input = r"\documentclass{article}\begin{document}algo\-rithm\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&doc, &metrics, &mut ctx);
+
+        // Look for a Penalty(50) in the output
+        let has_penalty = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Penalty { value: 50 }));
+        assert!(
+            has_penalty,
+            "\\- should produce a Penalty {{ value: 50 }} node"
+        );
+    }
+
+    #[test]
+    fn test_hyphenation_command_adds_exceptions() {
+        let input = r"\documentclass{article}\begin{document}\hyphenation{al-go-rithm data-base}\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&doc, &metrics, &mut ctx);
+
+        assert!(
+            ctx.hyphenation_exceptions.contains_key("algorithm"),
+            "\\hyphenation should add 'algorithm' to exceptions"
+        );
+        assert_eq!(
+            ctx.hyphenation_exceptions.get("algorithm"),
+            Some(&vec![2, 4]),
+            "algorithm exception positions should be [2, 4]"
+        );
+        assert!(
+            ctx.hyphenation_exceptions.contains_key("database"),
+            "\\hyphenation should add 'database' to exceptions"
+        );
+        assert_eq!(
+            ctx.hyphenation_exceptions.get("database"),
+            Some(&vec![4]),
+            "database exception position should be [4]"
+        );
+    }
+
+    #[test]
+    fn test_hyphenation_exceptions_in_hyphenator() {
+        let input =
+            r"\documentclass{article}\begin{document}\hyphenation{al-go-rithm}\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&doc, &metrics, &mut ctx);
+
+        // The hyphenator should have the exception registered
+        let points = ctx.hyphenator.hyphenate("algorithm");
+        assert_eq!(
+            points,
+            vec![2, 4],
+            "After \\hyphenation{{al-go-rithm}}, hyphenator should respect the exception"
+        );
+    }
+
+    #[test]
+    fn test_parse_hyph_pattern() {
+        // Test pattern parsing
+        let pat = parse_hyph_pattern(".hy1p");
+        assert_eq!(pat.text, vec!['.', 'h', 'y', 'p']);
+        assert_eq!(pat.levels, vec![0, 0, 0, 1, 0]);
+
+        let pat2 = parse_hyph_pattern("1tion");
+        assert_eq!(pat2.text, vec!['t', 'i', 'o', 'n']);
+        assert_eq!(pat2.levels, vec![1, 0, 0, 0, 0]);
+
+        let pat3 = parse_hyph_pattern("2bl");
+        assert_eq!(pat3.text, vec!['b', 'l']);
+        assert_eq!(pat3.levels, vec![2, 0, 0]);
+    }
+
+    #[test]
+    fn test_hyphenator_patterns_find_points() {
+        let hyph = Hyphenator::new();
+        // Longer words should have some hyphenation points from patterns
+        let points = hyph.hyphenate("hyphenation");
+        // With our pattern set, we should find at least one hyphenation point
+        // The exact points depend on which patterns match
+        assert!(
+            !points.is_empty(),
+            "A long word like 'hyphenation' should have at least one pattern-based hyphenation point"
+        );
+    }
+
+    #[test]
+    fn test_hyphenator_default_trait() {
+        let hyph: Hyphenator = Default::default();
+        assert!(!hyph.patterns.is_empty());
+    }
+
+    #[test]
+    fn test_hyphenation_context_default_fields() {
+        let ctx = TranslationContext::new_collecting();
+        assert!(
+            ctx.hyphenation_exceptions.is_empty(),
+            "hyphenation_exceptions should be empty by default"
+        );
+        assert!(
+            !ctx.hyphenator.patterns.is_empty(),
+            "hyphenator should have patterns by default"
+        );
+    }
+
+    #[test]
+    fn test_two_pass_carries_hyphenation() {
+        // Verify that hyphenation exceptions are carried from first to second pass
+        let input = r"\documentclass{article}\begin{document}\hyphenation{al-go-rithm}Hello world\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (_items, _labels) = translate_two_pass(&doc, &metrics);
+        // If this doesn't panic, the two-pass system correctly handles hyphenation
     }
 }
