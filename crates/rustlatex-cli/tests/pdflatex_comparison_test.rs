@@ -419,6 +419,13 @@ fn test_pixel_similarity_logged() {
     );
     eprintln!("=====================================");
 
+    // Write similarity to temp file for CI consumption
+    std::fs::write(
+        "/tmp/pixel_similarity.txt",
+        format!("similarity={:.4}", similarity),
+    )
+    .ok();
+
     // Clean up
     let _ = std::fs::remove_file(&our_pdf);
     let _ = std::fs::remove_file(&our_ppm);

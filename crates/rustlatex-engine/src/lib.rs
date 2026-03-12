@@ -868,10 +868,79 @@ fn math_node_to_boxes_inner(
     font_size: f64,
     vertical_offset: f64,
 ) -> Vec<BoxNode> {
+    // Kern amounts for math operator spacing (in points, matching TeX thin/thick space)
+    const BINOP_KERN: f64 = 1.667; // medium space for binary operators
+    const RELOP_KERN: f64 = 2.778; // thick space for relations
+
+    /// Check if a single-character text node is a binary operator in math mode.
+    fn is_text_binop(s: &str) -> bool {
+        matches!(s, "+" | "-")
+    }
+
+    /// Check if a single-character text node is a relation in math mode.
+    fn is_text_relop(s: &str) -> bool {
+        matches!(s, "=" | "<" | ">")
+    }
+
+    /// Check if a command name is a binary operator.
+    fn is_cmd_binop(name: &str) -> bool {
+        matches!(name, "times" | "div" | "pm" | "mp" | "cdot")
+    }
+
+    /// Check if a command name is a relation.
+    fn is_cmd_relop(name: &str) -> bool {
+        matches!(
+            name,
+            "leq"
+                | "geq"
+                | "neq"
+                | "in"
+                | "subset"
+                | "cup"
+                | "cap"
+                | "to"
+                | "leftarrow"
+                | "rightarrow"
+                | "Rightarrow"
+                | "Leftrightarrow"
+        )
+    }
+
     match node {
         Node::Text(s) => {
             if s.is_empty() {
                 return vec![];
+            }
+            // Check for math operator/relation spacing on single-char text nodes
+            if is_text_binop(s) {
+                let text_node = BoxNode::Text {
+                    width: metrics.string_width(s) * (font_size / 10.0),
+                    text: s.clone(),
+                    font_size,
+                    color: None,
+                    font_style: FontStyle::Normal,
+                    vertical_offset,
+                };
+                return vec![
+                    BoxNode::Kern { amount: BINOP_KERN },
+                    text_node,
+                    BoxNode::Kern { amount: BINOP_KERN },
+                ];
+            }
+            if is_text_relop(s) {
+                let text_node = BoxNode::Text {
+                    width: metrics.string_width(s) * (font_size / 10.0),
+                    text: s.clone(),
+                    font_size,
+                    color: None,
+                    font_style: FontStyle::Normal,
+                    vertical_offset,
+                };
+                return vec![
+                    BoxNode::Kern { amount: RELOP_KERN },
+                    text_node,
+                    BoxNode::Kern { amount: RELOP_KERN },
+                ];
             }
             let font_style =
                 if s.len() == 1 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
@@ -902,7 +971,40 @@ fn math_node_to_boxes_inner(
             .iter()
             .flat_map(|n| math_node_to_boxes_inner(n, metrics, font_size, vertical_offset))
             .collect(),
-        // For Fraction, Radical, Command and others, fall back to text rendering
+        // Handle Command nodes: check for binary operators and relations before fallback
+        Node::Command { name, .. } if is_cmd_binop(name) => {
+            let text = math_node_to_text(node);
+            let text_node = BoxNode::Text {
+                width: metrics.string_width(&text) * (font_size / 10.0),
+                text,
+                font_size,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset,
+            };
+            vec![
+                BoxNode::Kern { amount: BINOP_KERN },
+                text_node,
+                BoxNode::Kern { amount: BINOP_KERN },
+            ]
+        }
+        Node::Command { name, .. } if is_cmd_relop(name) => {
+            let text = math_node_to_text(node);
+            let text_node = BoxNode::Text {
+                width: metrics.string_width(&text) * (font_size / 10.0),
+                text,
+                font_size,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset,
+            };
+            vec![
+                BoxNode::Kern { amount: RELOP_KERN },
+                text_node,
+                BoxNode::Kern { amount: RELOP_KERN },
+            ]
+        }
+        // For Fraction, Radical, other Commands and others, fall back to text rendering
         _ => {
             let text = math_node_to_text(node);
             if text.is_empty() {
@@ -6505,6 +6607,7 @@ mod tests {
     #[test]
     fn test_math_operator_times() {
         // $a \times b$ should produce text items including "×"
+        // With M39 operator spacing: a, Kern(1.667), ×, Kern(1.667), b = 5 items
         let node = Node::InlineMath(vec![
             Node::Text("a".to_string()),
             Node::Command {
@@ -6514,7 +6617,7 @@ mod tests {
             Node::Text("b".to_string()),
         ]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 3);
+        assert_eq!(items.len(), 5);
         // Check that one of the items contains the × symbol
         let all_text: String = items
             .iter()
@@ -6536,6 +6639,7 @@ mod tests {
     #[test]
     fn test_math_operator_leq() {
         // $x \leq y$ should produce text items containing "≤"
+        // With M39 operator spacing: x, Kern(2.778), ≤, Kern(2.778), y = 5 items
         let node = Node::InlineMath(vec![
             Node::Text("x".to_string()),
             Node::Command {
@@ -6545,7 +6649,7 @@ mod tests {
             Node::Text("y".to_string()),
         ]);
         let items = translate_node(&node);
-        assert_eq!(items.len(), 3);
+        assert_eq!(items.len(), 5);
         let all_text: String = items
             .iter()
             .filter_map(|n| {
@@ -13208,13 +13312,14 @@ mod tests {
     #[test]
     fn test_math_italic_symbol_uses_normal() {
         // A single symbol like '+' should use FontStyle::Normal
+        // With M39 operator spacing, '+' produces Kern, Text(+), Kern (3 items)
         let node = Node::Text("+".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
-        assert_eq!(boxes.len(), 1);
-        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+        assert_eq!(boxes.len(), 3);
+        if let BoxNode::Text { font_style, .. } = &boxes[1] {
             assert_eq!(*font_style, FontStyle::Normal);
         } else {
-            panic!("Expected BoxNode::Text");
+            panic!("Expected BoxNode::Text at index 1");
         }
     }
 
@@ -13738,5 +13843,420 @@ mod tests {
                 w
             );
         }
+    }
+
+    // ===== M39: Math operator spacing tests =====
+
+    #[test]
+    fn test_m39_plus_operator_has_binop_kern() {
+        // $x + y$: the '+' text node should produce Kern(1.667) before and after
+        let node = Node::Text("+".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(
+            boxes.len(),
+            3,
+            "'+' should produce 3 box nodes: Kern, Text, Kern"
+        );
+        assert!(
+            matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001),
+            "First node should be Kern(1.667), got {:?}",
+            boxes[0]
+        );
+        assert!(
+            matches!(&boxes[1], BoxNode::Text { text, .. } if text == "+"),
+            "Middle node should be Text('+'), got {:?}",
+            boxes[1]
+        );
+        assert!(
+            matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001),
+            "Last node should be Kern(1.667), got {:?}",
+            boxes[2]
+        );
+    }
+
+    #[test]
+    fn test_m39_minus_operator_has_binop_kern() {
+        // '-' should also get binary operator spacing
+        let node = Node::Text("-".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "-"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_equals_relation_has_relop_kern() {
+        // $a = b$: the '=' text node should produce Kern(2.778) before and after
+        let node = Node::Text("=".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(
+            boxes.len(),
+            3,
+            "'=' should produce 3 box nodes: Kern, Text, Kern"
+        );
+        assert!(
+            matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001),
+            "First node should be Kern(2.778), got {:?}",
+            boxes[0]
+        );
+        assert!(
+            matches!(&boxes[1], BoxNode::Text { text, .. } if text == "="),
+            "Middle node should be Text('='), got {:?}",
+            boxes[1]
+        );
+        assert!(
+            matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001),
+            "Last node should be Kern(2.778), got {:?}",
+            boxes[2]
+        );
+    }
+
+    #[test]
+    fn test_m39_less_than_relation_has_relop_kern() {
+        let node = Node::Text("<".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "<"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_greater_than_relation_has_relop_kern() {
+        let node = Node::Text(">".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == ">"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_times_command_has_binop_kern() {
+        // \times command should produce Kern(1.667) before and after
+        let node = Node::Command {
+            name: "times".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3, "\\times should produce 3 box nodes");
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "×"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_div_command_has_binop_kern() {
+        let node = Node::Command {
+            name: "div".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "÷"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_cdot_command_has_binop_kern() {
+        let node = Node::Command {
+            name: "cdot".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_pm_command_has_binop_kern() {
+        let node = Node::Command {
+            name: "pm".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_mp_command_has_binop_kern() {
+        let node = Node::Command {
+            name: "mp".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_leq_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "leq".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3, "\\leq should produce 3 box nodes");
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "≤"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_geq_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "geq".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "≥"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_neq_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "neq".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "≠"));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_in_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "in".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_to_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "to".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_rightarrow_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "rightarrow".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_Rightarrow_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "Rightarrow".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_non_operator_x_no_extra_kern() {
+        // Plain text 'x' should NOT get operator spacing
+        let node = Node::Text("x".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(
+            boxes.len(),
+            1,
+            "'x' should produce exactly 1 box node (no kerns)"
+        );
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "x"));
+    }
+
+    #[test]
+    fn test_m39_non_operator_y_no_extra_kern() {
+        let node = Node::Text("y".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "y"));
+    }
+
+    #[test]
+    fn test_m39_non_operator_digit_no_extra_kern() {
+        // Digit '2' should NOT get operator spacing
+        let node = Node::Text("2".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1, "'2' should produce exactly 1 box node");
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "2"));
+    }
+
+    #[test]
+    fn test_m39_x_plus_y_mathgroup() {
+        // MathGroup [x, +, y] should produce: Text(x), Kern, Text(+), Kern, Text(y)
+        let node = Node::MathGroup(vec![
+            Node::Text("x".to_string()),
+            Node::Text("+".to_string()),
+            Node::Text("y".to_string()),
+        ]);
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        // x(1) + Kern(1.667) + Text(+) + Kern(1.667) + y(1) = 5 nodes
+        assert_eq!(boxes.len(), 5, "x+y should produce 5 box nodes");
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "x"));
+        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Text { text, .. } if text == "+"));
+        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[4], BoxNode::Text { text, .. } if text == "y"));
+    }
+
+    #[test]
+    fn test_m39_a_equals_b_mathgroup() {
+        // MathGroup [a, =, b] should produce: Text(a), Kern(2.778), Text(=), Kern(2.778), Text(b)
+        let node = Node::MathGroup(vec![
+            Node::Text("a".to_string()),
+            Node::Text("=".to_string()),
+            Node::Text("b".to_string()),
+        ]);
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 5, "a=b should produce 5 box nodes");
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "a"));
+        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Text { text, .. } if text == "="));
+        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[4], BoxNode::Text { text, .. } if text == "b"));
+    }
+
+    #[test]
+    fn test_m39_a_times_b_mathgroup() {
+        // MathGroup [a, \times, b] should have binop spacing around \times
+        let node = Node::MathGroup(vec![
+            Node::Text("a".to_string()),
+            Node::Command {
+                name: "times".to_string(),
+                args: vec![],
+            },
+            Node::Text("b".to_string()),
+        ]);
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 5, "a \\times b should produce 5 box nodes");
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "a"));
+        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Text { text, .. } if text == "×"));
+        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[4], BoxNode::Text { text, .. } if text == "b"));
+    }
+
+    #[test]
+    fn test_m39_display_math_e_equals_mc2_has_operator_spacing() {
+        // \[ E = mc^2 \] display math should have operator spacing around '='
+        // Parse through translate_node for full integration
+        let node = Node::DisplayMath(vec![
+            Node::Text("E".to_string()),
+            Node::Text("=".to_string()),
+            Node::Text("m".to_string()),
+            Node::Superscript {
+                base: Box::new(Node::Text("c".to_string())),
+                exponent: Box::new(Node::Text("2".to_string())),
+            },
+        ]);
+        let items = translate_node(&node);
+        // Look for Kern(2.778) in the output (around '=')
+        let has_relop_kern = items.iter().any(
+            |item| matches!(item, BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001),
+        );
+        assert!(
+            has_relop_kern,
+            "Display math E=mc^2 should contain relation kerns (2.778pt), items: {:?}",
+            items
+        );
+    }
+
+    #[test]
+    fn test_m39_subset_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "subset".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_cup_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "cup".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_cap_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "cap".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_Leftrightarrow_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "Leftrightarrow".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_leftarrow_command_has_relop_kern() {
+        let node = Node::Command {
+            name: "leftarrow".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3);
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.778).abs() < 0.001));
+    }
+
+    #[test]
+    fn test_m39_non_operator_command_no_kern() {
+        // Greek letter commands like \alpha should NOT get operator spacing
+        let node = Node::Command {
+            name: "alpha".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(
+            boxes.len(),
+            1,
+            "\\alpha should produce 1 box node (no kerns)"
+        );
+        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "α"));
     }
 }

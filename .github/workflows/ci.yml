@@ -45,6 +45,9 @@ jobs:
         run: cargo test test_pixel_similarity_logged -- --nocapture 2>&1
         continue-on-error: true
 
+      - name: Show pixel similarity result
+        run: cat /tmp/pixel_similarity.txt || true
+
       - name: Check formatting
         run: cargo fmt --all -- --check
         continue-on-error: true
