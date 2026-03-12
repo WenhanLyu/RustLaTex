@@ -82,6 +82,8 @@ Binary-identical output requires:
 - **Cycle (M34):** M34 completed in 1 implementation cycle. Leo delivered vertical_offset field on BoxNode::Text, math_node_to_boxes() with proper superscript (font_size=7.0, vertical_offset=+4.0) and subscript (font_size=7.0, vertical_offset=-2.0) rendering, PDF Ts operator via set_rise(). 17 new tests, 626 total tests pass, CI green.
 - **Cycle (M35):** M35 completed in 1 implementation cycle. Ares delivered math italic for single ASCII letter variables (FontStyle::Italic in math_node_to_boxes_inner), PPM pixel comparison (render_pdf_to_ppm + compare_ppm_files helpers), expanded compare.tex with subsection and display math. 22 new tests, 647 total tests pass, CI green.
 - **M35 scope:** Math variables use Italic font style (matches cmmi10 in pdflatex). Fix pixel similarity comparison to use PPM raw pixel data (not PNG bytes) for accurate visual measurement. Expand compare.tex. Target 641+ tests.
+- **Diana's M36 research:** Identified 4 practical improvements: (1) Bullet fix — itemize uses '-' but pdflatex uses cmsy10 bullet; implement as BoxNode::Bullet rendered as PDF filled circle (+0.5-1.0%); (2) OT1 ligature substitution fi/fl/ff/ffi/ffl in PDF backend (+0.01-0.05%); (3) Fix parindent 20pt→15pt (+0.1%); (4) Display math spacing: abovedisplayskip/belowdisplayskip=12pt (+0.2-0.4%). cmmi10/cmsy10 pfb files not available locally but available in CI texlive.
+- **M36 scope:** Implement the 4 practical improvements from Diana's research. No new font embedding required. Target 662+ tests.
 
 ## Milestones
 
@@ -659,6 +661,18 @@ Improve math rendering quality and fix visual similarity measurement infrastruct
 - **Tests:** 22 new, 647 total
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented, 647 tests pass, CI green (commit 0969eab)
+
+### M36: Rendering Quality Improvements (bullet, ligatures, parindent, display math)
+Implement four targeted visual quality improvements identified by Diana's M36 research:
+
+1. **Bullet fix** — Add BoxNode::Bullet variant in engine, render as PDF filled circle. Change itemize to emit Bullet instead of Text("-"). Estimated +0.5-1.0% pixel similarity.
+2. **OT1 ligature substitution** — In rustlatex-pdf, add apply_ot1_ligatures() mapping fi→12, fl→13, ff→11, ffi→14, ffl→15 for CM text fonts (F1/F3/F4/F5 only). ~+0.01-0.05%.
+3. **Fix parindent 20pt→15pt** — Paragraph indent Kern changes from 20.0 to 15.0. ~+0.1%.
+4. **Display math spacing** — abovedisplayskip/belowdisplayskip = 12pt. ~+0.2-0.4%.
+
+- **Tests:** 15+ new, 662+ total
+- **Cycles budget:** 2
+- **Status:** 🔄 In progress
 
 
 
