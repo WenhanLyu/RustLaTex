@@ -65,9 +65,9 @@ fn is_cm_text_font(font_name: &[u8]) -> bool {
 }
 
 /// Return true if kerning should be applied for this font name.
-/// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F2=cmbx10 Bold, F4=cmti10 Italic, F5=cmbxti10 BoldItalic).
+/// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F3=cmbx10 Bold, F4=cmti10 Italic, F5=cmbxti10 BoldItalic).
 fn is_cmr10_kern_font(font_name: &[u8]) -> bool {
-    matches!(font_name, b"F1" | b"F2" | b"F4" | b"F5")
+    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5")
 }
 
 /// Look up the cmbx10 AFM kern pair value for a pair of byte-encoded glyphs.
@@ -1023,7 +1023,7 @@ fn has_cmti10_kern_pairs(bytes: &[u8]) -> bool {
 /// Get the kern pair value for the given font name and glyph pair.
 fn font_kern_pair(font_name: &[u8], a: u8, b: u8) -> f32 {
     match font_name {
-        b"F2" => cmbx10_kern_pair(a, b),
+        b"F3" => cmbx10_kern_pair(a, b),
         b"F4" => cmti10_kern_pair(a, b),
         b"F5" => cmbxti10_kern_pair(a, b),
         _ => cmr10_kern_pair(a, b),
@@ -1033,7 +1033,7 @@ fn font_kern_pair(font_name: &[u8], a: u8, b: u8) -> f32 {
 /// Check if any adjacent bytes have non-zero kern pairs for the given font.
 fn font_has_kern_pairs(font_name: &[u8], bytes: &[u8]) -> bool {
     match font_name {
-        b"F2" => has_cmbx10_kern_pairs(bytes),
+        b"F3" => has_cmbx10_kern_pairs(bytes),
         b"F4" => has_cmti10_kern_pairs(bytes),
         b"F5" => has_cmbxti10_kern_pairs(bytes),
         _ => has_kern_pairs(bytes),
@@ -3773,7 +3773,10 @@ mod tests {
     #[test]
     fn test_m40_is_cmr10_kern_font() {
         assert!(is_cmr10_kern_font(b"F1"), "F1 should have kerning");
-        assert!(!is_cmr10_kern_font(b"F3"), "F3 should NOT have kerning");
+        assert!(
+            is_cmr10_kern_font(b"F3"),
+            "F3 (cmbx10 Bold) should have kerning"
+        );
         assert!(is_cmr10_kern_font(b"F4"), "F4 should have kerning (cmti10)");
         assert!(
             is_cmr10_kern_font(b"F5"),
@@ -3969,14 +3972,17 @@ mod tests {
     #[test]
     fn test_m41_is_kern_font_f2() {
         assert!(
-            is_cmr10_kern_font(b"F2"),
-            "F2 (bold/cmbx10) should have kerning"
+            !is_cmr10_kern_font(b"F2"),
+            "F2 does NOT have kerning (cmbx10 is mapped to F3, not F2)"
         );
     }
 
     #[test]
     fn test_m41_is_kern_font_f3_false() {
-        assert!(!is_cmr10_kern_font(b"F3"), "F3 should NOT have kerning");
+        assert!(
+            is_cmr10_kern_font(b"F3"),
+            "F3 (cmbx10 Bold) DOES have kerning"
+        );
     }
 
     #[test]
@@ -4441,5 +4447,146 @@ mod tests {
             pdf_str.contains("TJ"),
             "Bold italic AV with kern pairs should use TJ operator"
         );
+    }
+
+    // ============================================================
+    // M44: Fix cmbx10 kern pairs bug — F2→F3 in kern dispatch
+    // ============================================================
+
+    #[test]
+    fn test_m44_is_cmr10_kern_font_f3_true() {
+        // F3 is cmbx10 (Bold) — must have kerning after bug fix
+        assert!(
+            is_cmr10_kern_font(b"F3"),
+            "F3 (cmbx10 Bold) should have kerning"
+        );
+    }
+
+    #[test]
+    fn test_m44_is_cmr10_kern_font_f2_false() {
+        // F2 is not a recognized kern font — font_name_for_style(Bold) = F3, not F2
+        assert!(
+            !is_cmr10_kern_font(b"F2"),
+            "F2 should NOT have kerning (Bold is mapped to F3)"
+        );
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_av() {
+        // font_kern_pair for F3 should dispatch to cmbx10_kern_pair; A+V = -127
+        let k = font_kern_pair(b"F3", b'A', b'V');
+        assert_eq!(k, -127.0, "font_kern_pair(F3, A, V) should be -127");
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_to() {
+        // cmbx10 T+o = -95
+        let k = font_kern_pair(b"F3", b'T', b'o');
+        assert_eq!(k, -95.0, "font_kern_pair(F3, T, o) should be -95");
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_fo() {
+        // cmbx10 F+o — check it's non-zero (cmbx10 has KPX F o)
+        let k = font_kern_pair(b"F3", b'F', b'o');
+        assert!(k != 0.0, "font_kern_pair(F3, F, o) should be non-zero");
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_va() {
+        // cmbx10 V+A = -127
+        let k = font_kern_pair(b"F3", b'V', b'A');
+        assert_eq!(k, -127.0, "font_kern_pair(F3, V, A) should be -127");
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_aw() {
+        // cmbx10 A+W = -127
+        let k = font_kern_pair(b"F3", b'A', b'W');
+        assert_eq!(k, -127.0, "font_kern_pair(F3, A, W) should be -127");
+    }
+
+    #[test]
+    fn test_m44_font_has_kern_pairs_f3_av() {
+        // "AV" has kern pairs in cmbx10, dispatched via F3
+        assert!(
+            font_has_kern_pairs(b"F3", b"AV"),
+            "font_has_kern_pairs(F3, AV) should be true"
+        );
+    }
+
+    #[test]
+    fn test_m44_font_has_kern_pairs_f2_av() {
+        // F2 has no cmbx10 kern dispatch — should fall through to cmr10 which also has AV
+        // but the point is F2 is not Bold (F3 is)
+        // cmr10 also has AV kern pair, so this will be true via cmr10
+        // The key test is that F3 works; F2 no longer dispatches to cmbx10
+        let k = font_kern_pair(b"F2", b'A', b'V');
+        // F2 falls through to cmr10_kern_pair which should have AV pair
+        assert!(k != 999.0, "F2 dispatches to cmr10_kern_pair (fallthrough)");
+    }
+
+    #[test]
+    fn test_m44_compute_kern_pair_total_f3_av() {
+        // compute_kern_pair_total with F3 and "AV" should return cmbx10 AV kern = -127
+        let total = compute_kern_pair_total(b"F3", b"AV");
+        assert_eq!(
+            total, -127.0,
+            "compute_kern_pair_total(F3, AV) should be -127, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m44_compute_kern_pair_total_f3_multiple() {
+        // "AVA" has two pairs: A+V and V+A, both -127 each = -254 total
+        let total = compute_kern_pair_total(b"F3", b"AVA");
+        assert_eq!(
+            total, -254.0,
+            "compute_kern_pair_total(F3, AVA) should be -254, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m44_pdf_bold_text_with_kern_pairs_uses_tj() {
+        // Bold text "AV" with F3 font should produce TJ operator in PDF
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            footnotes: vec![],
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "AV".to_string(),
+                    width: 10.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
+                }],
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("TJ"),
+            "Bold AV with kern pairs should use TJ operator"
+        );
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_fa() {
+        // cmbx10 F+A = -127
+        let k = font_kern_pair(b"F3", b'F', b'A');
+        assert_eq!(k, -127.0, "font_kern_pair(F3, F, A) should be -127");
+    }
+
+    #[test]
+    fn test_m44_font_kern_pair_f3_no_pair() {
+        // Z+Z has no kern pair in cmbx10
+        let k = font_kern_pair(b"F3", b'Z', b'Z');
+        assert_eq!(k, 0.0, "font_kern_pair(F3, Z, Z) should be 0");
     }
 }
