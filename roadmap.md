@@ -75,7 +75,8 @@ Binary-identical output requires:
 - **Diana's M30 research:** Diana identified 5 critical rendering gaps vs pdflatex: (1) PDF hsize mismatch 495pt vs 345pt — CRITICAL BUG stretching every line; (2) Wrong page margins (50pt vs 72.27pt); (3) Section headings not bold; (4) \[...\] display math not recognized; (5) List items flow as paragraph text. Fixes #1+#2 estimated to push similarity from ~25% to ~60%.
 - **Cycle ~131 (M30):** M30 completed in 1 implementation cycle. Leo fixed all 5 critical rendering gaps. 558 total tests pass, CI green.
 - **Pixel similarity score now visible in CI:** M31 fixed eprintln! — score now appears in CI stderr logs.
-- **M32:** Replace Helvetica font variants with actual CM fonts (cmbx10/cmti10/cmtt10/cmbxti10). Font pfb files already committed to repo. Update AFM width metrics.
+- **Cycle ~133 (M32):** M32 completed in 1 implementation cycle + 1 verification. Leo replaced Helvetica/Courier Base-14 stubs with embedded cmbx10/cmti10/cmbxti10/cmtt10 Type1 fonts. Updated StandardFontMetrics: Bold uses cmbx10 per-char widths, Typewriter = 5.25pt monospace. Apollo verified 594 tests pass, CI green. No more Helvetica/Courier in PDF output.
+- **M33:** Research rendering gaps after M32. Diana to evaluate OT1 encoding issues, pixel similarity score, and top remaining gaps vs pdflatex.
 
 ## Milestones
 
@@ -613,7 +614,7 @@ Improve visual quality by fixing spacing to match LaTeX article class and surfac
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Ares implemented, Apollo verified (commit 46a2dbc, 579 tests total)
 
-### M32: Embed CM Bold/Italic/Typewriter Fonts + Accurate Width Metrics
+### M32: Embed CM Bold/Italic/Typewriter Fonts + Accurate Width Metrics ✅ COMPLETE
 Replace Helvetica font variants in PDF output with actual Computer Modern fonts for visual accuracy matching pdflatex.
 
 **Goals:**
@@ -622,7 +623,11 @@ Replace Helvetica font variants in PDF output with actual Computer Modern fonts 
 3. Update engine width metrics: cmbx10 AFM widths, cmti10 AFM widths, cmtt10 = 5.25pt monospace (not 6.0pt)
 4. 15+ tests covering font embedding and width accuracy
 
-- **Cycles budget:** 2 | **Status:** In progress (issue #30, assigned to Leo)
+- **Cycles budget:** 2 | **Cycles actual:** 1 + 1 verification
+- **Status:** ✅ Complete — Apollo verified 594 tests pass, CI green (commit a7790a7)
+
+### M33: OT1 Encoding Fix + Pixel Similarity Measurement
+(TBD — pending Diana's research on remaining rendering gaps)
 
 ---
 
