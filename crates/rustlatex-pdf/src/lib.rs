@@ -5443,11 +5443,11 @@ mod tests {
         use rustlatex_engine::{Alignment, BoxNode, OutputLine};
         let vskip_line = OutputLine {
             alignment: Alignment::Justify,
-            nodes: vec![BoxNode::VSkip { amount: 24.0 }],
-            line_height: 24.0,
+            nodes: vec![BoxNode::VSkip { amount: 15.07 }],
+            line_height: 15.07,
         };
         // VSkip-only: line_height equals VSkip amount
-        assert!((vskip_line.line_height - 24.0).abs() < 0.01);
+        assert!((vskip_line.line_height - 15.07).abs() < 0.01);
         let is_vskip_only =
             vskip_line.nodes.len() == 1 && matches!(&vskip_line.nodes[0], BoxNode::VSkip { .. });
         assert!(is_vskip_only);
@@ -5458,8 +5458,8 @@ mod tests {
         use rustlatex_engine::{Alignment, BoxNode, OutputLine};
         let vskip_line = OutputLine {
             alignment: Alignment::Justify,
-            nodes: vec![BoxNode::VSkip { amount: 8.0 }],
-            line_height: 8.0,
+            nodes: vec![BoxNode::VSkip { amount: 9.90 }],
+            line_height: 9.90,
         };
         // VSkip-only lines have no Text nodes
         let has_text = vskip_line
@@ -5478,46 +5478,46 @@ mod tests {
             nodes: vec![BoxNode::Text {
                 text: "1 Introduction".to_string(),
                 width: 80.0,
-                font_size: 14.0,
+                font_size: 14.4,
                 color: None,
                 font_style: FontStyle::Bold,
                 vertical_offset: 0.0,
             }],
-            line_height: 14.0 * 1.2,
+            line_height: 14.4 * 1.2,
         };
         let has_text = heading_line
             .nodes
             .iter()
             .any(|n| matches!(n, BoxNode::Text { .. }));
         assert!(has_text);
-        assert!((heading_line.line_height - 16.8).abs() < 0.01);
+        assert!((heading_line.line_height - 17.28).abs() < 0.01);
     }
 
     #[test]
     fn test_section_vskip_before_amount() {
         use rustlatex_engine::BoxNode;
-        // \section has 24pt before, 8pt after
-        let before = BoxNode::VSkip { amount: 24.0 };
-        let after = BoxNode::VSkip { amount: 8.0 };
+        // \section has 15.07pt before, 9.90pt after (pdflatex article class)
+        let before = BoxNode::VSkip { amount: 15.07 };
+        let after = BoxNode::VSkip { amount: 9.90 };
         if let BoxNode::VSkip { amount } = before {
-            assert!((amount - 24.0).abs() < 0.01);
+            assert!((amount - 15.07).abs() < 0.01);
         }
         if let BoxNode::VSkip { amount } = after {
-            assert!((amount - 8.0).abs() < 0.01);
+            assert!((amount - 9.90).abs() < 0.01);
         }
     }
 
     #[test]
     fn test_subsection_vskip_before_amount() {
         use rustlatex_engine::BoxNode;
-        // \subsection has 18pt before, 6pt after
-        let before = BoxNode::VSkip { amount: 18.0 };
-        let after = BoxNode::VSkip { amount: 6.0 };
+        // \subsection has 13.99pt before, 6.46pt after (pdflatex article class)
+        let before = BoxNode::VSkip { amount: 13.99 };
+        let after = BoxNode::VSkip { amount: 6.46 };
         if let BoxNode::VSkip { amount } = before {
-            assert!((amount - 18.0).abs() < 0.01);
+            assert!((amount - 13.99).abs() < 0.01);
         }
         if let BoxNode::VSkip { amount } = after {
-            assert!((amount - 6.0).abs() < 0.01);
+            assert!((amount - 6.46).abs() < 0.01);
         }
     }
 }
