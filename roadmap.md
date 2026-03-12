@@ -97,6 +97,9 @@ Binary-identical output requires:
 - **M42 scope:** Superscript/subscript geometry correction (size=7.07pt instead of 7.0pt, rise=3.45pt instead of 4.0pt, subscript offset=-2.5pt instead of -2.0pt). Add cmti10 kern pairs (F4/Italic) from CI texlive AFM at `/usr/share/texmf/fonts/afm/public/cm/cmti10.afm`. Target 785+ tests.
 - **Cycle (M42):** M42 completed in 1 implementation cycle. Leo delivered superscript precision (7.07pt, 3.45pt rise, -2.5pt subscript offset), cmti10 kern pairs (178 pairs from AFM, F4 wired into dispatch). 17 new tests, 789 total tests pass, CI green.
 - **M43 scope:** Fix justified text line width computation (include kern pair contributions in line_nat_width) + add cmbxti10 kern pairs (F5/BoldItalic). Estimated pixel similarity gain ~0.3-0.5%. Target 800+ tests.
+- **Cycle (M43):** M43 completed in 1 implementation cycle. Leo delivered compute_kern_pair_total + justified width fix + cmbxti10 kern pairs (178 entries, F5). 23 new tests, 812 total tests pass, CI green. Pixel similarity = 95.77% (similarity=0.9577 from CI).
+- **CRITICAL BUG FOUND (M44 planning):** cmbx10 kern pairs (M41) are dead code. `font_name_for_style(Bold)` returns `b"F3"` but `is_cmr10_kern_font` checks for `b"F2"`. Bold text (F3/cmbx10) has never benefited from kern pairs. Fix: change `is_cmr10_kern_font` and `font_kern_pair` to use F3 (not F2) for cmbx10. This bug affects section headings (which use Bold/F3).
+- **M44 scope:** Fix cmbx10 kern pairs to apply to F3 (not dead-code F2). Fix `is_cmr10_kern_font` (add F3, remove F2), `font_kern_pair` (F3→cmbx10_kern_pair), `font_has_kern_pairs` (F3 dispatch), `compute_kern_pair_total` (F3 dispatch), `line_nat_width` computation for F3. Update tests that assert F3 should NOT have kerning. Estimated similarity improvement: +0.3-0.5% for bold text in section headings. Target 825+ tests.
 
 ## Milestones
 
@@ -760,16 +763,30 @@ Improve math rendering quality and italic text kerning.
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 4e34d18), 789 tests pass, CI green.
 
-### M43: Justified Text Width Fix + cmbxti10 Kern Pairs
+### M44: Fix cmbx10 Kern Pairs (F3/Bold) — Critical Bug Fix
+Fix the dead-code bug in M41: cmbx10 kern pairs were implemented for font name "F2" but Bold text uses font name "F3". Section headings use F3/Bold (cmbx10), so this bug means no kerning is applied to bold section text.
+
+**Goals:**
+1. **Fix is_cmr10_kern_font**: change `b"F1" | b"F2" | b"F4" | b"F5"` to `b"F1" | b"F3" | b"F4" | b"F5"` (replace F2 with F3)
+2. **Fix font_kern_pair dispatch**: change `b"F2" => cmbx10_kern_pair(a, b)` to `b"F3" => cmbx10_kern_pair(a, b)` 
+3. **Fix font_has_kern_pairs dispatch**: change `b"F2" => has_cmbx10_kern_pairs(bytes)` to `b"F3" => has_cmbx10_kern_pairs(bytes)`
+4. **Fix compute_kern_pair_total**: it delegates to `font_kern_pair` so will auto-fix after step 2
+5. **Update tests**: tests that assert `F3 should NOT have kerning` must now assert F3 DOES have kerning; tests for F2 should be removed or changed to assert F2 has NO kern pairs
+6. **12+ new tests** covering F3 kern pair lookups (AV, To, Fo) and the corrected behavior
+
+- **Cycles budget:** 2 | **Cycles actual:** pending
+- **Status:** 🔄 Planned — critical bug affecting bold text kerning in section headings
+
+### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
 
 **Goals:**
-1. **Fix justified text line width computation** — The `line_nat_width` calculation in `crates/rustlatex-pdf/src/lib.rs` currently doesn't account for kern pair adjustments. When kern pairs are applied via TJ operator, the actual glyph advance is kern_pair_total + text_width. Fix: compute the total kern pair contribution for each Text node and add it to `line_nat_width` so `glue_extra` is correctly calculated. This fixes over-correction in justified text with many kern-pair characters.
-2. **cmbxti10 kern pairs (F5/BoldItalic)** — Add `cmbxti10_kern_pair(a: u8, b: u8) -> f32` function. The cmbxti10.afm file is available in CI texlive at `/usr/share/texmf/fonts/afm/public/cm/cmbxti10.afm`. Update `is_cmr10_kern_font()` to include `b"F5"`. Update `font_kern_pair()` and `font_has_kern_pairs()` to dispatch F5 to the new function.
-3. **12+ new tests** covering justified width correction and cmbxti10 kern pairs.
+1. **Fix justified text line width computation** — compute_kern_pair_total + justified width fix
+2. **cmbxti10 kern pairs (F5/BoldItalic)** — 178 entries, F5 dispatch
+3. **23 new tests**
 
-- **Cycles budget:** 2 | **Cycles actual:** pending
-- **Status:** 🔄 Planned
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (commit 2fe0af2), 812 tests pass, CI green. Pixel similarity = 95.77%.
 
 ---
 
