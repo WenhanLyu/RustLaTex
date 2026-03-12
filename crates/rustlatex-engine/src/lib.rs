@@ -16,6 +16,105 @@
 use rustlatex_parser::Node;
 use std::collections::HashMap;
 
+/// An RGB color with components in [0.0, 1.0].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Color {
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
+}
+
+impl Color {
+    pub fn new(r: f64, g: f64, b: f64) -> Self {
+        Self { r, g, b }
+    }
+    pub fn black() -> Self {
+        Self::new(0.0, 0.0, 0.0)
+    }
+    pub fn is_black(&self) -> bool {
+        self.r == 0.0 && self.g == 0.0 && self.b == 0.0
+    }
+}
+
+/// Look up a named color by name.
+pub fn named_color(name: &str) -> Option<Color> {
+    match name {
+        "black" => Some(Color::new(0.0, 0.0, 0.0)),
+        "white" => Some(Color::new(1.0, 1.0, 1.0)),
+        "red" => Some(Color::new(1.0, 0.0, 0.0)),
+        "green" => Some(Color::new(0.0, 1.0, 0.0)),
+        "blue" => Some(Color::new(0.0, 0.0, 1.0)),
+        "cyan" => Some(Color::new(0.0, 1.0, 1.0)),
+        "magenta" => Some(Color::new(1.0, 0.0, 1.0)),
+        "yellow" => Some(Color::new(1.0, 1.0, 0.0)),
+        "gray" => Some(Color::new(0.5, 0.5, 0.5)),
+        "orange" => Some(Color::new(1.0, 0.5, 0.0)),
+        "purple" => Some(Color::new(0.5, 0.0, 0.5)),
+        "brown" => Some(Color::new(0.6, 0.3, 0.1)),
+        "lime" => Some(Color::new(0.5, 1.0, 0.0)),
+        "teal" => Some(Color::new(0.0, 0.5, 0.5)),
+        "violet" => Some(Color::new(0.5, 0.0, 1.0)),
+        "pink" => Some(Color::new(1.0, 0.5, 0.7)),
+        _ => None,
+    }
+}
+
+/// Parse a color specification.
+/// - `model` is `Some("rgb")` vs `None` (named color)
+/// - For named: `spec` is the color name
+/// - For rgb: `spec` is "r,g,b"
+fn parse_color_spec(model: Option<&str>, spec: &str) -> Option<Color> {
+    match model {
+        Some("rgb") => {
+            let parts: Vec<&str> = spec.split(',').collect();
+            if parts.len() == 3 {
+                let r = parts[0].trim().parse::<f64>().ok()?;
+                let g = parts[1].trim().parse::<f64>().ok()?;
+                let b = parts[2].trim().parse::<f64>().ok()?;
+                Some(Color::new(r, g, b))
+            } else {
+                None
+            }
+        }
+        _ => named_color(spec.trim()),
+    }
+}
+
+/// Parse optional key-value arguments for `\includegraphics[key=val,...]{file}`.
+/// Returns (width, height).
+fn parse_graphics_options(opts: &str) -> (f64, f64) {
+    let default_w = 200.0;
+    let default_h = 150.0;
+    let mut width = default_w;
+    let mut height = default_h;
+    let mut scale = 1.0_f64;
+
+    for part in opts.split(',') {
+        let part = part.trim();
+        if let Some(val) = part.strip_prefix("width=") {
+            width = parse_dimension(val.trim());
+        } else if let Some(val) = part.strip_prefix("height=") {
+            height = parse_dimension(val.trim());
+        } else if let Some(val) = part.strip_prefix("scale=") {
+            if let Ok(s) = val.trim().parse::<f64>() {
+                scale = s;
+            }
+        }
+    }
+
+    // If scale was specified (and not width/height), multiply defaults
+    if scale != 1.0 {
+        if (width - default_w).abs() < f64::EPSILON {
+            width = default_w * scale;
+        }
+        if (height - default_h).abs() < f64::EPSILON {
+            height = default_h * scale;
+        }
+    }
+
+    (width, height)
+}
+
 /// Text alignment mode for a line or block.
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
 pub enum Alignment {
@@ -102,6 +201,8 @@ pub struct TranslationContext {
     pub footnote_counter: usize,
     /// Collected footnotes for the current document.
     pub footnotes: Vec<FootnoteInfo>,
+    /// Current text color (set by `\color`, applied to subsequent text).
+    pub current_color: Option<Color>,
 }
 
 impl TranslationContext {
@@ -117,6 +218,7 @@ impl TranslationContext {
             date: None,
             footnote_counter: 0,
             footnotes: Vec::new(),
+            current_color: None,
         }
     }
 
@@ -132,6 +234,7 @@ impl TranslationContext {
             date: None,
             footnote_counter: 0,
             footnotes: Vec::new(),
+            current_color: None,
         }
     }
 }
@@ -144,6 +247,7 @@ pub enum BoxNode {
         text: String,
         width: f64,
         font_size: f64,
+        color: Option<Color>,
     },
     /// Inter-word glue with natural width, stretchability, and shrinkability.
     Glue {
@@ -168,6 +272,12 @@ pub enum BoxNode {
     AlignmentMarker { alignment: Alignment },
     /// A horizontal rule (solid line).
     Rule { width: f64, height: f64 },
+    /// A placeholder for an included image (rendered as a grey rectangle).
+    ImagePlaceholder {
+        filename: String,
+        width: f64,
+        height: f64,
+    },
 }
 
 // ===== Font Metrics Trait and CM Roman Implementation =====
@@ -468,6 +578,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     text: word.to_string(),
                     width: metrics.string_width(word),
                     font_size: 10.0,
+                    color: None,
                 });
             }
             result
@@ -549,6 +660,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             text: word.to_string(),
                             width: metrics.string_width(word),
                             font_size: 10.0,
+                            color: None,
                         });
                     }
                     result
@@ -608,6 +720,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             text: title,
                             width,
                             font_size,
+                            color: None,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -653,6 +766,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             width: metrics.string_width(&url_text),
                             text: url_text,
                             font_size: 10.0,
+                            color: None,
                         }]
                     }
                 }
@@ -676,17 +790,20 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         width: metrics.string_width(&marker),
                         text: marker,
                         font_size: 7.0,
+                        color: None,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
                     text: "LaTeX".to_string(),
                     width: metrics.string_width("LaTeX"),
                     font_size: 10.0,
+                    color: None,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
                     width: metrics.string_width("TeX"),
                     font_size: 10.0,
+                    color: None,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -694,6 +811,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         text: date_str.clone(),
                         width: metrics.string_width(&date_str),
                         font_size: 10.0,
+                        color: None,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -706,6 +824,84 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 "raggedleft" => vec![BoxNode::AlignmentMarker {
                     alignment: Alignment::RaggedLeft,
                 }],
+                "textcolor" => {
+                    // \textcolor{colorname}{text} or \textcolor[rgb]{r,g,b}{text}
+                    // Parser gives: args[0]=optional model or color name, args[1..]=rest
+                    let (color, text_args) = if args.len() >= 3 {
+                        // Optional model: args[0]=[model], args[1]={spec}, args[2]={text}
+                        let model = extract_text_content(&args[0]);
+                        let spec = extract_text_content(&args[1]);
+                        let c = parse_color_spec(Some(&model), &spec);
+                        (c, &args[2..])
+                    } else if args.len() == 2 {
+                        // Named color: args[0]={colorname}, args[1]={text}
+                        let color_name = extract_text_content(&args[0]);
+                        let c = parse_color_spec(None, &color_name);
+                        (c, &args[1..])
+                    } else {
+                        (None, args.as_slice())
+                    };
+                    let mut inner: Vec<BoxNode> = text_args
+                        .iter()
+                        .flat_map(|n| translate_node_with_metrics(n, metrics))
+                        .collect();
+                    // Apply color to all Text nodes
+                    if let Some(ref c) = color {
+                        for node in &mut inner {
+                            if let BoxNode::Text {
+                                color: ref mut col, ..
+                            } = node
+                            {
+                                *col = Some(c.clone());
+                            }
+                        }
+                    }
+                    inner
+                }
+                "colorbox" => {
+                    // \colorbox{color}{text} — produce text content (ignore background for now)
+                    if args.len() >= 2 {
+                        args[1..]
+                            .iter()
+                            .flat_map(|n| translate_node_with_metrics(n, metrics))
+                            .collect()
+                    } else {
+                        args.iter()
+                            .flat_map(|n| translate_node_with_metrics(n, metrics))
+                            .collect()
+                    }
+                }
+                "color" => {
+                    // \color{name} — in stateless mode, just ignore
+                    vec![]
+                }
+                "includegraphics" => {
+                    // \includegraphics[opts]{filename} or \includegraphics{filename}
+                    let (filename, width, height) = if args.len() >= 2 {
+                        // args[0] = optional [key=val,...], args[1] = {filename}
+                        let opts = extract_text_content(&args[0]);
+                        let fname = extract_text_content(&args[1]);
+                        let (w, h) = parse_graphics_options(&opts);
+                        (fname, w, h)
+                    } else if args.len() == 1 {
+                        let fname = extract_text_content(&args[0]);
+                        (fname, 200.0, 150.0)
+                    } else {
+                        ("unknown".to_string(), 200.0, 150.0)
+                    };
+                    vec![BoxNode::ImagePlaceholder {
+                        filename,
+                        width,
+                        height,
+                    }]
+                }
+                "usepackage" => {
+                    // Ignore \usepackage
+                    vec![]
+                }
+                "documentclass" => {
+                    vec![]
+                }
                 _ => {
                     // Unknown commands → skip
                     vec![]
@@ -727,6 +923,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             text: line.to_string(),
                             width: metrics.string_width(line),
                             font_size: 10.0,
+                            color: None,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -780,12 +977,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 width: 12.0,
                                 text: label,
                                 font_size: 10.0,
+                                color: None,
                             });
                         } else {
                             result.push(BoxNode::Text {
                                 text: "• ".to_string(),
                                 width: 7.0,
                                 font_size: 10.0,
+                                color: None,
                             });
                         }
                         // Item content
@@ -821,6 +1020,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         width: metrics.string_width(&heading),
                         text: heading,
                         font_size: 12.0,
+                        color: None,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -1010,6 +1210,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 width: metrics.string_width(&text),
                 text,
                 font_size: 10.0,
+                color: None,
             }]
         }
         Node::DisplayMath(nodes) => {
@@ -1020,6 +1221,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     width: metrics.string_width(&text),
                     text,
                     font_size: 10.0,
+                    color: None,
                 },
                 BoxNode::Penalty { value: -10000 },
                 BoxNode::Glue {
@@ -1072,6 +1274,7 @@ pub fn translate_node_with_context(
                     text: word.to_string(),
                     width: metrics.string_width(word),
                     font_size: 10.0,
+                    color: ctx.current_color.clone(),
                 });
             }
             result
@@ -1153,6 +1356,7 @@ pub fn translate_node_with_context(
                             text: word.to_string(),
                             width: metrics.string_width(word),
                             font_size: 10.0,
+                            color: None,
                         });
                     }
                     result
@@ -1219,6 +1423,7 @@ pub fn translate_node_with_context(
                             text: numbered_title,
                             width,
                             font_size,
+                            color: None,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -1269,6 +1474,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(&resolved),
                             text: resolved,
                             font_size: 10.0,
+                            color: None,
                         }]
                     } else {
                         vec![]
@@ -1290,6 +1496,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(&resolved),
                             text: resolved,
                             font_size: 10.0,
+                            color: None,
                         }]
                     } else {
                         vec![]
@@ -1317,6 +1524,7 @@ pub fn translate_node_with_context(
                             text: label,
                             width,
                             font_size: 10.0,
+                            color: None,
                         },
                         BoxNode::AlignmentMarker {
                             alignment: Alignment::Justify,
@@ -1368,6 +1576,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(&url_text),
                             text: url_text,
                             font_size: 10.0,
+                            color: None,
                         }]
                     }
                 }
@@ -1408,17 +1617,20 @@ pub fn translate_node_with_context(
                         width: metrics.string_width(&marker),
                         text: marker,
                         font_size: 7.0,
+                        color: None,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
                     text: "LaTeX".to_string(),
                     width: metrics.string_width("LaTeX"),
                     font_size: 10.0,
+                    color: None,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
                     width: metrics.string_width("TeX"),
                     font_size: 10.0,
+                    color: None,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -1426,6 +1638,7 @@ pub fn translate_node_with_context(
                         text: date_str.clone(),
                         width: metrics.string_width(&date_str),
                         font_size: 10.0,
+                        color: None,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -1498,6 +1711,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(&title_text) * 1.7,
                             text: title_text,
                             font_size: 17.0,
+                            color: None,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -1509,6 +1723,7 @@ pub fn translate_node_with_context(
                                 width: metrics.string_width(author_text) * 1.2,
                                 text: author_text.clone(),
                                 font_size: 12.0,
+                                color: None,
                             });
                             result.push(BoxNode::Penalty { value: -10000 });
                         }
@@ -1524,6 +1739,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(&date_text) * 1.2,
                             text: date_text,
                             font_size: 12.0,
+                            color: None,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -1545,6 +1761,75 @@ pub fn translate_node_with_context(
 
                     result
                 }
+                "textcolor" => {
+                    let (color, text_args) = if args.len() >= 3 {
+                        let model = extract_text_content(&args[0]);
+                        let spec = extract_text_content(&args[1]);
+                        let c = parse_color_spec(Some(&model), &spec);
+                        (c, &args[2..])
+                    } else if args.len() == 2 {
+                        let color_name = extract_text_content(&args[0]);
+                        let c = parse_color_spec(None, &color_name);
+                        (c, &args[1..])
+                    } else {
+                        (None, args.as_slice())
+                    };
+                    let mut inner: Vec<BoxNode> = text_args
+                        .iter()
+                        .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                        .collect();
+                    if let Some(ref c) = color {
+                        for node in &mut inner {
+                            if let BoxNode::Text {
+                                color: ref mut col, ..
+                            } = node
+                            {
+                                *col = Some(c.clone());
+                            }
+                        }
+                    }
+                    inner
+                }
+                "colorbox" => {
+                    if args.len() >= 2 {
+                        args[1..]
+                            .iter()
+                            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                            .collect()
+                    } else {
+                        args.iter()
+                            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                            .collect()
+                    }
+                }
+                "color" => {
+                    // \color{name} — set current color in context
+                    if let Some(arg) = args.first() {
+                        let color_name = extract_text_content(arg);
+                        ctx.current_color = named_color(&color_name);
+                    }
+                    vec![]
+                }
+                "includegraphics" => {
+                    let (filename, width, height) = if args.len() >= 2 {
+                        let opts = extract_text_content(&args[0]);
+                        let fname = extract_text_content(&args[1]);
+                        let (w, h) = parse_graphics_options(&opts);
+                        (fname, w, h)
+                    } else if args.len() == 1 {
+                        let fname = extract_text_content(&args[0]);
+                        (fname, 200.0, 150.0)
+                    } else {
+                        ("unknown".to_string(), 200.0, 150.0)
+                    };
+                    vec![BoxNode::ImagePlaceholder {
+                        filename,
+                        width,
+                        height,
+                    }]
+                }
+                "usepackage" => vec![],
+                "documentclass" => vec![],
                 _ => vec![],
             }
         }
@@ -1562,6 +1847,7 @@ pub fn translate_node_with_context(
                             text: line.to_string(),
                             width: metrics.string_width(line),
                             font_size: 10.0,
+                            color: None,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -1643,12 +1929,14 @@ pub fn translate_node_with_context(
                                 width: 12.0,
                                 text: label,
                                 font_size: 10.0,
+                                color: None,
                             });
                         } else {
                             result.push(BoxNode::Text {
                                 text: "• ".to_string(),
                                 width: 7.0,
                                 font_size: 10.0,
+                                color: None,
                             });
                         }
                         for node in item_nodes {
@@ -1682,6 +1970,7 @@ pub fn translate_node_with_context(
                         width: metrics.string_width(&heading),
                         text: heading,
                         font_size: 12.0,
+                        color: None,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -1742,6 +2031,7 @@ pub fn translate_node_with_context(
                 width: metrics.string_width(&text),
                 text,
                 font_size: 10.0,
+                color: None,
             }]
         }
         Node::DisplayMath(nodes) => {
@@ -1752,6 +2042,7 @@ pub fn translate_node_with_context(
                     width: metrics.string_width(&text),
                     text,
                     font_size: 10.0,
+                    color: None,
                 },
                 BoxNode::Penalty { value: -10000 },
                 BoxNode::Glue {
@@ -1952,7 +2243,8 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
             | BoxNode::HBox { .. }
             | BoxNode::VBox { .. }
             | BoxNode::AlignmentMarker { .. }
-            | BoxNode::Rule { .. } => {
+            | BoxNode::Rule { .. }
+            | BoxNode::ImagePlaceholder { .. } => {
                 // Pass through without affecting width calculation for now
                 current_line.push(item.clone());
             }
@@ -2655,6 +2947,7 @@ mod tests {
             text: "hello".to_string(),
             width: w,
             font_size: 10.0,
+            color: None,
         };
         if let BoxNode::Text { text, width, .. } = &node {
             assert_eq!(text, "hello");
@@ -2715,6 +3008,7 @@ mod tests {
                 text: "hi".to_string(),
                 width: 12.0,
                 font_size: 10.0,
+                color: None,
             }],
         };
         if let BoxNode::HBox {
@@ -2741,6 +3035,7 @@ mod tests {
                 text: "line".to_string(),
                 width: 24.0,
                 font_size: 10.0,
+                color: None,
             }],
         };
         if let BoxNode::VBox { width, content } = &node {
@@ -2766,6 +3061,7 @@ mod tests {
                 text: "hello".to_string(),
                 width: cm10_width("hello"),
                 font_size: 10.0,
+                color: None,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -2776,6 +3072,7 @@ mod tests {
                 text: "world".to_string(),
                 width: cm10_width("world"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2802,6 +3099,7 @@ mod tests {
                 text: "one".to_string(),
                 width: cm10_width("one"),
                 font_size: 10.0,
+                color: None,
             }
         );
         assert!(matches!(items[2], BoxNode::Glue { .. }));
@@ -2812,6 +3110,7 @@ mod tests {
                 text: "two".to_string(),
                 width: cm10_width("two"),
                 font_size: 10.0,
+                color: None,
             }
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
@@ -2821,6 +3120,7 @@ mod tests {
                 text: "three".to_string(),
                 width: cm10_width("three"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2871,6 +3171,7 @@ mod tests {
                 text: "inside".to_string(),
                 width: cm10_width("inside"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2891,6 +3192,7 @@ mod tests {
                 text: "bold".to_string(),
                 width: cm10_width("bold"),
                 font_size: 10.0,
+                color: None,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -2901,6 +3203,7 @@ mod tests {
                 text: "text".to_string(),
                 width: cm10_width("text"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2922,6 +3225,7 @@ mod tests {
                 text: "content".to_string(),
                 width: cm10_width("content"),
                 font_size: 10.0,
+                color: None,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -2932,6 +3236,7 @@ mod tests {
                 text: "here".to_string(),
                 width: cm10_width("here"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2961,6 +3266,7 @@ mod tests {
                 text: "first".to_string(),
                 width: cm10_width("first"),
                 font_size: 10.0,
+                color: None,
             }
         );
         // second: s+e+c+o+n+d = 3.89+4.44+4.44+5.00+5.56+5.56 = 28.89
@@ -2970,6 +3276,7 @@ mod tests {
                 text: "second".to_string(),
                 width: cm10_width("second"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -2996,6 +3303,7 @@ mod tests {
                 text: "hello".to_string(),
                 width: cm10_width("hello"),
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3006,6 +3314,7 @@ mod tests {
                 text: "world".to_string(),
                 width: cm10_width("world"),
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_into_lines(&items, 345.0);
@@ -3024,6 +3333,7 @@ mod tests {
                 text: "aaaaaaaaaa".to_string(),
                 width: 60.0,
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3034,6 +3344,7 @@ mod tests {
                 text: "bbbbbbbbbb".to_string(),
                 width: 60.0,
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3044,6 +3355,7 @@ mod tests {
                 text: "cccccccccc".to_string(),
                 width: 60.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_into_lines(&items, 100.0);
@@ -3069,6 +3381,7 @@ mod tests {
                 text: "aaa".to_string(),
                 width: 50.0,
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3079,6 +3392,7 @@ mod tests {
                 text: "bbb".to_string(),
                 width: 50.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         // hsize=100, 50 + 50 = 100, fits exactly
@@ -3164,6 +3478,7 @@ mod tests {
                 text: "italic".to_string(),
                 width: cm10_width("italic"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -3183,6 +3498,7 @@ mod tests {
                 text: "emphasized".to_string(),
                 width: cm10_width("emphasized"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -3194,6 +3510,7 @@ mod tests {
                 text: "word".to_string(),
                 width: 60.0,
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3358,6 +3675,7 @@ mod tests {
                 text: "ab".to_string(),
                 width: 20.0,
                 font_size: 10.0,
+                color: None,
             }
         );
         // Glue should use FixedMetrics space_width = 5.0
@@ -3373,6 +3691,7 @@ mod tests {
                 text: "cd".to_string(),
                 width: 20.0,
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -3398,6 +3717,7 @@ mod tests {
             text: "w".repeat((width as usize).max(1)),
             width,
             font_size: 10.0,
+            color: None,
         }
     }
 
@@ -3426,6 +3746,7 @@ mod tests {
                 text: "hello".to_string(),
                 width: m.string_width("hello"),
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -3436,6 +3757,7 @@ mod tests {
                 text: "world".to_string(),
                 width: m.string_width("world"),
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = kp.break_lines(&items, 345.0);
@@ -3770,6 +4092,7 @@ mod tests {
             text: "hello".to_string(),
             width: 20.0,
             font_size: 10.0,
+            color: None,
         };
         if let BoxNode::Text { font_size, .. } = node {
             assert_eq!(font_size, 10.0);
@@ -4746,6 +5069,7 @@ mod tests {
             text: "hello".to_string(),
             width: 30.0,
             font_size: 10.0,
+            color: None,
         }];
         let lines = break_items_with_alignment(&items, 345.0);
         assert_eq!(lines.len(), 1);
@@ -4762,6 +5086,7 @@ mod tests {
                 text: "hello".to_string(),
                 width: 30.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -4779,6 +5104,7 @@ mod tests {
                 text: "hi".to_string(),
                 width: 20.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -4796,6 +5122,7 @@ mod tests {
                 text: "hi".to_string(),
                 width: 20.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -4810,6 +5137,7 @@ mod tests {
                 text: "normal".to_string(),
                 width: 40.0,
                 font_size: 10.0,
+                color: None,
             },
             BoxNode::AlignmentMarker {
                 alignment: Alignment::Center,
@@ -4818,6 +5146,7 @@ mod tests {
                 text: "centered".to_string(),
                 width: 50.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -4836,6 +5165,7 @@ mod tests {
                 text: "text".to_string(),
                 width: 30.0,
                 font_size: 10.0,
+                color: None,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -4855,6 +5185,7 @@ mod tests {
                 text: "x".to_string(),
                 width: 6.0,
                 font_size: 10.0,
+                color: None,
             }],
         };
         assert_eq!(line.alignment, Alignment::Center);
@@ -5664,6 +5995,7 @@ mod tests {
                 text: "mono".to_string(),
                 width: cm10_width("mono"),
                 font_size: 10.0,
+                color: None,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -5673,6 +6005,7 @@ mod tests {
                 text: "text".to_string(),
                 width: cm10_width("text"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -5693,6 +6026,7 @@ mod tests {
                 text: "hello".to_string(),
                 width: hello_width,
                 font_size: 10.0,
+                color: None,
             }
         );
         if let BoxNode::Rule { width, height } = &items[1] {
@@ -5768,6 +6102,7 @@ mod tests {
                 text: "boxed".to_string(),
                 width: cm10_width("boxed"),
                 font_size: 10.0,
+                color: None,
             }
         );
     }
@@ -7200,5 +7535,398 @@ mod tests {
         };
         assert_eq!(page.footnotes.len(), 1);
         assert_eq!(page.footnotes[0].number, 1);
+    }
+
+    // ===== M23: Color Support + Image Inclusion Tests =====
+
+    #[test]
+    fn test_color_struct_new() {
+        let c = Color::new(1.0, 0.5, 0.0);
+        assert!((c.r - 1.0).abs() < f64::EPSILON);
+        assert!((c.g - 0.5).abs() < f64::EPSILON);
+        assert!((c.b - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_color_black() {
+        let c = Color::black();
+        assert!(c.is_black());
+        assert!((c.r - 0.0).abs() < f64::EPSILON);
+        assert!((c.g - 0.0).abs() < f64::EPSILON);
+        assert!((c.b - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_color_is_black_false() {
+        let c = Color::new(1.0, 0.0, 0.0);
+        assert!(!c.is_black());
+    }
+
+    #[test]
+    fn test_named_colors() {
+        assert_eq!(named_color("black"), Some(Color::new(0.0, 0.0, 0.0)));
+        assert_eq!(named_color("white"), Some(Color::new(1.0, 1.0, 1.0)));
+        assert_eq!(named_color("red"), Some(Color::new(1.0, 0.0, 0.0)));
+        assert_eq!(named_color("green"), Some(Color::new(0.0, 1.0, 0.0)));
+        assert_eq!(named_color("blue"), Some(Color::new(0.0, 0.0, 1.0)));
+        assert_eq!(named_color("cyan"), Some(Color::new(0.0, 1.0, 1.0)));
+        assert_eq!(named_color("magenta"), Some(Color::new(1.0, 0.0, 1.0)));
+        assert_eq!(named_color("yellow"), Some(Color::new(1.0, 1.0, 0.0)));
+        assert_eq!(named_color("gray"), Some(Color::new(0.5, 0.5, 0.5)));
+        assert_eq!(named_color("orange"), Some(Color::new(1.0, 0.5, 0.0)));
+        assert_eq!(named_color("purple"), Some(Color::new(0.5, 0.0, 0.5)));
+        assert_eq!(named_color("brown"), Some(Color::new(0.6, 0.3, 0.1)));
+        assert_eq!(named_color("lime"), Some(Color::new(0.5, 1.0, 0.0)));
+        assert_eq!(named_color("teal"), Some(Color::new(0.0, 0.5, 0.5)));
+        assert_eq!(named_color("violet"), Some(Color::new(0.5, 0.0, 1.0)));
+        assert_eq!(named_color("pink"), Some(Color::new(1.0, 0.5, 0.7)));
+        assert_eq!(named_color("unknown_color"), None);
+    }
+
+    #[test]
+    fn test_parse_color_spec_named() {
+        let c = parse_color_spec(None, "red");
+        assert_eq!(c, Some(Color::new(1.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn test_parse_color_spec_rgb() {
+        let c = parse_color_spec(Some("rgb"), "0.5,0.3,0.8");
+        assert!(c.is_some());
+        let c = c.unwrap();
+        assert!((c.r - 0.5).abs() < f64::EPSILON);
+        assert!((c.g - 0.3).abs() < f64::EPSILON);
+        assert!((c.b - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_parse_color_spec_rgb_invalid() {
+        let c = parse_color_spec(Some("rgb"), "0.5,0.3");
+        assert!(c.is_none());
+    }
+
+    #[test]
+    fn test_textcolor_red() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "textcolor".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("red".to_string())]),
+                Node::Group(vec![Node::Text("hello".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert!(!items.is_empty());
+        let has_red_text = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { text, color: Some(c), .. }
+                if text == "hello" && (c.r - 1.0).abs() < f64::EPSILON
+                    && c.g.abs() < f64::EPSILON
+                    && c.b.abs() < f64::EPSILON)
+        });
+        assert!(has_red_text, "Expected red-colored 'hello' text");
+    }
+
+    #[test]
+    fn test_textcolor_blue() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "textcolor".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("blue".to_string())]),
+                Node::Group(vec![Node::Text("world".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let has_blue = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { color: Some(c), .. }
+                if c.r.abs() < f64::EPSILON
+                    && c.g.abs() < f64::EPSILON
+                    && (c.b - 1.0).abs() < f64::EPSILON)
+        });
+        assert!(has_blue, "Expected blue-colored text");
+    }
+
+    #[test]
+    fn test_textcolor_rgb_custom() {
+        let metrics = StandardFontMetrics;
+        // \textcolor[rgb]{0.5,0.3,0.8}{text}
+        // Parser produces: args = [Group("rgb"), Group("0.5,0.3,0.8"), Group("text")]
+        let node = Node::Command {
+            name: "textcolor".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("rgb".to_string())]),
+                Node::Group(vec![Node::Text("0.5,0.3,0.8".to_string())]),
+                Node::Group(vec![Node::Text("text".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let has_custom = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { color: Some(c), .. }
+                if (c.r - 0.5).abs() < f64::EPSILON
+                    && (c.g - 0.3).abs() < f64::EPSILON
+                    && (c.b - 0.8).abs() < f64::EPSILON)
+        });
+        assert!(has_custom, "Expected custom RGB color");
+    }
+
+    #[test]
+    fn test_colorbox_produces_content() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "colorbox".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("yellow".to_string())]),
+                Node::Group(vec![Node::Text("highlighted".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let has_text = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "highlighted"));
+        assert!(has_text, "Expected text content from \\colorbox");
+    }
+
+    #[test]
+    fn test_color_command_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "color".to_string(),
+            args: vec![Node::Group(vec![Node::Text("red".to_string())])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(items.is_empty(), "\\color should produce no output nodes");
+        assert!(
+            ctx.current_color.is_some(),
+            "\\color should set current_color in context"
+        );
+        let c = ctx.current_color.unwrap();
+        assert!((c.r - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_color_applied_to_subsequent_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "color".to_string(),
+                args: vec![Node::Group(vec![Node::Text("blue".to_string())])],
+            },
+            Node::Text("colored text".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_blue = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { color: Some(c), .. }
+                if (c.b - 1.0).abs() < f64::EPSILON)
+        });
+        assert!(
+            has_blue,
+            "Text after \\color{{blue}} should have blue color"
+        );
+    }
+
+    #[test]
+    fn test_includegraphics_defaults() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "includegraphics".to_string(),
+            args: vec![Node::Group(vec![Node::Text("photo.png".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::ImagePlaceholder {
+            filename,
+            width,
+            height,
+        } = &items[0]
+        {
+            assert_eq!(filename, "photo.png");
+            assert!(
+                (*width - 200.0).abs() < f64::EPSILON,
+                "Default width should be 200.0"
+            );
+            assert!(
+                (*height - 150.0).abs() < f64::EPSILON,
+                "Default height should be 150.0"
+            );
+        } else {
+            panic!("Expected BoxNode::ImagePlaceholder");
+        }
+    }
+
+    #[test]
+    fn test_includegraphics_with_width() {
+        let metrics = StandardFontMetrics;
+        // \includegraphics[width=100pt]{file.png}
+        let node = Node::Command {
+            name: "includegraphics".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("width=100pt".to_string())]),
+                Node::Group(vec![Node::Text("file.png".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::ImagePlaceholder {
+            filename,
+            width,
+            height,
+        } = &items[0]
+        {
+            assert_eq!(filename, "file.png");
+            assert!(
+                (*width - 100.0).abs() < f64::EPSILON,
+                "Expected width=100.0, got {}",
+                width
+            );
+            assert!(
+                (*height - 150.0).abs() < f64::EPSILON,
+                "Expected default height=150.0, got {}",
+                height
+            );
+        } else {
+            panic!("Expected BoxNode::ImagePlaceholder");
+        }
+    }
+
+    #[test]
+    fn test_includegraphics_with_height() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "includegraphics".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("height=200pt".to_string())]),
+                Node::Group(vec![Node::Text("img.jpg".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        if let BoxNode::ImagePlaceholder { height, .. } = &items[0] {
+            assert!(
+                (*height - 200.0).abs() < f64::EPSILON,
+                "Expected height=200.0, got {}",
+                height
+            );
+        } else {
+            panic!("Expected BoxNode::ImagePlaceholder");
+        }
+    }
+
+    #[test]
+    fn test_includegraphics_with_scale() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "includegraphics".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("scale=2".to_string())]),
+                Node::Group(vec![Node::Text("img.png".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        if let BoxNode::ImagePlaceholder { width, height, .. } = &items[0] {
+            assert!(
+                (*width - 400.0).abs() < f64::EPSILON,
+                "Expected width=400.0 (200*2), got {}",
+                width
+            );
+            assert!(
+                (*height - 300.0).abs() < f64::EPSILON,
+                "Expected height=300.0 (150*2), got {}",
+                height
+            );
+        } else {
+            panic!("Expected BoxNode::ImagePlaceholder");
+        }
+    }
+
+    #[test]
+    fn test_usepackage_ignored() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "usepackage".to_string(),
+            args: vec![Node::Group(vec![Node::Text("xcolor".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert!(items.is_empty(), "\\usepackage should produce no output");
+    }
+
+    #[test]
+    fn test_text_node_default_color_none() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Text("hello".to_string());
+        let items = translate_node_with_metrics(&node, &metrics);
+        for item in &items {
+            if let BoxNode::Text { color, .. } = item {
+                assert!(color.is_none(), "Default text should have color: None");
+            }
+        }
+    }
+
+    #[test]
+    fn test_image_placeholder_construction() {
+        let node = BoxNode::ImagePlaceholder {
+            filename: "test.png".to_string(),
+            width: 200.0,
+            height: 150.0,
+        };
+        if let BoxNode::ImagePlaceholder {
+            filename,
+            width,
+            height,
+        } = &node
+        {
+            assert_eq!(filename, "test.png");
+            assert!((width - 200.0).abs() < f64::EPSILON);
+            assert!((height - 150.0).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected ImagePlaceholder");
+        }
+    }
+
+    #[test]
+    fn test_textcolor_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "textcolor".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("green".to_string())]),
+                Node::Group(vec![Node::Text("grass".to_string())]),
+            ],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_green = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { color: Some(c), .. }
+                if c.g > 0.9 && c.r.abs() < f64::EPSILON)
+        });
+        assert!(has_green, "Expected green-colored text in context mode");
+    }
+
+    #[test]
+    fn test_includegraphics_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "includegraphics".to_string(),
+            args: vec![Node::Group(vec![Node::Text("diagram.png".to_string())])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(items.len(), 1);
+        assert!(
+            matches!(&items[0], BoxNode::ImagePlaceholder { filename, .. } if filename == "diagram.png")
+        );
+    }
+
+    #[test]
+    fn test_parse_graphics_options_width_and_height() {
+        let (w, h) = parse_graphics_options("width=300pt,height=200pt");
+        assert!((w - 300.0).abs() < f64::EPSILON);
+        assert!((h - 200.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_translation_context_has_current_color() {
+        let ctx = TranslationContext::new_collecting();
+        assert!(ctx.current_color.is_none());
     }
 }

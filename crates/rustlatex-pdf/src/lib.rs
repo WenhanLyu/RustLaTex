@@ -222,7 +222,7 @@ impl PdfWriter {
         // Margins
         let margin_left: f32 = 50.0;
         let margin_top: f32 = 50.0;
-        let font_size: f32 = 10.0;
+        let font_size_outer: f32 = 10.0;
         let line_height: f32 = 14.0;
 
         // Starting y position: page height - top margin = 842 - 50 = 792
@@ -235,7 +235,7 @@ impl PdfWriter {
             // Build content stream
             let mut content = Content::new();
             content.begin_text();
-            content.set_font(Name(b"F1"), font_size);
+            content.set_font(Name(b"F1"), font_size_outer);
 
             let mut current_y = start_y;
 
@@ -277,11 +277,31 @@ impl PdfWriter {
                             text,
                             width,
                             font_size,
+                            color,
                         } => {
+                            // Set color if non-black
+                            let has_color = color.as_ref().is_some_and(|c| !c.is_black());
+                            if has_color {
+                                let c = color.as_ref().unwrap();
+                                // End text mode to set fill color, then re-enter
+                                content.end_text();
+                                content.set_fill_rgb(c.r as f32, c.g as f32, c.b as f32);
+                                content.begin_text();
+                                content.set_font(Name(b"F1"), *font_size as f32);
+                                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
+                            }
                             content.set_font(Name(b"F1"), *font_size as f32);
                             let escaped = pdf_escape(text);
                             content.show(Str(&escaped));
                             current_x += *width as f32;
+                            if has_color {
+                                // Reset to black
+                                content.end_text();
+                                content.set_fill_rgb(0.0, 0.0, 0.0);
+                                content.begin_text();
+                                content.set_font(Name(b"F1"), font_size_outer);
+                                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
+                            }
                         }
                         BoxNode::Glue { natural, .. } => {
                             current_x += *natural as f32 + glue_extra;
@@ -304,7 +324,26 @@ impl PdfWriter {
                             current_y -= *height as f32 + 1.0;
                             // Re-enter text mode
                             content.begin_text();
-                            content.set_font(Name(b"F1"), font_size);
+                            content.set_font(Name(b"F1"), font_size_outer);
+                        }
+                        BoxNode::ImagePlaceholder { width, height, .. } => {
+                            // Draw a grey filled rectangle as placeholder
+                            content.end_text();
+                            content.save_state();
+                            content.set_fill_rgb(0.8, 0.8, 0.8);
+                            let rx = current_x;
+                            let ry = current_y - *height as f32;
+                            content.rect(rx, ry, *width as f32, *height as f32);
+                            content.fill_nonzero();
+                            // Draw border
+                            content.set_stroke_rgb(0.5, 0.5, 0.5);
+                            content.rect(rx, ry, *width as f32, *height as f32);
+                            content.stroke();
+                            content.restore_state();
+                            current_y -= *height as f32 + 2.0;
+                            // Re-enter text mode
+                            content.begin_text();
+                            content.set_font(Name(b"F1"), font_size_outer);
                         }
                         _ => {
                             // HBox, VBox, Penalty, AlignmentMarker — skip
@@ -409,6 +448,7 @@ mod tests {
                         text: "Hello".to_string(),
                         width: 25.0,
                         font_size: 10.0,
+                        color: None,
                     },
                     BoxNode::Glue {
                         natural: 3.33,
@@ -419,6 +459,7 @@ mod tests {
                         text: "world".to_string(),
                         width: 24.76,
                         font_size: 10.0,
+                        color: None,
                     },
                 ],
             }],
@@ -442,6 +483,7 @@ mod tests {
                     text: "Hello".to_string(),
                     width: 25.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -467,6 +509,7 @@ mod tests {
                         text: "First".to_string(),
                         width: 20.0,
                         font_size: 10.0,
+                        color: None,
                     }],
                 }],
                 footnotes: vec![],
@@ -480,6 +523,7 @@ mod tests {
                         text: "Second".to_string(),
                         width: 30.0,
                         font_size: 10.0,
+                        color: None,
                     }],
                 }],
                 footnotes: vec![],
@@ -528,6 +572,7 @@ mod tests {
                     text: "test".to_string(),
                     width: 20.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -716,6 +761,7 @@ mod tests {
                     text: "sample".to_string(),
                     width: 30.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -738,6 +784,7 @@ mod tests {
                     text: "Hello".to_string(),
                     width: 25.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -766,6 +813,7 @@ mod tests {
                         text: "First".to_string(),
                         width: 20.0,
                         font_size: 10.0,
+                        color: None,
                     }],
                 }],
                 footnotes: vec![],
@@ -779,6 +827,7 @@ mod tests {
                         text: "Second".to_string(),
                         width: 30.0,
                         font_size: 10.0,
+                        color: None,
                     }],
                 }],
                 footnotes: vec![],
@@ -820,6 +869,7 @@ mod tests {
                     text: "Hello".to_string(),
                     width: 30.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -864,6 +914,7 @@ mod tests {
                     text: "Right".to_string(),
                     width: 30.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
@@ -885,6 +936,7 @@ mod tests {
                     text: "Main text".to_string(),
                     width: 50.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![FootnoteInfo {
@@ -907,6 +959,7 @@ mod tests {
                     text: "Main text".to_string(),
                     width: 50.0,
                     font_size: 10.0,
+                    color: None,
                 }],
             }],
             footnotes: vec![],
