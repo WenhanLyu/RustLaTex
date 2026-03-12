@@ -1,0 +1,21 @@
+\documentclass{article}
+\begin{document}
+
+\section{Introduction}
+
+The Pythagorean theorem states that $x^2 + y^2 = z^2$ for a right triangle
+with legs $x$ and $y$ and hypotenuse $z$.
+
+This document exercises several LaTeX features that our compiler supports,
+allowing us to compare the output of RustLaTex against pdflatex.
+
+\begin{itemize}
+  \item Sectioning commands produce bold headings with appropriate spacing.
+  \item Inline math mode renders superscripts and operators correctly.
+  \item Itemize lists produce bulleted items with proper indentation.
+\end{itemize}
+
+By comparing the rendered PDFs pixel-by-pixel, we can measure how closely
+our output matches the reference implementation.
+
+\end{document}
