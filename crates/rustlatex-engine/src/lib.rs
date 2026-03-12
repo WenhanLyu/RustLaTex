@@ -562,6 +562,33 @@ impl FontMetrics for StandardFontMetrics {
             'Z' => 6.111,
             // Digits
             '0'..='9' => 5.000,
+            // Punctuation and symbols (cmr10 AFM widths)
+            '.' => 2.778,
+            ',' => 2.778,
+            '-' => 3.333,
+            ':' => 2.778,
+            ';' => 2.778,
+            '!' => 2.778,
+            '?' => 4.722,
+            '(' => 3.889,
+            ')' => 3.889,
+            '\'' => 2.778,
+            '`' => 2.778,
+            '[' => 2.778,
+            ']' => 2.778,
+            '@' => 7.778,
+            '#' => 8.333,
+            '%' => 8.333,
+            '&' => 7.778,
+            '+' => 7.778,
+            '=' => 7.778,
+            '<' => 2.778,
+            '>' => 4.722,
+            '"' => 5.000,
+            '$' => 5.000,
+            '*' => 5.000,
+            '/' => 5.000,
+            '_' => 2.778,
             _ => 5.000,
         }
     }
@@ -5749,6 +5776,134 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_period_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('.') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_comma_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width(',') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_hyphen_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('-') - 3.333).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_colon_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width(':') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_semicolon_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width(';') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_exclaim_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('!') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_question_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('?') - 4.722).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parenleft_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('(') - 3.889).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parenright_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width(')') - 3.889).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_bracketleft_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('[') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_apostrophe_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('\'') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_plus_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('+') - 7.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_equal_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('=') - 7.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_less_than_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('<') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_greater_than_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('>') - 4.722).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_at_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('@') - 7.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_hash_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('#') - 8.333).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_percent_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('%') - 8.333).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_ampersand_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('&') - 7.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_underscore_char_width() {
+        let m = StandardFontMetrics;
+        assert!((m.char_width('_') - 2.778).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_line_with_periods_correct_width() {
+        let m = StandardFontMetrics;
+        // "end." = 'e'(4.444) + 'n'(5.556) + 'd'(5.556) + '.'(2.778) = 18.334
+        let total = m.char_width('e') + m.char_width('n') + m.char_width('d') + m.char_width('.');
+        assert!((total - 18.334).abs() < 0.01);
     }
 
     #[test]
