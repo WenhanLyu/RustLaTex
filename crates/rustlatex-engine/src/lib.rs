@@ -68,6 +68,15 @@ pub struct DocumentCounters {
     pub in_figure: bool,
 }
 
+/// Information about a single footnote.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FootnoteInfo {
+    /// The footnote number (1-indexed).
+    pub number: usize,
+    /// The footnote text content.
+    pub text: String,
+}
+
 /// Translation context carrying mutable state for the two-pass system.
 #[derive(Debug, Clone)]
 pub struct TranslationContext {
@@ -89,6 +98,10 @@ pub struct TranslationContext {
     /// - `Some("")` → `\date{}` (suppress date)
     /// - `Some("2025")` → explicit date
     pub date: Option<String>,
+    /// Footnote counter (auto-incremented by `\footnote`).
+    pub footnote_counter: usize,
+    /// Collected footnotes for the current document.
+    pub footnotes: Vec<FootnoteInfo>,
 }
 
 impl TranslationContext {
@@ -102,6 +115,8 @@ impl TranslationContext {
             title: None,
             author: None,
             date: None,
+            footnote_counter: 0,
+            footnotes: Vec::new(),
         }
     }
 
@@ -115,6 +130,8 @@ impl TranslationContext {
             title: None,
             author: None,
             date: None,
+            footnote_counter: 0,
+            footnotes: Vec::new(),
         }
     }
 }
@@ -595,6 +612,72 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         BoxNode::Kern { amount: 6.0 },
                     ]
                 }
+                "hspace" => {
+                    let dim = if let Some(arg) = args.first() {
+                        let text = extract_text_content(arg);
+                        parse_dimension(&text)
+                    } else {
+                        0.0
+                    };
+                    vec![BoxNode::Kern { amount: dim }]
+                }
+                "hfill" => {
+                    vec![BoxNode::Glue {
+                        natural: 0.0,
+                        stretch: 10000.0,
+                        shrink: 0.0,
+                    }]
+                }
+                "vfill" => {
+                    vec![BoxNode::Glue {
+                        natural: 0.0,
+                        stretch: 10000.0,
+                        shrink: 0.0,
+                    }]
+                }
+                "quad" => vec![BoxNode::Kern { amount: 10.0 }],
+                "qquad" => vec![BoxNode::Kern { amount: 20.0 }],
+                "," => vec![BoxNode::Kern { amount: 3.0 }],
+                ";" => vec![BoxNode::Kern { amount: 5.0 }],
+                "url" => {
+                    // Render URL text as-is (typewriter style)
+                    let url_text = if let Some(arg) = args.first() {
+                        extract_text_content(arg)
+                    } else {
+                        String::new()
+                    };
+                    if url_text.is_empty() {
+                        vec![]
+                    } else {
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&url_text),
+                            text: url_text,
+                            font_size: 10.0,
+                        }]
+                    }
+                }
+                "href" => {
+                    // \href{url}{text} — render the text portion (second arg)
+                    if args.len() >= 2 {
+                        args[1..]
+                            .iter()
+                            .flat_map(|n| translate_node_with_metrics(n, metrics))
+                            .collect()
+                    } else {
+                        args.iter()
+                            .flat_map(|n| translate_node_with_metrics(n, metrics))
+                            .collect()
+                    }
+                }
+                "footnote" => {
+                    // In the non-context version, just emit a superscript marker
+                    let marker = "¹".to_string();
+                    vec![BoxNode::Text {
+                        width: metrics.string_width(&marker),
+                        text: marker,
+                        font_size: 7.0,
+                    }]
+                }
                 "LaTeX" => vec![BoxNode::Text {
                     text: "LaTeX".to_string(),
                     width: metrics.string_width("LaTeX"),
@@ -719,6 +802,40 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         shrink: 0.0,
                     });
 
+                    result
+                }
+                "abstract" => {
+                    let mut result = Vec::new();
+                    // 12pt vertical space before abstract
+                    result.push(BoxNode::Glue {
+                        natural: 12.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+                    // Centered "Abstract" heading at 12pt
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Center,
+                    });
+                    let heading = "Abstract".to_string();
+                    result.push(BoxNode::Text {
+                        width: metrics.string_width(&heading),
+                        text: heading,
+                        font_size: 12.0,
+                    });
+                    result.push(BoxNode::Penalty { value: -10000 });
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Justify,
+                    });
+                    // Abstract body text (indented)
+                    for node in content {
+                        result.extend(translate_node_with_metrics(node, metrics));
+                    }
+                    // 12pt vertical space after abstract
+                    result.push(BoxNode::Glue {
+                        natural: 12.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
                     result
                 }
                 "center" => {
@@ -1203,6 +1320,88 @@ pub fn translate_node_with_context(
                         },
                     ]
                 }
+                "hspace" => {
+                    let dim = if let Some(arg) = args.first() {
+                        let text = extract_text_content(arg);
+                        parse_dimension(&text)
+                    } else {
+                        0.0
+                    };
+                    vec![BoxNode::Kern { amount: dim }]
+                }
+                "hfill" => {
+                    vec![BoxNode::Glue {
+                        natural: 0.0,
+                        stretch: 10000.0,
+                        shrink: 0.0,
+                    }]
+                }
+                "vfill" => {
+                    vec![BoxNode::Glue {
+                        natural: 0.0,
+                        stretch: 10000.0,
+                        shrink: 0.0,
+                    }]
+                }
+                "quad" => vec![BoxNode::Kern { amount: 10.0 }],
+                "qquad" => vec![BoxNode::Kern { amount: 20.0 }],
+                "," => vec![BoxNode::Kern { amount: 3.0 }],
+                ";" => vec![BoxNode::Kern { amount: 5.0 }],
+                "url" => {
+                    let url_text = if let Some(arg) = args.first() {
+                        extract_text_content(arg)
+                    } else {
+                        String::new()
+                    };
+                    if url_text.is_empty() {
+                        vec![]
+                    } else {
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&url_text),
+                            text: url_text,
+                            font_size: 10.0,
+                        }]
+                    }
+                }
+                "href" => {
+                    // \href{url}{text} — render the text portion (second arg)
+                    if args.len() >= 2 {
+                        args[1..]
+                            .iter()
+                            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                            .collect()
+                    } else {
+                        args.iter()
+                            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                            .collect()
+                    }
+                }
+                "footnote" => {
+                    // Increment footnote counter and collect footnote text
+                    ctx.footnote_counter += 1;
+                    let fn_num = ctx.footnote_counter;
+
+                    // Extract footnote text
+                    let fn_text = if let Some(arg) = args.first() {
+                        extract_text_from_node(arg)
+                    } else {
+                        String::new()
+                    };
+
+                    // Collect footnote info
+                    ctx.footnotes.push(FootnoteInfo {
+                        number: fn_num,
+                        text: fn_text,
+                    });
+
+                    // Emit superscript marker in main text
+                    let marker = footnote_marker(fn_num);
+                    vec![BoxNode::Text {
+                        width: metrics.string_width(&marker),
+                        text: marker,
+                        font_size: 7.0,
+                    }]
+                }
                 "LaTeX" => vec![BoxNode::Text {
                     text: "LaTeX".to_string(),
                     width: metrics.string_width("LaTeX"),
@@ -1458,6 +1657,40 @@ pub fn translate_node_with_context(
 
                     result
                 }
+                "abstract" => {
+                    let mut result = Vec::new();
+                    // 12pt vertical space before abstract
+                    result.push(BoxNode::Glue {
+                        natural: 12.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+                    // Centered "Abstract" heading at 12pt
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Center,
+                    });
+                    let heading = "Abstract".to_string();
+                    result.push(BoxNode::Text {
+                        width: metrics.string_width(&heading),
+                        text: heading,
+                        font_size: 12.0,
+                    });
+                    result.push(BoxNode::Penalty { value: -10000 });
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Justify,
+                    });
+                    // Abstract body text
+                    for node in content {
+                        result.extend(translate_node_with_context(node, metrics, ctx));
+                    }
+                    // 12pt vertical space after abstract
+                    result.push(BoxNode::Glue {
+                        natural: 12.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+                    result
+                }
                 "center" => {
                     let mut result = vec![BoxNode::AlignmentMarker {
                         alignment: Alignment::Center,
@@ -1552,6 +1785,25 @@ pub fn parse_dimension(s: &str) -> f64 {
         "mm" => value * 2.845,
         "in" => value * 72.27,
         _ => value, // unknown unit, treat as pt
+    }
+}
+
+/// Convert a footnote number to its superscript Unicode marker.
+///
+/// Numbers 1-9 use Unicode superscript digits (¹²³⁴⁵⁶⁷⁸⁹).
+/// Numbers >= 10 fall back to the number string.
+fn footnote_marker(n: usize) -> String {
+    match n {
+        1 => "¹".to_string(),
+        2 => "²".to_string(),
+        3 => "³".to_string(),
+        4 => "⁴".to_string(),
+        5 => "⁵".to_string(),
+        6 => "⁶".to_string(),
+        7 => "⁷".to_string(),
+        8 => "⁸".to_string(),
+        9 => "⁹".to_string(),
+        _ => format!("{}", n),
     }
 }
 
@@ -2137,6 +2389,8 @@ pub struct Page {
     pub content: String,
     /// The typeset box lines for this page.
     pub box_lines: Vec<OutputLine>,
+    /// Footnotes that appear on this page.
+    pub footnotes: Vec<FootnoteInfo>,
 }
 
 /// The typesetting engine processes an AST and produces pages.
@@ -2190,6 +2444,7 @@ impl Engine {
                     number: pages.len() + 1,
                     content: content.clone(),
                     box_lines: current_page_lines,
+                    footnotes: vec![],
                 });
                 current_page_lines = Vec::new();
                 accumulated_height = 0.0;
@@ -2202,6 +2457,7 @@ impl Engine {
                     number: pages.len() + 1,
                     content: content.clone(),
                     box_lines: current_page_lines,
+                    footnotes: vec![],
                 });
                 current_page_lines = Vec::new();
                 accumulated_height = 0.0;
@@ -2214,8 +2470,12 @@ impl Engine {
                 number: pages.len() + 1,
                 content: content.clone(),
                 box_lines: current_page_lines,
+                footnotes: vec![],
             });
         }
+
+        // Collect footnotes from a fresh context-aware pass and assign to pages
+        let mut collected_footnotes = Vec::new();
 
         // If we have labels that need page number resolution, do a re-render
         if !labels.is_empty() {
@@ -2252,6 +2512,7 @@ impl Engine {
                 // Re-render with page numbers
                 let mut ctx = TranslationContext::new_rendering(resolved_labels);
                 let items = translate_node_with_context(&self.document, &metrics, &mut ctx);
+                collected_footnotes = ctx.footnotes.clone();
                 let all_lines = break_items_with_alignment(&items, 345.0);
 
                 // Re-paginate
@@ -2270,6 +2531,7 @@ impl Engine {
                             number: pages.len() + 1,
                             content: content.clone(),
                             box_lines: current_page_lines,
+                            footnotes: vec![],
                         });
                         current_page_lines = Vec::new();
                         accumulated_height = 0.0;
@@ -2281,6 +2543,7 @@ impl Engine {
                             number: pages.len() + 1,
                             content: content.clone(),
                             box_lines: current_page_lines,
+                            footnotes: vec![],
                         });
                         current_page_lines = Vec::new();
                         accumulated_height = 0.0;
@@ -2293,7 +2556,42 @@ impl Engine {
                         number: pages.len() + 1,
                         content: content.clone(),
                         box_lines: current_page_lines,
+                        footnotes: vec![],
                     });
+                }
+            }
+        }
+
+        // If we didn't collect footnotes from the re-render pass, do a separate collection
+        if collected_footnotes.is_empty() {
+            let mut ctx = TranslationContext::new_collecting();
+            let _ = translate_node_with_context(&self.document, &metrics, &mut ctx);
+            collected_footnotes = ctx.footnotes;
+        }
+
+        // Assign footnotes to pages by scanning for footnote markers
+        if !collected_footnotes.is_empty() {
+            for footnote in &collected_footnotes {
+                let marker = footnote_marker(footnote.number);
+                // Find which page contains this footnote marker
+                let mut assigned = false;
+                for page in pages.iter_mut() {
+                    let contains_marker = page.box_lines.iter().any(|line| {
+                        line.nodes
+                            .iter()
+                            .any(|n| matches!(n, BoxNode::Text { text, .. } if *text == marker))
+                    });
+                    if contains_marker {
+                        page.footnotes.push(footnote.clone());
+                        assigned = true;
+                        break;
+                    }
+                }
+                // If not assigned to any page, put on last page
+                if !assigned {
+                    if let Some(last) = pages.last_mut() {
+                        last.footnotes.push(footnote.clone());
+                    }
                 }
             }
         }
@@ -2304,6 +2602,7 @@ impl Engine {
                 number: 1,
                 content,
                 box_lines: vec![],
+                footnotes: vec![],
             });
         }
         pages
@@ -6426,5 +6725,419 @@ mod tests {
             has_justify,
             "\\maketitle should restore Justify alignment after title block"
         );
+    }
+
+    // ===== M22: Footnotes + Abstract + Horizontal Spacing + URLs Tests =====
+
+    #[test]
+    fn test_footnote_produces_superscript_marker() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "footnote".to_string(),
+            args: vec![Node::Group(vec![Node::Text("a note".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Should produce a text node with superscript marker "¹" at 7pt
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text {
+            text, font_size, ..
+        } = &items[0]
+        {
+            assert_eq!(text, "¹", "Expected superscript marker ¹");
+            assert!(
+                (*font_size - 7.0).abs() < f64::EPSILON,
+                "Footnote marker should be at 7pt"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for footnote marker");
+        }
+    }
+
+    #[test]
+    fn test_footnote_collects_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Paragraph(vec![
+            Node::Text("Hello".to_string()),
+            Node::Command {
+                name: "footnote".to_string(),
+                args: vec![Node::Group(vec![Node::Text("first note".to_string())])],
+            },
+        ])]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Should have collected one footnote
+        assert_eq!(ctx.footnotes.len(), 1);
+        assert_eq!(ctx.footnotes[0].number, 1);
+        assert_eq!(ctx.footnotes[0].text, "first note");
+        // Should have a superscript marker in the output
+        let has_marker = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "¹"));
+        assert!(has_marker, "Expected footnote marker ¹ in output");
+    }
+
+    #[test]
+    fn test_footnote_content_in_engine_output() {
+        let doc = Node::Document(vec![Node::Paragraph(vec![
+            Node::Text("Text".to_string()),
+            Node::Command {
+                name: "footnote".to_string(),
+                args: vec![Node::Group(vec![Node::Text("foot text".to_string())])],
+            },
+        ])]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        // The page should have footnotes
+        let total_footnotes: usize = pages.iter().map(|p| p.footnotes.len()).sum();
+        assert!(
+            total_footnotes >= 1,
+            "Expected at least 1 footnote, got {}",
+            total_footnotes
+        );
+        assert_eq!(pages[0].footnotes[0].text, "foot text");
+    }
+
+    #[test]
+    fn test_footnote_multiple_auto_numbered() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Paragraph(vec![
+            Node::Command {
+                name: "footnote".to_string(),
+                args: vec![Node::Group(vec![Node::Text("first".to_string())])],
+            },
+            Node::Command {
+                name: "footnote".to_string(),
+                args: vec![Node::Group(vec![Node::Text("second".to_string())])],
+            },
+        ])]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(ctx.footnotes.len(), 2);
+        assert_eq!(ctx.footnotes[0].number, 1);
+        assert_eq!(ctx.footnotes[1].number, 2);
+    }
+
+    #[test]
+    fn test_abstract_environment_produces_heading() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "abstract".to_string(),
+            options: None,
+            content: vec![Node::Text("Abstract body text".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let has_heading = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_size, .. } if text == "Abstract" && (*font_size - 12.0).abs() < 0.001));
+        assert!(
+            has_heading,
+            "Expected 'Abstract' heading at 12pt in abstract output"
+        );
+    }
+
+    #[test]
+    fn test_abstract_has_vertical_spacing() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "abstract".to_string(),
+            options: None,
+            content: vec![Node::Text("Body text".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let glue_12_count = items
+            .iter()
+            .filter(|n| {
+                matches!(n, BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON)
+            })
+            .count();
+        assert!(
+            glue_12_count >= 2,
+            "Expected at least 2 Glue(12.0) for spacing before and after abstract, got {}",
+            glue_12_count
+        );
+    }
+
+    #[test]
+    fn test_abstract_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Environment {
+            name: "abstract".to_string(),
+            options: None,
+            content: vec![Node::Text("Context abstract".to_string())],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_heading = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "Abstract"));
+        assert!(
+            has_heading,
+            "Abstract should render heading in context mode"
+        );
+    }
+
+    #[test]
+    fn test_hspace_produces_kern() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "hspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("10pt".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 10.0 },
+            "\\hspace{{10pt}} should produce Kern(10.0)"
+        );
+    }
+
+    #[test]
+    fn test_hspace_em_unit() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "hspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("2em".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        if let BoxNode::Kern { amount } = &items[0] {
+            assert!(
+                (*amount - 20.0).abs() < f64::EPSILON,
+                "\\hspace{{2em}} should produce Kern(20.0), got {}",
+                amount
+            );
+        } else {
+            panic!("Expected Kern");
+        }
+    }
+
+    #[test]
+    fn test_hfill_produces_glue_with_large_stretch() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "hfill".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Glue { stretch, .. } = &items[0] {
+            assert!(
+                *stretch >= 10000.0,
+                "\\hfill should produce glue with large stretch ({})",
+                stretch
+            );
+        } else {
+            panic!("Expected Glue for \\hfill");
+        }
+    }
+
+    #[test]
+    fn test_vfill_produces_glue_with_large_stretch() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "vfill".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Glue { stretch, .. } = &items[0] {
+            assert!(
+                *stretch >= 10000.0,
+                "\\vfill should produce glue with large stretch"
+            );
+        } else {
+            panic!("Expected Glue for \\vfill");
+        }
+    }
+
+    #[test]
+    fn test_quad_produces_kern_10() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "quad".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 10.0 },
+            "\\quad should produce Kern(10.0)"
+        );
+    }
+
+    #[test]
+    fn test_qquad_produces_kern_20() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "qquad".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 20.0 },
+            "\\qquad should produce Kern(20.0)"
+        );
+    }
+
+    #[test]
+    fn test_thin_space_produces_kern_3() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: ",".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 3.0 },
+            "\\, should produce Kern(3.0)"
+        );
+    }
+
+    #[test]
+    fn test_thick_space_produces_kern_5() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: ";".to_string(),
+            args: vec![],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 5.0 },
+            "\\; should produce Kern(5.0)"
+        );
+    }
+
+    #[test]
+    fn test_url_renders_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "url".to_string(),
+            args: vec![Node::Group(vec![Node::Text(
+                "http://example.com".to_string(),
+            )])],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert_eq!(text, "http://example.com");
+        } else {
+            panic!("Expected BoxNode::Text for \\url");
+        }
+    }
+
+    #[test]
+    fn test_href_renders_link_text() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "href".to_string(),
+            args: vec![
+                Node::Group(vec![Node::Text("http://example.com".to_string())]),
+                Node::Group(vec![Node::Text("Click here".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Should render "Click here" (the second arg), not the URL
+        let texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            texts.contains(&"Click"),
+            "Expected 'Click' in \\href output, got {:?}",
+            texts
+        );
+        assert!(
+            texts.contains(&"here"),
+            "Expected 'here' in \\href output, got {:?}",
+            texts
+        );
+        // Should NOT contain the URL
+        assert!(
+            !texts.contains(&"http://example.com"),
+            "\\href should not render URL text"
+        );
+    }
+
+    #[test]
+    fn test_footnote_marker_function() {
+        assert_eq!(footnote_marker(1), "¹");
+        assert_eq!(footnote_marker(2), "²");
+        assert_eq!(footnote_marker(3), "³");
+        assert_eq!(footnote_marker(9), "⁹");
+        assert_eq!(footnote_marker(10), "10");
+    }
+
+    #[test]
+    fn test_hspace_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "hspace".to_string(),
+            args: vec![Node::Group(vec![Node::Text("15pt".to_string())])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            items[0],
+            BoxNode::Kern { amount: 15.0 },
+            "\\hspace{{15pt}} in context should produce Kern(15.0)"
+        );
+    }
+
+    #[test]
+    fn test_url_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "url".to_string(),
+            args: vec![Node::Group(vec![Node::Text(
+                "https://rust-lang.org".to_string(),
+            )])],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(items.len(), 1);
+        if let BoxNode::Text { text, .. } = &items[0] {
+            assert_eq!(text, "https://rust-lang.org");
+        } else {
+            panic!("Expected BoxNode::Text for \\url in context");
+        }
+    }
+
+    #[test]
+    fn test_footnote_info_struct() {
+        let info = FootnoteInfo {
+            number: 1,
+            text: "A footnote".to_string(),
+        };
+        assert_eq!(info.number, 1);
+        assert_eq!(info.text, "A footnote");
+    }
+
+    #[test]
+    fn test_page_has_footnotes_field() {
+        let page = Page {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![FootnoteInfo {
+                number: 1,
+                text: "test".to_string(),
+            }],
+        };
+        assert_eq!(page.footnotes.len(), 1);
+        assert_eq!(page.footnotes[0].number, 1);
     }
 }

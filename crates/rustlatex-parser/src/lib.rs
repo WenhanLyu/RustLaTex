@@ -389,8 +389,9 @@ impl Parser {
                     Some(ParseEvent::EndEnvironment(env_name))
                 } else {
                     // Handle star-form commands: \vspace*{...} → Command{name:"vspace", args:[...]}
+                    // \hspace*{...} → Command{name:"hspace", args:[...]}
                     // The star is consumed and ignored (treated the same as non-star form).
-                    let cmd_name = if name == "vspace" {
+                    let cmd_name = if name == "vspace" || name == "hspace" {
                         if let Token::Character('*', _) = self.peek() {
                             self.advance(); // consume '*'
                         }

@@ -6,7 +6,8 @@
 
 use pdf_writer::types::FontFlags;
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
-use rustlatex_engine::{Alignment, BoxNode, Page as EnginePage};
+#[allow(unused_imports)]
+use rustlatex_engine::{Alignment, BoxNode, FootnoteInfo, Page as EnginePage};
 
 /// PDF generation result.
 #[derive(Debug)]
@@ -316,6 +317,32 @@ impl PdfWriter {
 
             content.end_text();
 
+            // Footnote rendering at bottom of page
+            if !page.footnotes.is_empty() {
+                // Calculate footnote area position
+                let footnote_area_top = 60.0_f32; // Above the page number footer (25pt)
+                let footnote_line_height = 10.0_f32;
+
+                // Draw horizontal rule above footnotes
+                let rule_y =
+                    footnote_area_top + (page.footnotes.len() as f32 * footnote_line_height) + 5.0;
+                content.rect(margin_left, rule_y, 100.0, 0.4);
+                content.fill_nonzero();
+
+                // Render each footnote
+                content.begin_text();
+                content.set_font(Name(b"F1"), 8.0);
+                for (idx, footnote) in page.footnotes.iter().enumerate() {
+                    let fn_y = footnote_area_top
+                        + ((page.footnotes.len() - 1 - idx) as f32 * footnote_line_height);
+                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, margin_left, fn_y]);
+                    let fn_text = format!("{}. {}", footnote.number, footnote.text);
+                    let escaped = pdf_escape(&fn_text);
+                    content.show(Str(&escaped));
+                }
+                content.end_text();
+            }
+
             // Page number footer
             let page_num_str = format!("{}", page.number);
             let page_num_width = page_num_str.len() as f32 * 5.0; // ~5pt per digit at 10pt
@@ -362,6 +389,7 @@ mod tests {
             number: 1,
             content: "test".to_string(),
             box_lines: vec![],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -394,6 +422,7 @@ mod tests {
                     },
                 ],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -415,6 +444,7 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -439,6 +469,7 @@ mod tests {
                         font_size: 10.0,
                     }],
                 }],
+                footnotes: vec![],
             },
             EnginePage {
                 number: 2,
@@ -451,6 +482,7 @@ mod tests {
                         font_size: 10.0,
                     }],
                 }],
+                footnotes: vec![],
             },
         ];
         let writer = PdfWriter::new();
@@ -498,6 +530,7 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -571,6 +604,7 @@ mod tests {
             number: 1,
             content: "test".to_string(),
             box_lines: vec![],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -587,6 +621,7 @@ mod tests {
             number: 1,
             content: "test".to_string(),
             box_lines: vec![],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -603,6 +638,7 @@ mod tests {
             number: 1,
             content: "test".to_string(),
             box_lines: vec![],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -619,6 +655,7 @@ mod tests {
             number: 1,
             content: "test".to_string(),
             box_lines: vec![],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -681,6 +718,7 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -702,6 +740,7 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -729,6 +768,7 @@ mod tests {
                         font_size: 10.0,
                     }],
                 }],
+                footnotes: vec![],
             },
             EnginePage {
                 number: 2,
@@ -741,6 +781,7 @@ mod tests {
                         font_size: 10.0,
                     }],
                 }],
+                footnotes: vec![],
             },
         ];
         let writer = PdfWriter::new();
@@ -781,6 +822,7 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -799,6 +841,7 @@ mod tests {
                     height: 0.5,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
@@ -823,9 +866,55 @@ mod tests {
                     font_size: 10.0,
                 }],
             }],
+            footnotes: vec![],
         }];
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
         assert!(!output.bytes.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_with_footnotes() {
+        use rustlatex_engine::FootnoteInfo;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Main text".to_string(),
+                    width: 50.0,
+                    font_size: 10.0,
+                }],
+            }],
+            footnotes: vec![FootnoteInfo {
+                number: 1,
+                text: "A footnote".to_string(),
+            }],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // Should produce valid PDF
+        assert!(!output.bytes.is_empty());
+        assert_eq!(&output.bytes[0..5], b"%PDF-");
+        // Should be larger than a page without footnotes
+        let pages_no_fn = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Main text".to_string(),
+                    width: 50.0,
+                    font_size: 10.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let output_no_fn = writer.write(&pages_no_fn);
+        assert!(
+            output.bytes.len() > output_no_fn.bytes.len(),
+            "PDF with footnotes should be larger than without"
+        );
     }
 }
