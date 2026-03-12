@@ -111,6 +111,7 @@ Binary-identical output requires:
 - **M48 scope:** Complete punctuation character widths in StandardFontMetrics. The engine's char_width() defaults to 5.0pt for all punctuation, but cmr10 AFM has precise widths (period=2.778, comma=2.778, hyphen=3.333, colon/semicolon=2.778, exclaim=2.778, question=4.722, parens=3.889, brackets=2.778). Wrong widths cause incorrect line-breaking vs pdflatex. Also add bold (cmbx10) widths for punctuation. This is the highest-impact remaining fix. Target 899+ tests, pixel similarity to ~97%+.
 - **Athena M49 analysis (direct):** Rebuilt binary and confirmed \[...\] DisplayMath is correctly parsed. Identified two critical bugs: (1) Paragraph-end Glue{natural:6.0} creates spurious 12pt vertical blank lines between paragraphs (pdflatex uses parskip=0pt). (2) PDF justification distributes remaining space uniformly instead of proportionally by stretch value — wrong for inter-sentence glue (stretch=2.5 vs normal 1.667). Fix both in M49.
 - **Cycle (M49):** M49 completed in 1 implementation cycle. Leo fixed paragraph-end glue (natural:6.0→0.0, stretch:2.0→1.0) and proportional justification (remaining * stretch_i / total_stretch). 15 new tests, 915 total tests pass, CI green. Pixel similarity = 95.69% (unchanged — compare.tex doesn't have enough paragraphs for the parskip fix to show).
+- **Cycle (M50):** M50 completed in 1 cycle. Leo added BoxNode::VSkip, section/subsection emit VSkip instead of horizontal Kern. 22 new tests, 938 total. Pixel similarity DROPPED to 94.75% (from 95.69%) because spacing values (24pt/8pt) don't match pdflatex article class. Fix in M51.
 - **CRITICAL BUG FOUND (M50 analysis):** Athena direct analysis revealed that section heading Kern(24.0)/Kern(8.0) nodes are HORIZONTAL kerns, not vertical. The PDF backend advances current_x (horizontal) when it sees Kern nodes, NOT current_y (vertical). This means section heading spacing is applied horizontally (as indentation) instead of vertically. Body text after a section heading is only 16.8pt below instead of ~48.8pt (24+16.8+8). This 32pt vertical mismatch cascades to ALL subsequent lines, explaining why pixel similarity is stuck at 95.69%. Fix: Add BoxNode::VSkip{amount} variant, use it for section/subsection before/after spacing, handle it in PDF backend as vertical movement.
 
 ## Milestones
@@ -848,7 +849,25 @@ Fix the critical bug where section heading before/after kerns are horizontal ins
 **Expected impact**: +3-4% pixel similarity (eliminates 32pt vertical mismatch on every line after section headings)
 
 - **Cycles budget:** 2
-- **Status:** 🔄 Next (issue #53)
+- **Status:** ✅ Complete — Leo implemented (commit 5a8e4d2), 938 tests pass. NOTE: Pixel similarity dropped to 94.75% — section spacing values (24pt/8pt) are WRONG vs pdflatex. Fix in M51.
+
+### M51: Fix Section Heading Spacing to Match pdflatex Article Class
+Fix section/subsection spacing values to match pdflatex article class exactly.
+
+**Root cause of regression**: M50 correctly made VSkip nodes vertical, but the values (24pt before section, 8pt after) don't match pdflatex article class. pdflatex uses ex-based spacing at 10pt body text (1ex_cmr10 ≈ 4.306pt):
+- Section before: 3.5ex = **15.07pt** (we use 24pt — 9pt too much)
+- Section after: 2.3ex = **9.90pt** (we use 8pt — 1.9pt too little)
+- Subsection before: 3.25ex = **13.99pt** (we use 18pt — 4pt too much)
+- Subsection after: 1.5ex = **6.46pt** (we use 6pt — close)
+
+Also pdflatex section font sizes: \section is \Large = 14.4pt (not 14pt), \subsection is \large = 12pt, \subsubsection is \normalsize = 10pt (not 11pt).
+
+**Fix**: Update section before/after values in both `translate_node_with_metrics` and `translate_node_with_context`. Also update section font sizes. Update all tests that check for old spacing values.
+
+**Expected impact**: +1-3% pixel similarity recovery from M50 regression, potentially exceeding pre-M50 baseline.
+
+- **Cycles budget:** 2
+- **Status:** 🔄 Next
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
