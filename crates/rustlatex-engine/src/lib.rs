@@ -420,6 +420,8 @@ pub enum BoxNode {
         width: f64,
         height: f64,
     },
+    /// A bullet point (filled circle) for itemize lists.
+    Bullet,
 }
 
 // ===== Font Metrics Trait and CM Roman Implementation =====
@@ -1189,9 +1191,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
 
             let mut result: Vec<BoxNode> = Vec::new();
 
-            // Add paragraph indentation (20pt) unless suppressed
+            // Add paragraph indentation (15pt) unless suppressed
             if !starts_with_noindent {
-                result.push(BoxNode::Kern { amount: 20.0 });
+                result.push(BoxNode::Kern { amount: 15.0 });
             }
 
             result.extend(
@@ -1615,14 +1617,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 vertical_offset: 0.0,
                             });
                         } else {
-                            result.push(BoxNode::Text {
-                                text: "- ".to_string(),
-                                width: 7.0,
-                                font_size: 10.0,
-                                color: None,
-                                font_style: FontStyle::Normal,
-                                vertical_offset: 0.0,
-                            });
+                            result.push(BoxNode::Bullet);
                         }
                         // Item content
                         for node in item_nodes {
@@ -1871,13 +1866,18 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             .flat_map(|n| math_node_to_boxes(n, metrics))
             .collect(),
         Node::DisplayMath(nodes) => {
-            let mut result = vec![BoxNode::Penalty { value: -10000 }];
+            let mut result = vec![BoxNode::Glue {
+                natural: 12.0,
+                stretch: 3.0,
+                shrink: 3.0,
+            }];
+            result.push(BoxNode::Penalty { value: -10000 });
             result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
-                natural: 6.0,
-                stretch: 2.0,
-                shrink: 0.0,
+                natural: 12.0,
+                stretch: 3.0,
+                shrink: 3.0,
             });
             result
         }
@@ -2073,11 +2073,11 @@ pub fn translate_node_with_context(
 
             let mut result: Vec<BoxNode> = Vec::new();
 
-            // Add paragraph indentation (20pt) unless:
+            // Add paragraph indentation (15pt) unless:
             // - preceded by a section heading (after_heading flag)
             // - starts with \noindent
             if !starts_with_noindent && !ctx.after_heading {
-                result.push(BoxNode::Kern { amount: 20.0 });
+                result.push(BoxNode::Kern { amount: 15.0 });
             }
             // Reset after_heading flag (consumed by this paragraph)
             ctx.after_heading = false;
@@ -3172,14 +3172,7 @@ pub fn translate_node_with_context(
                                 vertical_offset: 0.0,
                             });
                         } else {
-                            result.push(BoxNode::Text {
-                                text: "- ".to_string(),
-                                width: 7.0,
-                                font_size: 10.0,
-                                color: None,
-                                font_style: FontStyle::Normal,
-                                vertical_offset: 0.0,
-                            });
+                            result.push(BoxNode::Bullet);
                         }
                         for node in item_nodes {
                             let mut translated = translate_node_with_context(node, metrics, ctx);
@@ -3693,13 +3686,18 @@ pub fn translate_node_with_context(
             .flat_map(|n| math_node_to_boxes(n, metrics))
             .collect(),
         Node::DisplayMath(nodes) => {
-            let mut result = vec![BoxNode::Penalty { value: -10000 }];
+            let mut result = vec![BoxNode::Glue {
+                natural: 12.0,
+                stretch: 3.0,
+                shrink: 3.0,
+            }];
+            result.push(BoxNode::Penalty { value: -10000 });
             result.extend(nodes.iter().flat_map(|n| math_node_to_boxes(n, metrics)));
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
-                natural: 6.0,
-                stretch: 2.0,
-                shrink: 0.0,
+                natural: 12.0,
+                stretch: 3.0,
+                shrink: 3.0,
             });
             result
         }
@@ -4038,7 +4036,8 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
             | BoxNode::VBox { .. }
             | BoxNode::AlignmentMarker { .. }
             | BoxNode::Rule { .. }
-            | BoxNode::ImagePlaceholder { .. } => {
+            | BoxNode::ImagePlaceholder { .. }
+            | BoxNode::Bullet => {
                 // Pass through without affecting width calculation for now
                 current_line.push(item.clone());
             }
@@ -4903,14 +4902,14 @@ mod tests {
             Node::Text("three".to_string()),
         ]);
         let items = translate_node(&node);
-        // Kern(20.0) (paragraph indent)
+        // Kern(15.0) (paragraph indent)
         // "one two" → Text("one"), Glue, Text("two")
         // "three" → Text("three")
         // + paragraph spacing Glue
         // total: 6 items
         assert_eq!(items.len(), 6);
         // First item: paragraph indent kern
-        assert_eq!(items[0], BoxNode::Kern { amount: 20.0 });
+        assert_eq!(items[0], BoxNode::Kern { amount: 15.0 });
         // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
             items[1],
@@ -4972,16 +4971,23 @@ mod tests {
     fn test_translate_display_math() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        // DisplayMath produces: Penalty, Text, Penalty, Glue (4 items)
-        assert_eq!(items.len(), 4);
-        assert!(matches!(items[0], BoxNode::Penalty { value: -10000 }));
-        if let BoxNode::Text { text, .. } = &items[1] {
+        // DisplayMath produces: Glue(12pt), Penalty, Text, Penalty, Glue(12pt) (5 items)
+        assert_eq!(items.len(), 5);
+        assert!(
+            matches!(items[0], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
+            "Expected 12pt above-display glue"
+        );
+        assert!(matches!(items[1], BoxNode::Penalty { value: -10000 }));
+        if let BoxNode::Text { text, .. } = &items[2] {
             assert_ne!(text, "(math)", "Should not produce (math) placeholder");
         } else {
-            panic!("Expected BoxNode::Text at index 1");
+            panic!("Expected BoxNode::Text at index 2");
         }
-        assert!(matches!(items[2], BoxNode::Penalty { value: -10000 }));
-        assert!(matches!(items[3], BoxNode::Glue { .. }));
+        assert!(matches!(items[3], BoxNode::Penalty { value: -10000 }));
+        assert!(
+            matches!(items[4], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
+            "Expected 12pt below-display glue"
+        );
     }
 
     #[test]
@@ -6617,10 +6623,8 @@ mod tests {
     fn test_itemize_produces_bullet_prefix() {
         let node = make_itemize(vec![vec![Node::Text("apple".to_string())]]);
         let items = translate_node(&node);
-        let has_bullet = items
-            .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')));
-        assert!(has_bullet, "Expected a dash - prefix in itemize output");
+        let has_bullet = items.iter().any(|n| matches!(n, BoxNode::Bullet));
+        assert!(has_bullet, "Expected BoxNode::Bullet in itemize output");
     }
 
     #[test]
@@ -6675,9 +6679,9 @@ mod tests {
         let items = translate_node(&node);
         let bullet_count = items
             .iter()
-            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')))
+            .filter(|n| matches!(n, BoxNode::Bullet))
             .count();
-        assert_eq!(bullet_count, 3, "Expected 3 dash prefixes for 3 items");
+        assert_eq!(bullet_count, 3, "Expected 3 Bullet nodes for 3 items");
     }
 
     #[test]
@@ -6851,21 +6855,14 @@ mod tests {
     }
 
     #[test]
-    fn test_itemize_bullet_width_is_7() {
+    fn test_itemize_bullet_variant_used() {
         let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
-        let bullet_node = items
-            .iter()
-            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')));
-        if let Some(BoxNode::Text { width, .. }) = bullet_node {
-            assert!(
-                (*width - 7.0).abs() < f64::EPSILON,
-                "Expected itemize bullet width 7.0, got {}",
-                width
-            );
-        } else {
-            panic!("Expected a Text node with dash -");
-        }
+        let has_bullet = items.iter().any(|n| matches!(n, BoxNode::Bullet));
+        assert!(
+            has_bullet,
+            "Expected BoxNode::Bullet variant in itemize output"
+        );
     }
 
     // ===== M16: Alignment tests =====
@@ -8239,11 +8236,11 @@ mod tests {
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
-        // First item should be Kern(20.0) for paragraph indentation
+        // First item should be Kern(15.0) for paragraph indentation
         assert_eq!(
             items[0],
-            BoxNode::Kern { amount: 20.0 },
-            "Paragraph should start with Kern(20.0) for first-line indent"
+            BoxNode::Kern { amount: 15.0 },
+            "Paragraph should start with Kern(15.0) for first-line indent"
         );
     }
 
@@ -8610,11 +8607,11 @@ mod tests {
             .iter()
             .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "Second"))
             .expect("Expected 'Second' text");
-        // Item before "Second" should be Kern(20.0)
+        // Item before "Second" should be Kern(15.0)
         assert!(
             second_idx > 0
-                && matches!(&items[second_idx - 1], BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
-            "Second paragraph should have Kern(20.0) indent"
+                && matches!(&items[second_idx - 1], BoxNode::Kern { amount } if (*amount - 15.0).abs() < f64::EPSILON),
+            "Second paragraph should have Kern(15.0) indent"
         );
     }
 
@@ -12580,15 +12577,13 @@ mod tests {
     }
 
     #[test]
-    fn test_bullet_is_dash() {
+    fn test_bullet_is_bullet_node() {
         let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
-        let bullet_node = items
-            .iter()
-            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "- "));
+        let has_bullet = items.iter().any(|n| matches!(n, BoxNode::Bullet));
         assert!(
-            bullet_node.is_some(),
-            "Bullet prefix should be '- ' (dash + space)"
+            has_bullet,
+            "Bullet prefix should be BoxNode::Bullet variant"
         );
     }
 
@@ -12633,22 +12628,23 @@ mod tests {
     }
 
     #[test]
-    fn test_bullet_dash_encoding_safe() {
-        // Dash '-' is ASCII 0x2D, safe for OT1 encoding
+    fn test_bullet_is_bullet_variant() {
+        // Bullet should be BoxNode::Bullet variant (not a Text node)
         let node = make_itemize(vec![vec![Node::Text("safe".to_string())]]);
         let items = translate_node(&node);
-        let bullet_node = items
+        let has_bullet = items.iter().any(|n| matches!(n, BoxNode::Bullet));
+        assert!(
+            has_bullet,
+            "Expected BoxNode::Bullet variant, not Text dash"
+        );
+        // Should NOT have a text node starting with '-'
+        let has_dash_text = items
             .iter()
-            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with('-')));
-        if let Some(BoxNode::Text { text, .. }) = bullet_node {
-            assert!(
-                text.is_ascii(),
-                "Bullet text should be pure ASCII for OT1 safety, got '{}'",
-                text
-            );
-        } else {
-            panic!("Expected a Text node starting with '-'");
-        }
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with('-')));
+        assert!(
+            !has_dash_text,
+            "Should not have a Text node starting with '-'"
+        );
     }
 
     #[test]
@@ -12659,14 +12655,14 @@ mod tests {
             vec![Node::Text("c".to_string())],
         ]);
         let items = translate_node(&node);
-        let dash_count = items
+        let bullet_count = items
             .iter()
-            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text == "- "))
+            .filter(|n| matches!(n, BoxNode::Bullet))
             .count();
         assert_eq!(
-            dash_count, 3,
-            "Expected 3 dash bullet prefixes for 3 items, got {}",
-            dash_count
+            bullet_count, 3,
+            "Expected 3 BoxNode::Bullet prefixes for 3 items, got {}",
+            bullet_count
         );
     }
 
@@ -12957,13 +12953,18 @@ mod tests {
             exponent: Box::new(Node::Text("2".to_string())),
         }]);
         let items = translate_node(&node);
-        // Should start with Penalty and end with Penalty + Glue
+        // Should start with Glue(12pt) + Penalty and end with Penalty + Glue(12pt)
         assert!(items.len() >= 5);
-        assert!(matches!(&items[0], BoxNode::Penalty { value: -10000 }));
+        assert!(
+            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON)
+        );
+        assert!(matches!(&items[1], BoxNode::Penalty { value: -10000 }));
         // Last two should be Penalty and Glue
         let n = items.len();
         assert!(matches!(&items[n - 2], BoxNode::Penalty { value: -10000 }));
-        assert!(matches!(&items[n - 1], BoxNode::Glue { .. }));
+        assert!(
+            matches!(&items[n - 1], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
@@ -13225,6 +13226,142 @@ mod tests {
             );
         } else {
             panic!("Expected BoxNode::Text");
+        }
+    }
+
+    // ============================================================
+    // M36: Bullet, Parindent, Display Math Spacing tests
+    // ============================================================
+
+    #[test]
+    fn test_m36_bullet_variant_exists() {
+        let b = BoxNode::Bullet;
+        assert!(matches!(b, BoxNode::Bullet));
+    }
+
+    #[test]
+    fn test_m36_itemize_produces_bullet_variant() {
+        let node = make_itemize(vec![vec![Node::Text("apple".to_string())]]);
+        let items = translate_node(&node);
+        let has_bullet = items.iter().any(|n| matches!(n, BoxNode::Bullet));
+        assert!(has_bullet, "Expected BoxNode::Bullet in itemize output");
+    }
+
+    #[test]
+    fn test_m36_itemize_no_dash_text() {
+        // With the new Bullet variant, there should be no "- " text nodes
+        let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        let has_dash = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "- "));
+        assert!(!has_dash, "Itemize should not produce '- ' text nodes");
+    }
+
+    #[test]
+    fn test_m36_three_bullet_items() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Bullet))
+            .count();
+        assert_eq!(
+            count, 3,
+            "Expected 3 Bullet nodes for 3 items, got {}",
+            count
+        );
+    }
+
+    #[test]
+    fn test_m36_paragraph_indent_is_15pt() {
+        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
+        let items = translate_node(&node);
+        // First item should be Kern(15.0) for paragraph indentation
+        assert!(
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
+            "Paragraph indent should be 15pt, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_m36_paragraph_indent_not_20pt() {
+        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
+        let items = translate_node(&node);
+        // Should NOT have a 20pt indent kern
+        let has_20 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+        );
+        assert!(!has_20, "Paragraph indent should not be 20pt");
+    }
+
+    #[test]
+    fn test_m36_display_math_above_skip_is_12pt() {
+        let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
+        let items = translate_node(&node);
+        // First item should be Glue with natural=12pt
+        assert!(
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 12.0).abs() < f64::EPSILON),
+            "Display math abovedisplayskip should be 12pt, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_m36_display_math_below_skip_is_12pt() {
+        let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
+        let items = translate_node(&node);
+        // Last item should be Glue with natural=12pt
+        assert!(
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 12.0).abs() < f64::EPSILON),
+            "Display math belowdisplayskip should be 12pt, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_m36_display_math_structure() {
+        // DisplayMath should produce: Glue(12), Penalty(-10000), Text, Penalty(-10000), Glue(12)
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        assert!(
+            items.len() >= 5,
+            "DisplayMath should produce at least 5 items"
+        );
+        assert!(
+            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON),
+            "First item should be Glue(12pt)"
+        );
+        assert!(
+            matches!(&items[1], BoxNode::Penalty { value: -10000 }),
+            "Second item should be Penalty(-10000)"
+        );
+    }
+
+    #[test]
+    fn test_m36_context_paragraph_indent_15pt() {
+        // translate_node_with_context should also use 15pt indent
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("hello".to_string())]),
+            Node::Paragraph(vec![Node::Text("world".to_string())]),
+        ]);
+        let items = translate_with_context(&node);
+        // Second paragraph should have 15pt indent
+        let world_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "world"))
+            .expect("Expected 'world' text");
+        if world_idx > 0 {
+            assert!(
+                matches!(&items[world_idx - 1], BoxNode::Kern { amount } if (*amount - 15.0).abs() < f64::EPSILON),
+                "Second paragraph indent should be 15pt"
+            );
         }
     }
 }

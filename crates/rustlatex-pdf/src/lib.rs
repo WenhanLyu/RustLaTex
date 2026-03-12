@@ -20,6 +20,50 @@ pub struct PdfOutput {
 #[derive(Default)]
 pub struct PdfWriter;
 
+/// Apply OT1 ligature substitution for CM text fonts.
+///
+/// Maps multi-character sequences to single font encoding bytes:
+/// - "ffi" → byte 14
+/// - "ffl" → byte 15
+/// - "ff"  → byte 11
+/// - "fi"  → byte 12
+/// - "fl"  → byte 13
+///
+/// Check longer sequences first to ensure correct substitution.
+fn apply_ot1_ligatures(text: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        if i + 2 < len && bytes[i] == b'f' && bytes[i + 1] == b'f' && bytes[i + 2] == b'i' {
+            result.push(14u8); // ffi ligature
+            i += 3;
+        } else if i + 2 < len && bytes[i] == b'f' && bytes[i + 1] == b'f' && bytes[i + 2] == b'l' {
+            result.push(15u8); // ffl ligature
+            i += 3;
+        } else if i + 1 < len && bytes[i] == b'f' && bytes[i + 1] == b'f' {
+            result.push(11u8); // ff ligature
+            i += 2;
+        } else if i + 1 < len && bytes[i] == b'f' && bytes[i + 1] == b'i' {
+            result.push(12u8); // fi ligature
+            i += 2;
+        } else if i + 1 < len && bytes[i] == b'f' && bytes[i + 1] == b'l' {
+            result.push(13u8); // fl ligature
+            i += 2;
+        } else {
+            result.push(bytes[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
+/// CM text font names that support OT1 ligatures (excludes typewriter F6=cmtt10).
+fn is_cm_text_font(font_name: &[u8]) -> bool {
+    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5")
+}
+
 /// Escape a string for use as a PDF string literal.
 /// Escapes backslashes and parentheses.
 fn pdf_escape(s: &str) -> Vec<u8> {
@@ -558,6 +602,7 @@ impl PdfWriter {
                             line_nat_width += *natural as f32;
                             glue_count += 1;
                         }
+                        BoxNode::Bullet => line_nat_width += 6.0_f32,
                         _ => {}
                     }
                 }
@@ -613,8 +658,33 @@ impl PdfWriter {
                                 content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                             }
                             content.set_font(Name(font_name), *font_size as f32);
-                            let escaped = pdf_escape(text);
-                            content.show(Str(&escaped));
+                            // Apply OT1 ligature substitution for CM text fonts
+                            let text_bytes = if is_cm_text_font(font_name) {
+                                let lig = apply_ot1_ligatures(text);
+                                // pdf_escape the ligature bytes (escape \ ( ) )
+                                let mut escaped_lig = Vec::with_capacity(lig.len());
+                                for &b in &lig {
+                                    match b {
+                                        b'\\' => {
+                                            escaped_lig.push(b'\\');
+                                            escaped_lig.push(b'\\');
+                                        }
+                                        b'(' => {
+                                            escaped_lig.push(b'\\');
+                                            escaped_lig.push(b'(');
+                                        }
+                                        b')' => {
+                                            escaped_lig.push(b'\\');
+                                            escaped_lig.push(b')');
+                                        }
+                                        _ => escaped_lig.push(b),
+                                    }
+                                }
+                                escaped_lig
+                            } else {
+                                pdf_escape(text)
+                            };
+                            content.show(Str(&text_bytes));
                             current_x += *width as f32;
                             // Reset text rise after rendering
                             if has_rise {
@@ -670,6 +740,29 @@ impl PdfWriter {
                             // Re-enter text mode
                             content.begin_text();
                             content.set_font(Name(b"F1"), font_size_outer);
+                        }
+                        BoxNode::Bullet => {
+                            // Draw a filled circle bullet point
+                            // Center at current_x + 3pt, baseline + 3pt, radius 1.5pt
+                            let cx = current_x + 3.0;
+                            let cy = current_y + 3.0;
+                            let r = 1.5_f32;
+                            let k = r * 0.5523_f32; // Bezier approximation constant
+                            content.end_text();
+                            content.save_state();
+                            content.set_fill_rgb(0.0, 0.0, 0.0);
+                            // Draw circle using 4 cubic Bezier curves
+                            content.move_to(cx, cy + r);
+                            content.cubic_to(cx + k, cy + r, cx + r, cy + k, cx + r, cy);
+                            content.cubic_to(cx + r, cy - k, cx + k, cy - r, cx, cy - r);
+                            content.cubic_to(cx - k, cy - r, cx - r, cy - k, cx - r, cy);
+                            content.cubic_to(cx - r, cy + k, cx - k, cy + r, cx, cy + r);
+                            content.fill_nonzero();
+                            content.restore_state();
+                            content.begin_text();
+                            content.set_font(Name(b"F1"), font_size_outer);
+                            current_x += 6.0;
+                            content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
                         _ => {
                             // HBox, VBox, Penalty, AlignmentMarker — skip
@@ -1804,6 +1897,122 @@ mod tests {
         assert!(
             text.contains("germandbls"),
             "OT1 encoding should have germandbls at position 25"
+        );
+    }
+
+    // ============================================================
+    // M36: OT1 ligature tests
+    // ============================================================
+
+    #[test]
+    fn test_m36_ot1_ligature_fi() {
+        assert_eq!(apply_ot1_ligatures("fi"), vec![12u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_fl() {
+        assert_eq!(apply_ot1_ligatures("fl"), vec![13u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_ff() {
+        assert_eq!(apply_ot1_ligatures("ff"), vec![11u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_ffi() {
+        assert_eq!(apply_ot1_ligatures("ffi"), vec![14u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_ffl() {
+        assert_eq!(apply_ot1_ligatures("ffl"), vec![15u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_no_change() {
+        assert_eq!(apply_ot1_ligatures("hello"), b"hello".to_vec());
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_ffi_before_ff() {
+        // "ffi" should be matched as one ligature (not ff + i separately)
+        assert_eq!(apply_ot1_ligatures("ffi"), vec![14u8]);
+        // "office" → o + ffi(14) + c + e
+        assert_eq!(apply_ot1_ligatures("office"), vec![b'o', 14u8, b'c', b'e']);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_ffl_before_ff() {
+        // "ffl" should be matched as one ligature
+        assert_eq!(apply_ot1_ligatures("ffl"), vec![15u8]);
+    }
+
+    #[test]
+    fn test_m36_ot1_ligature_mixed() {
+        // "affix" → a + ff(11) + i + x (ff matches before fi)
+        // Wait: "ffi" in "affix" - a-f-f-i-x
+        // i=0: 'a' → push 'a', i=1
+        // i=1: 'f','f','i' → ffi(14), i=4
+        // i=4: 'x' → push 'x', i=5
+        assert_eq!(apply_ot1_ligatures("affix"), vec![b'a', 14u8, b'x']);
+    }
+
+    #[test]
+    fn test_m36_is_cm_text_font_f1() {
+        assert!(is_cm_text_font(b"F1"));
+    }
+
+    #[test]
+    fn test_m36_is_cm_text_font_f3() {
+        assert!(is_cm_text_font(b"F3"));
+    }
+
+    #[test]
+    fn test_m36_is_cm_text_font_f4() {
+        assert!(is_cm_text_font(b"F4"));
+    }
+
+    #[test]
+    fn test_m36_is_cm_text_font_f5() {
+        assert!(is_cm_text_font(b"F5"));
+    }
+
+    #[test]
+    fn test_m36_is_not_cm_text_font_f6() {
+        // F6 = cmtt10 (typewriter) should NOT apply ligatures
+        assert!(!is_cm_text_font(b"F6"));
+    }
+
+    #[test]
+    fn test_m36_bullet_renders_in_pdf() {
+        // A page with a BoxNode::Bullet should produce non-empty PDF output
+        use rustlatex_engine::OutputLine;
+        use rustlatex_engine::{Alignment, BoxNode, FontStyle, Page as EnginePage};
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![
+                    BoxNode::Bullet,
+                    BoxNode::Text {
+                        text: "item".to_string(),
+                        width: 18.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
+                    },
+                ],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(
+            !output.bytes.is_empty(),
+            "PDF with Bullet should be non-empty"
         );
     }
 }
