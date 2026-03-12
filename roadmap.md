@@ -110,6 +110,8 @@ Binary-identical output requires:
 - **Cycle (M48):** M48 completed in 1 implementation cycle. Leo delivered correct cmr10 AFM widths for 27 punctuation/symbol characters in StandardFontMetrics::char_width(). 21 new tests, 900 total tests pass, CI green. Pixel similarity = 95.69% (unchanged — punctuation width fix did not affect compare.tex line-breaking measurably, but improves correctness for documents with more punctuation).
 - **M48 scope:** Complete punctuation character widths in StandardFontMetrics. The engine's char_width() defaults to 5.0pt for all punctuation, but cmr10 AFM has precise widths (period=2.778, comma=2.778, hyphen=3.333, colon/semicolon=2.778, exclaim=2.778, question=4.722, parens=3.889, brackets=2.778). Wrong widths cause incorrect line-breaking vs pdflatex. Also add bold (cmbx10) widths for punctuation. This is the highest-impact remaining fix. Target 899+ tests, pixel similarity to ~97%+.
 - **Athena M49 analysis (direct):** Rebuilt binary and confirmed \[...\] DisplayMath is correctly parsed. Identified two critical bugs: (1) Paragraph-end Glue{natural:6.0} creates spurious 12pt vertical blank lines between paragraphs (pdflatex uses parskip=0pt). (2) PDF justification distributes remaining space uniformly instead of proportionally by stretch value — wrong for inter-sentence glue (stretch=2.5 vs normal 1.667). Fix both in M49.
+- **Cycle (M49):** M49 completed in 1 implementation cycle. Leo fixed paragraph-end glue (natural:6.0→0.0, stretch:2.0→1.0) and proportional justification (remaining * stretch_i / total_stretch). 15 new tests, 915 total tests pass, CI green. Pixel similarity = 95.69% (unchanged — compare.tex doesn't have enough paragraphs for the parskip fix to show).
+- **CRITICAL BUG FOUND (M50 analysis):** Athena direct analysis revealed that section heading Kern(24.0)/Kern(8.0) nodes are HORIZONTAL kerns, not vertical. The PDF backend advances current_x (horizontal) when it sees Kern nodes, NOT current_y (vertical). This means section heading spacing is applied horizontally (as indentation) instead of vertically. Body text after a section heading is only 16.8pt below instead of ~48.8pt (24+16.8+8). This 32pt vertical mismatch cascades to ALL subsequent lines, explaining why pixel similarity is stuck at 95.69%. Fix: Add BoxNode::VSkip{amount} variant, use it for section/subsection before/after spacing, handle it in PDF backend as vertical movement.
 
 ## Milestones
 
@@ -829,7 +831,24 @@ Two critical rendering fixes to improve pixel similarity from 95.69% toward 97%+
 2. **Proportional justification** — Fix PDF backend to distribute remaining space proportionally based on per-glue stretch values instead of uniform `remaining/glue_count`. Fixes inter-sentence spacing.
 
 - **Cycles budget:** 2
-- **Status:** 🔄 Next (issue #52)
+- **Status:** ✅ Complete — Leo implemented (commit 06a3d80), 915 tests pass, CI green. Pixel similarity = 95.69% (compare.tex has only 1 paragraph after section heading, so parskip fix not visible here).
+
+### M50: Fix Section Heading Vertical Spacing (Critical Pixel Similarity Bug)
+Fix the critical bug where section heading before/after kerns are horizontal instead of vertical.
+
+**Root cause**: Section headings emit `[Kern(24), Text(heading), Kern(8)]`. These Kern nodes are processed as horizontal movement in the PDF backend (advancing current_x), not vertical. So body text after a section heading is only 16.8pt lower (heading line_height) instead of ~48.8pt lower (24 + 16.8 + 8). This 32pt error cascades to ALL subsequent lines.
+
+**Fix**:
+1. Add `BoxNode::VSkip { amount: f64 }` variant (vertical skip)
+2. Change section/subsection/subsubsection to emit VSkip instead of horizontal Kerns for before/after spacing
+3. In `break_items_with_alignment()`: A line containing ONLY a VSkip should have `line_height = amount` and the PDF backend advances current_y by that amount
+4. In PDF backend: VSkip-only lines advance current_y without rendering text
+5. 15+ new tests verifying VSkip behavior and section heading y-positions
+
+**Expected impact**: +3-4% pixel similarity (eliminates 32pt vertical mismatch on every line after section headings)
+
+- **Cycles budget:** 2
+- **Status:** 🔄 Next (issue #53)
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
