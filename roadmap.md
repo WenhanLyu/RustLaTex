@@ -113,6 +113,9 @@ Binary-identical output requires:
 - **Cycle (M49):** M49 completed in 1 implementation cycle. Leo fixed paragraph-end glue (natural:6.0→0.0, stretch:2.0→1.0) and proportional justification (remaining * stretch_i / total_stretch). 15 new tests, 915 total tests pass, CI green. Pixel similarity = 95.69% (unchanged — compare.tex doesn't have enough paragraphs for the parskip fix to show).
 - **Cycle (M50):** M50 completed in 1 cycle. Leo added BoxNode::VSkip, section/subsection emit VSkip instead of horizontal Kern. 22 new tests, 938 total. Pixel similarity DROPPED to 94.75% (from 95.69%) because spacing values (24pt/8pt) don't match pdflatex article class. Fix in M51.
 - **CRITICAL BUG FOUND (M50 analysis):** Athena direct analysis revealed that section heading Kern(24.0)/Kern(8.0) nodes are HORIZONTAL kerns, not vertical. The PDF backend advances current_x (horizontal) when it sees Kern nodes, NOT current_y (vertical). This means section heading spacing is applied horizontally (as indentation) instead of vertically. Body text after a section heading is only 16.8pt below instead of ~48.8pt (24+16.8+8). This 32pt vertical mismatch cascades to ALL subsequent lines, explaining why pixel similarity is stuck at 95.69%. Fix: Add BoxNode::VSkip{amount} variant, use it for section/subsection before/after spacing, handle it in PDF backend as vertical movement.
+- **Cycle (M51):** M51 completed in 1 cycle. Leo updated section spacing to 15.07/9.90/13.99/6.46, section font_size 14.0→14.4, subsubsection font_size 11.0→10.0. 17 new tests, 955 total. Pixel similarity DROPPED to 94.47% — regression caused by adding 15.07pt before first section (pdflatex suppresses before-skip at top of page).
+- **M51 regression root cause:** pdflatex's \@startsection uses NEGATIVE before-skip which is suppressed at top of page/column. compare.tex starts with \section{Introduction} — pdflatex adds ZERO before-spacing. We add 15.07pt VSkip, shifting all content down by 15.07pt. Fix in M52: suppress before-VSkip when no body content has been emitted yet.
+- **M52 scope:** Add `content_emitted: bool` to TranslationContext. Set true when body paragraphs are emitted. Suppress before-VSkip (use 0.0) when !content_emitted. Expected similarity recovery: 97%+.
 
 ## Milestones
 
@@ -851,20 +854,25 @@ Fix the critical bug where section heading before/after kerns are horizontal ins
 - **Cycles budget:** 2
 - **Status:** ✅ Complete — Leo implemented (commit 5a8e4d2), 938 tests pass. NOTE: Pixel similarity dropped to 94.75% — section spacing values (24pt/8pt) are WRONG vs pdflatex. Fix in M51.
 
-### M51: Fix Section Heading Spacing to Match pdflatex Article Class
+### M51: Fix Section Heading Spacing to Match pdflatex Article Class ✅ COMPLETE
 Fix section/subsection spacing values to match pdflatex article class exactly.
 
-**Root cause of regression**: M50 correctly made VSkip nodes vertical, but the values (24pt before section, 8pt after) don't match pdflatex article class. pdflatex uses ex-based spacing at 10pt body text (1ex_cmr10 ≈ 4.306pt):
-- Section before: 3.5ex = **15.07pt** (we use 24pt — 9pt too much)
-- Section after: 2.3ex = **9.90pt** (we use 8pt — 1.9pt too little)
-- Subsection before: 3.25ex = **13.99pt** (we use 18pt — 4pt too much)
-- Subsection after: 1.5ex = **6.46pt** (we use 6pt — close)
+- **Status:** ✅ Complete — Leo implemented (commit bd45b04), 955 tests pass, CI green. Pixel similarity = 94.47% (REGRESSION vs 95.69% pre-M50 — see M52 for fix)
+- **Root cause of M51 regression**: pdflatex SUPPRESSES the before-skip when section is at top of page/column. compare.tex starts with \section{Introduction} — no before-skip in pdflatex. We add 15.07pt VSkip before it, shifting ALL content down by 15.07pt. Fix in M52.
 
-Also pdflatex section font sizes: \section is \Large = 14.4pt (not 14pt), \subsection is \large = 12pt, \subsubsection is \normalsize = 10pt (not 11pt).
+### M52: Fix Top-of-Page Section Spacing (Before-Skip Suppression)
+Fix the M51 regression: suppress the before-VSkip for sections that appear at the start of document content.
 
-**Fix**: Update section before/after values in both `translate_node_with_metrics` and `translate_node_with_context`. Also update section font sizes. Update all tests that check for old spacing values.
+**Root cause**: pdflatex uses negative before-skip in \@startsection, which means: if the section appears at the top of a page/column, the before-skip is suppressed. compare.tex has \section{Introduction} as the first element, so pdflatex adds NO before-skip. We add 15.07pt, shifting all lines down by 15.07pt.
 
-**Expected impact**: +1-3% pixel similarity recovery from M50 regression, potentially exceeding pre-M50 baseline.
+**Fix**:
+1. Add `pub content_emitted: bool` flag to TranslationContext (initialized to false)
+2. Set `content_emitted = true` when a paragraph (body text) is emitted
+3. In section/subsection/subsubsection processing: if `!ctx.content_emitted`, use `kern_before = 0.0` (suppress before-VSkip)
+4. Also suppress in `translate_node_with_metrics` — detect by checking if section counter was 0 before this section (first section = no before-skip)
+5. Update all affected tests
+
+**Expected impact**: Recover from 94.47% back to 96%+ (remove 15.07pt shift from entire document)
 
 - **Cycles budget:** 2
 - **Status:** 🔄 Next
