@@ -798,12 +798,18 @@ fn math_node_to_boxes_inner(
             if s.is_empty() {
                 return vec![];
             }
+            let font_style =
+                if s.len() == 1 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+                    FontStyle::Italic
+                } else {
+                    FontStyle::Normal
+                };
             vec![BoxNode::Text {
-                width: metrics.string_width(s) * (font_size / 10.0),
+                width: metrics.string_width_for_style(s, font_style) * (font_size / 10.0),
                 text: s.clone(),
                 font_size,
                 color: None,
-                font_style: FontStyle::Normal,
+                font_style,
                 vertical_offset,
             }]
         }
@@ -13006,6 +13012,217 @@ mod tests {
         assert_eq!(boxes.len(), 1);
         if let BoxNode::Text { text, .. } = &boxes[0] {
             assert_eq!(text, "α");
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    // ===== M35: Math italic style tests =====
+
+    #[test]
+    fn test_math_italic_single_letter_uses_italic() {
+        // A single ASCII letter in math should use FontStyle::Italic
+        let node = Node::Text("x".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Italic);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_multi_char_uses_normal() {
+        // Multi-character text in math should use FontStyle::Normal
+        let node = Node::Text("xy".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Normal);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_digit_uses_normal() {
+        // A single digit should use FontStyle::Normal (not alphabetic)
+        let node = Node::Text("2".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Normal);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_all_lowercase() {
+        // Every lowercase ASCII letter should produce Italic
+        for ch in b'a'..=b'z' {
+            let s = String::from(ch as char);
+            let node = Node::Text(s.clone());
+            let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+            assert_eq!(boxes.len(), 1, "Expected 1 box for '{}'", s);
+            if let BoxNode::Text { font_style, .. } = &boxes[0] {
+                assert_eq!(
+                    *font_style,
+                    FontStyle::Italic,
+                    "Expected Italic for '{}'",
+                    s
+                );
+            } else {
+                panic!("Expected BoxNode::Text for '{}'", s);
+            }
+        }
+    }
+
+    #[test]
+    fn test_math_italic_all_uppercase() {
+        // Every uppercase ASCII letter should produce Italic
+        for ch in b'A'..=b'Z' {
+            let s = String::from(ch as char);
+            let node = Node::Text(s.clone());
+            let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+            assert_eq!(boxes.len(), 1, "Expected 1 box for '{}'", s);
+            if let BoxNode::Text { font_style, .. } = &boxes[0] {
+                assert_eq!(
+                    *font_style,
+                    FontStyle::Italic,
+                    "Expected Italic for '{}'",
+                    s
+                );
+            } else {
+                panic!("Expected BoxNode::Text for '{}'", s);
+            }
+        }
+    }
+
+    #[test]
+    fn test_math_italic_symbol_uses_normal() {
+        // A single symbol like '+' should use FontStyle::Normal
+        let node = Node::Text("+".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Normal);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_space_uses_normal() {
+        // A single space should use FontStyle::Normal (not alphabetic)
+        let node = Node::Text(" ".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Normal);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_empty_returns_empty() {
+        // Empty text in math should return no boxes
+        let node = Node::Text(String::new());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert!(boxes.is_empty());
+    }
+
+    #[test]
+    fn test_math_node_superscript_letter_italic() {
+        // In x^2, the base 'x' should be italic and exponent '2' should be normal
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(
+                *font_style,
+                FontStyle::Italic,
+                "Base letter should be italic"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for base");
+        }
+        if let BoxNode::Text { font_style, .. } = &boxes[1] {
+            assert_eq!(
+                *font_style,
+                FontStyle::Normal,
+                "Digit exponent should be normal"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for exponent");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_subscript_letter_italic() {
+        // In x_i, both 'x' and 'i' are single letters -> both italic
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2);
+        if let BoxNode::Text { font_style, .. } = &boxes[0] {
+            assert_eq!(*font_style, FontStyle::Italic, "Base 'x' should be italic");
+        } else {
+            panic!("Expected BoxNode::Text for base");
+        }
+        if let BoxNode::Text { font_style, .. } = &boxes[1] {
+            assert_eq!(
+                *font_style,
+                FontStyle::Italic,
+                "Subscript 'i' should be italic"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for subscript");
+        }
+    }
+
+    #[test]
+    fn test_math_italic_width_uses_style() {
+        // Width for single letter should use italic metrics
+        let node = Node::Text("x".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { width, .. } = &boxes[0] {
+            let expected =
+                StandardFontMetrics.string_width_for_style("x", FontStyle::Italic) * (10.0 / 10.0);
+            assert!(
+                (*width - expected).abs() < 0.001,
+                "Width should use italic metrics: got {} expected {}",
+                width,
+                expected
+            );
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_math_normal_width_uses_normal_style() {
+        // Width for multi-char text should use normal metrics
+        let node = Node::Text("sin".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { width, .. } = &boxes[0] {
+            let expected = StandardFontMetrics.string_width_for_style("sin", FontStyle::Normal)
+                * (10.0 / 10.0);
+            assert!(
+                (*width - expected).abs() < 0.001,
+                "Width should use normal metrics: got {} expected {}",
+                width,
+                expected
+            );
         } else {
             panic!("Expected BoxNode::Text");
         }

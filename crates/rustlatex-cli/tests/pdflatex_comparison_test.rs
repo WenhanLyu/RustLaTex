@@ -79,6 +79,104 @@ fn render_pdf_to_png(pdf_path: &Path, label: &str) -> PathBuf {
     png_path
 }
 
+/// Render a PDF to a PPM using GhostScript. Returns the PPM path.
+fn render_pdf_to_ppm(pdf_path: &Path, label: &str) -> PathBuf {
+    let ppm_path = std::env::temp_dir().join(format!(
+        "rustlatex_cmp_{}_{}.ppm",
+        label,
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&ppm_path);
+    let gs = gs_path();
+    let output = Command::new(&gs)
+        .args([
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-sDEVICE=ppmraw",
+            "-r72",
+            "-dFirstPage=1",
+            "-dLastPage=1",
+            &format!("-sOutputFile={}", ppm_path.display()),
+            pdf_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to invoke gs for PPM");
+    assert!(
+        output.status.success(),
+        "gs PPM render failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ppm_path
+}
+
+/// Compare two PPM (P6 binary) files pixel-by-pixel.
+/// Returns the fraction of matching RGB pixels (0.0 to 1.0).
+fn compare_ppm_files(path1: &Path, path2: &Path) -> f64 {
+    let data1 = match std::fs::read(path1) {
+        Ok(d) => d,
+        Err(_) => return 0.0,
+    };
+    let data2 = match std::fs::read(path2) {
+        Ok(d) => d,
+        Err(_) => return 0.0,
+    };
+
+    // Parse PPM P6 header: "P6\n", "width height\n", "maxval\n"
+    fn parse_ppm_header(data: &[u8]) -> Option<usize> {
+        if !data.starts_with(b"P6") {
+            return None;
+        }
+        // Skip past 3 newlines to get pixel data offset
+        let mut newlines = 0;
+        let mut i = 0;
+        while i < data.len() && newlines < 3 {
+            if data[i] == b'\n' {
+                newlines += 1;
+            }
+            i += 1;
+        }
+        if newlines == 3 {
+            Some(i)
+        } else {
+            None
+        }
+    }
+
+    let offset1 = match parse_ppm_header(&data1) {
+        Some(o) => o,
+        None => return 0.0,
+    };
+    let offset2 = match parse_ppm_header(&data2) {
+        Some(o) => o,
+        None => return 0.0,
+    };
+
+    let pixels1 = &data1[offset1..];
+    let pixels2 = &data2[offset2..];
+
+    let min_len = pixels1.len().min(pixels2.len());
+    if min_len == 0 {
+        return 0.0;
+    }
+
+    // Count matching pixels (compare RGB triplets)
+    let total_pixels = min_len / 3;
+    if total_pixels == 0 {
+        return 0.0;
+    }
+    let mut matching = 0u64;
+    for i in 0..total_pixels {
+        let idx = i * 3;
+        if pixels1[idx] == pixels2[idx]
+            && pixels1[idx + 1] == pixels2[idx + 1]
+            && pixels1[idx + 2] == pixels2[idx + 2]
+        {
+            matching += 1;
+        }
+    }
+    matching as f64 / total_pixels as f64
+}
+
 /// Check if pdflatex tests should be skipped.
 fn skip_pdflatex() -> bool {
     std::env::var("SKIP_PDFLATEX_TESTS").is_ok()
@@ -289,7 +387,7 @@ fn test_pixel_similarity_logged() {
         .output()
         .expect("failed to run rustlatex");
     assert!(output.status.success(), "rustlatex failed");
-    let our_png = render_pdf_to_png(&our_pdf, "sim_ours");
+    let our_ppm = render_pdf_to_ppm(&our_pdf, "sim_ours");
 
     // --- pdflatex PDF ---
     let tmp = std::env::temp_dir().join(format!("rustlatex_sim_pdflatex_{}", std::process::id()));
@@ -301,45 +399,30 @@ fn test_pixel_similarity_logged() {
         .output()
         .expect("failed to run pdflatex");
     assert!(output.status.success(), "pdflatex failed");
-    let pdflatex_png = render_pdf_to_png(&tmp.join("compare.pdf"), "sim_pdflatex");
+    let pdflatex_ppm = render_pdf_to_ppm(&tmp.join("compare.pdf"), "sim_pdflatex");
 
-    // --- Compare pixel data ---
-    let our_bytes = std::fs::read(&our_png).unwrap_or_default();
-    let their_bytes = std::fs::read(&pdflatex_png).unwrap_or_default();
+    // --- Compare pixel data using PPM comparison ---
+    let similarity = compare_ppm_files(&our_ppm, &pdflatex_ppm);
 
-    let min_len = our_bytes.len().min(their_bytes.len());
-    let max_len = our_bytes.len().max(their_bytes.len());
+    let our_size = std::fs::metadata(&our_ppm).map(|m| m.len()).unwrap_or(0);
+    let their_size = std::fs::metadata(&pdflatex_ppm)
+        .map(|m| m.len())
+        .unwrap_or(0);
 
-    let mut diff_count: u64 = 0;
-    for i in 0..min_len {
-        if our_bytes[i] != their_bytes[i] {
-            diff_count += 1;
-        }
-    }
-    // Bytes beyond the shorter file are all different
-    diff_count += (max_len - min_len) as u64;
-
-    let similarity = if max_len > 0 {
-        1.0 - (diff_count as f64 / max_len as f64)
-    } else {
-        1.0
-    };
-
-    eprintln!("=== Pixel Similarity Report ===");
-    eprintln!("Our PNG size:      {} bytes", our_bytes.len());
-    eprintln!("pdflatex PNG size: {} bytes", their_bytes.len());
-    eprintln!("Differing bytes:   {}", diff_count);
+    eprintln!("=== Pixel Similarity Report (PPM) ===");
+    eprintln!("Our PPM size:      {} bytes", our_size);
+    eprintln!("pdflatex PPM size: {} bytes", their_size);
     eprintln!(
-        "Byte similarity:   {:.4} ({:.2}%)",
+        "Visual similarity: {:.4} ({:.2}%)",
         similarity,
         similarity * 100.0
     );
-    eprintln!("===============================");
+    eprintln!("=====================================");
 
     // Clean up
     let _ = std::fs::remove_file(&our_pdf);
-    let _ = std::fs::remove_file(&our_png);
-    let _ = std::fs::remove_file(&pdflatex_png);
+    let _ = std::fs::remove_file(&our_ppm);
+    let _ = std::fs::remove_file(&pdflatex_ppm);
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -414,4 +497,190 @@ fn test_skip_pdflatex_default_is_false() {
             "skip_pdflatex() should be false when env var not set"
         );
     }
+}
+
+// ===== M35: PPM comparison tests =====
+
+#[test]
+fn test_compare_ppm_files_identical() {
+    // Two identical PPM files should produce similarity 1.0
+    let header = b"P6\n2 1\n255\n";
+    let pixels = [255u8, 0, 0, 0, 255, 0]; // red, green
+    let mut data = Vec::new();
+    data.extend_from_slice(header);
+    data.extend_from_slice(&pixels);
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_identical_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_identical_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data).unwrap();
+    std::fs::write(&p2, &data).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        (sim - 1.0).abs() < f64::EPSILON,
+        "Identical PPM should have similarity 1.0, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_different() {
+    // Completely different pixels should produce similarity 0.0
+    let header = b"P6\n2 1\n255\n";
+    let mut data1 = Vec::new();
+    data1.extend_from_slice(header);
+    data1.extend_from_slice(&[255, 255, 255, 255, 255, 255]);
+
+    let mut data2 = Vec::new();
+    data2.extend_from_slice(header);
+    data2.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_diff_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_diff_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data1).unwrap();
+    std::fs::write(&p2, &data2).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        sim < f64::EPSILON,
+        "Completely different PPM should have similarity 0.0, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_empty_returns_zero() {
+    // Empty files should return 0.0
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_empty_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_empty_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, b"").unwrap();
+    std::fs::write(&p2, b"").unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        sim < f64::EPSILON,
+        "Empty PPM files should have similarity 0.0, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_invalid_format() {
+    // Non-PPM data should return 0.0
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_invalid_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_invalid_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, b"not a ppm file").unwrap();
+    std::fs::write(&p2, b"also not ppm").unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        sim < f64::EPSILON,
+        "Invalid PPM should have similarity 0.0, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_partial_match() {
+    // Half matching pixels: 1 match out of 2 -> 0.5
+    let header = b"P6\n2 1\n255\n";
+    let mut data1 = Vec::new();
+    data1.extend_from_slice(header);
+    data1.extend_from_slice(&[255, 0, 0, 0, 255, 0]);
+
+    let mut data2 = Vec::new();
+    data2.extend_from_slice(header);
+    data2.extend_from_slice(&[255, 0, 0, 0, 0, 255]); // first pixel same, second different
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_partial_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_partial_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data1).unwrap();
+    std::fs::write(&p2, &data2).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        (sim - 0.5).abs() < f64::EPSILON,
+        "Half matching should have similarity 0.5, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_ppm_files_missing_file() {
+    // Missing file should return 0.0
+    let dir = std::env::temp_dir();
+    let p1 = dir.join("nonexistent_ppm_file_1.ppm");
+    let p2 = dir.join("nonexistent_ppm_file_2.ppm");
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        sim < f64::EPSILON,
+        "Missing files should have similarity 0.0, got {}",
+        sim
+    );
+}
+
+#[test]
+fn test_compare_ppm_header_parsing() {
+    // Valid P6 header should be parsed; single pixel white
+    let header = b"P6\n1 1\n255\n";
+    let pixels = [255u8, 255, 255];
+    let mut data = Vec::new();
+    data.extend_from_slice(header);
+    data.extend_from_slice(&pixels);
+
+    let dir = std::env::temp_dir();
+    let p1 = dir.join(format!("test_ppm_header_1_{}.ppm", std::process::id()));
+    let p2 = dir.join(format!("test_ppm_header_2_{}.ppm", std::process::id()));
+    std::fs::write(&p1, &data).unwrap();
+    std::fs::write(&p2, &data).unwrap();
+
+    let sim = compare_ppm_files(&p1, &p2);
+    assert!(
+        (sim - 1.0).abs() < f64::EPSILON,
+        "Single identical pixel should give 1.0, got {}",
+        sim
+    );
+
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+}
+
+#[test]
+fn test_compare_tex_has_subsection() {
+    let tex_path = compare_tex_path();
+    let content = std::fs::read_to_string(&tex_path).expect("Failed to read compare.tex");
+    assert!(
+        content.contains(r"\subsection{Details}"),
+        "compare.tex must contain \\subsection{{Details}}"
+    );
+}
+
+#[test]
+fn test_compare_tex_has_display_math() {
+    let tex_path = compare_tex_path();
+    let content = std::fs::read_to_string(&tex_path).expect("Failed to read compare.tex");
+    assert!(
+        content.contains(r"\[ E = mc^2 \]"),
+        "compare.tex must contain \\[ E = mc^2 \\]"
+    );
 }
