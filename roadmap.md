@@ -90,7 +90,8 @@ Binary-identical output requires:
 - **Diana's M38 research (issue #40, closed):** Confirmed cmmi10/cmsy10 downloadable from CTAN amsfonts (SIL OFL 1.1). cmmi10 Latin letters at same ASCII positions as OT1. cmsy10 bullet at position 15 (5pt advance, 3.87pt diameter). Expected +0.5-0.9% pixel similarity improvement. Low implementation risk.
 - **Cycle (M38):** M38 completed in 1 implementation cycle (Ares). Embedded cmmi10.pfb (F7/MathItalic) + cmsy10.pfb (F8/bullet). Shifted page Refs from 18 to 24. Bullet now uses cmsy10 glyph 15 (5pt advance). 706 total tests pass, CI green (commit 315adba).
 - **M39 scope:** Math operator spacing (thin/thick spaces around binary operators and relations in math mode) + fix CI pixel similarity visibility. Binary ops (+/-/×) get 1.667pt on each side; relations (=/</>/) get 2.778pt on each side. This is the most visible remaining gap in compare.tex.
-- **M40 research (Diana):** Investigate character pair kerning (cmr10 AFM kern pairs), math mode rendering accuracy, word spacing exact values, page geometry validation, and actual pixel similarity score.
+- **M40 research (Athena direct):** cmr10 AFM has exactly 183 kern pairs. Word spacing (stretch=1.67, shrink=1.11) is already correct (TeX standard 1.667/1.111). Main remaining improvement is implementing kern pair lookups in the PDF backend. Diana was consistently hitting 200K token limit — skipped Diana for M40 planning.
+- **Cycle (M40):** Planned — character pair kerning (183 cmr10 AFM pairs) in PDF backend. Also: word spacing exact values (already correct). Target 746+ tests.
 
 ## Milestones
 
@@ -721,13 +722,19 @@ Improve math rendering quality by adding proper thin/thick spaces around math op
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 263e476), 736 tests pass, CI green. Pixel similarity = 96.96%.
 
-### M40: Character Pair Kerning + Word Spacing Accuracy
-Improve text rendering quality by implementing cmr10 AFM kerning pairs and fixing inter-word spacing to match TeX's exact values.
+### M40: Character Pair Kerning (cmr10 AFM Kern Pairs)
+Improve text rendering quality by implementing cmr10 AFM kerning pairs in the PDF backend.
 
 **Goals:**
-1. **Character pair kerning** — cmr10 AFM has 183 kern pairs (e.g., AV=-111pt, To=-83pt, ff=+78pt). Add kern pair lookup in PDF backend `render_text_node()`. Emit `Kern` spacing between adjacent characters with known kern pairs. Estimated +1-2% pixel similarity.
-2. **Exact inter-word spacing** — TeX standard: 3.333pt natural, 1.667pt stretch, 1.111pt shrink for cmr10 at 10pt. Verify and fix engine inter-word glue values.
-3. **10+ new tests** covering kern pair lookup and word spacing values.
+1. **Character pair kerning** — cmr10 AFM has 183 kern pairs (e.g., AV=-111pt, To=-83pt, ff=+78pt). Add kern pair lookup in PDF backend `render_text_node()`. For each adjacent character pair with a kern value, emit a PDF `Kern` (TJ operator with spacing) between them. Estimated +1-2% pixel similarity.
+2. **Verify inter-word spacing** — TeX standard: 3.333pt natural, 1.667pt stretch, 1.111pt shrink for cmr10 at 10pt. Current values (stretch=1.67, shrink=1.11) are already correct.
+3. **10+ new tests** covering kern pair lookup and correct output for known pairs like AT, AV, To, Fo.
+
+**Implementation details:**
+- Kern pairs apply only to F1 (cmr10 Normal) and F2 (cmbx10 Bold) — not MathItalic/Italic/Typewriter
+- AFM kern values are in 1/1000 of em. At 10pt: divide by 100 to get pt. (e.g., AV=-111.111 units → -1.111pt at 10pt)
+- In PDF TJ operator: use array alternating strings and kerning numbers (negative = closer together). PDF kern units are 1/1000 of text space units (same as AFM units scaled by font size).
+- Build the kern pair table as a static HashMap or match expression at compile time.
 
 - **Cycles budget:** 2 | **Cycles actual:** pending
 - **Status:** 🔄 Planned
