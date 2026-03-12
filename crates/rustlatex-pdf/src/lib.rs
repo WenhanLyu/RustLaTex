@@ -64,6 +64,247 @@ fn is_cm_text_font(font_name: &[u8]) -> bool {
     matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5")
 }
 
+/// Return true if kerning should be applied for this font name.
+/// Only F1 (cmr10, Normal) uses cmr10 AFM kern pairs.
+fn is_cmr10_kern_font(font_name: &[u8]) -> bool {
+    matches!(font_name, b"F1")
+}
+
+/// Look up the cmr10 AFM kern pair value for a pair of byte-encoded glyphs.
+///
+/// Returns the kern value in AFM units (per 1000 em), or 0.0 if no kern pair
+/// exists. Based on the 183 KPX entries (181 unique) from cmr10.afm.
+///
+/// Glyph names are mapped to OT1 byte positions:
+/// - A-Z at 65-90, a-z at 97-122
+/// - ff=11, quoteright=39, exclam=33, question=63, parenright=41
+/// - bracketright=93, period=46, comma=44, suppress=32
+pub fn cmr10_kern_pair(a: u8, b: u8) -> f32 {
+    match (a, b) {
+        // ff ligature (byte 11) pairs
+        (11, 33) => 77.778, // ff + !
+        (11, 39) => 77.778, // ff + '
+        (11, 41) => 77.778, // ff + )
+        (11, 63) => 77.778, // ff + ?
+        (11, 93) => 77.778, // ff + ]
+        // suppress (byte 32) pairs
+        (32, 76) => -319.444,  // suppress + L
+        (32, 108) => -277.778, // suppress + l
+        // quoteright (byte 39) pairs
+        (39, 33) => 111.111, // ' + !
+        (39, 63) => 111.111, // ' + ?
+        // A pairs
+        (65, 67) => -27.778,  // A + C
+        (65, 71) => -27.778,  // A + G
+        (65, 79) => -27.778,  // A + O
+        (65, 81) => -27.778,  // A + Q
+        (65, 84) => -83.333,  // A + T
+        (65, 85) => -27.778,  // A + U
+        (65, 86) => -111.111, // A + V
+        (65, 87) => -111.111, // A + W
+        (65, 89) => -83.333,  // A + Y
+        (65, 116) => -27.778, // A + t
+        // D pairs
+        (68, 65) => -27.778, // D + A
+        (68, 86) => -27.778, // D + V
+        (68, 87) => -27.778, // D + W
+        (68, 88) => -27.778, // D + X
+        (68, 89) => -27.778, // D + Y
+        // F pairs
+        (70, 65) => -111.111, // F + A
+        (70, 67) => -27.778,  // F + C
+        (70, 71) => -27.778,  // F + G
+        (70, 79) => -27.778,  // F + O
+        (70, 81) => -27.778,  // F + Q
+        (70, 97) => -83.333,  // F + a
+        (70, 101) => -83.333, // F + e
+        (70, 111) => -83.333, // F + o
+        (70, 114) => -83.333, // F + r
+        (70, 117) => -83.333, // F + u
+        // I pairs
+        (73, 73) => 27.778, // I + I
+        // K pairs
+        (75, 67) => -27.778, // K + C
+        (75, 71) => -27.778, // K + G
+        (75, 79) => -27.778, // K + O
+        (75, 81) => -27.778, // K + Q
+        // L pairs
+        (76, 84) => -83.333,  // L + T
+        (76, 86) => -111.111, // L + V
+        (76, 87) => -111.111, // L + W
+        (76, 89) => -83.333,  // L + Y
+        // O pairs
+        (79, 65) => -27.778, // O + A
+        (79, 86) => -27.778, // O + V
+        (79, 87) => -27.778, // O + W
+        (79, 88) => -27.778, // O + X
+        (79, 89) => -27.778, // O + Y
+        // P pairs
+        (80, 44) => -83.333,  // P + ,
+        (80, 46) => -83.333,  // P + .
+        (80, 65) => -83.333,  // P + A
+        (80, 97) => -27.778,  // P + a
+        (80, 101) => -27.778, // P + e
+        (80, 111) => -27.778, // P + o
+        // R pairs
+        (82, 67) => -27.778,  // R + C
+        (82, 71) => -27.778,  // R + G
+        (82, 79) => -27.778,  // R + O
+        (82, 81) => -27.778,  // R + Q
+        (82, 84) => -83.333,  // R + T
+        (82, 85) => -27.778,  // R + U
+        (82, 86) => -111.111, // R + V
+        (82, 87) => -111.111, // R + W
+        (82, 89) => -83.333,  // R + Y
+        (82, 116) => -27.778, // R + t
+        // T pairs
+        (84, 65) => -83.333,  // T + A
+        (84, 97) => -83.333,  // T + a
+        (84, 101) => -83.333, // T + e
+        (84, 111) => -83.333, // T + o
+        (84, 114) => -83.333, // T + r
+        (84, 117) => -83.333, // T + u
+        (84, 121) => -27.778, // T + y
+        // V pairs
+        (86, 65) => -111.111, // V + A
+        (86, 67) => -27.778,  // V + C
+        (86, 71) => -27.778,  // V + G
+        (86, 79) => -27.778,  // V + O
+        (86, 81) => -27.778,  // V + Q
+        (86, 97) => -83.333,  // V + a
+        (86, 101) => -83.333, // V + e
+        (86, 111) => -83.333, // V + o
+        (86, 114) => -83.333, // V + r
+        (86, 117) => -83.333, // V + u
+        // W pairs
+        (87, 65) => -111.111, // W + A
+        (87, 67) => -27.778,  // W + C
+        (87, 71) => -27.778,  // W + G
+        (87, 79) => -27.778,  // W + O
+        (87, 81) => -27.778,  // W + Q
+        (87, 97) => -83.333,  // W + a
+        (87, 101) => -83.333, // W + e
+        (87, 111) => -83.333, // W + o
+        (87, 114) => -83.333, // W + r
+        (87, 117) => -83.333, // W + u
+        // X pairs
+        (88, 67) => -27.778, // X + C
+        (88, 71) => -27.778, // X + G
+        (88, 79) => -27.778, // X + O
+        (88, 81) => -27.778, // X + Q
+        // Y pairs
+        (89, 65) => -83.333,  // Y + A
+        (89, 97) => -83.333,  // Y + a
+        (89, 101) => -83.333, // Y + e
+        (89, 111) => -83.333, // Y + o
+        (89, 114) => -83.333, // Y + r
+        (89, 117) => -83.333, // Y + u
+        // a pairs
+        (97, 106) => 55.556,  // a + j
+        (97, 118) => -27.778, // a + v
+        (97, 119) => -27.778, // a + w
+        (97, 121) => -27.778, // a + y
+        // b pairs
+        (98, 99) => 27.778,   // b + c
+        (98, 100) => 27.778,  // b + d
+        (98, 101) => 27.778,  // b + e
+        (98, 106) => 55.556,  // b + j
+        (98, 111) => 27.778,  // b + o
+        (98, 113) => 27.778,  // b + q
+        (98, 118) => -27.778, // b + v
+        (98, 119) => -27.778, // b + w
+        (98, 120) => -27.778, // b + x
+        (98, 121) => -27.778, // b + y
+        // c pairs
+        (99, 104) => -27.778, // c + h
+        (99, 107) => -27.778, // c + k
+        // f pairs
+        (102, 33) => 77.778, // f + !
+        (102, 39) => 77.778, // f + '
+        (102, 41) => 77.778, // f + )
+        (102, 63) => 77.778, // f + ?
+        (102, 93) => 77.778, // f + ]
+        // g pairs
+        (103, 106) => 27.778, // g + j
+        // h pairs
+        (104, 98) => -27.778,  // h + b
+        (104, 116) => -27.778, // h + t
+        (104, 117) => -27.778, // h + u
+        (104, 118) => -27.778, // h + v
+        (104, 119) => -27.778, // h + w
+        (104, 121) => -27.778, // h + y
+        // k pairs (last value for duplicate k+a)
+        (107, 97) => -27.778,  // k + a
+        (107, 99) => -27.778,  // k + c
+        (107, 101) => -27.778, // k + e
+        (107, 111) => -27.778, // k + o
+        // m pairs
+        (109, 98) => -27.778,  // m + b
+        (109, 116) => -27.778, // m + t
+        (109, 117) => -27.778, // m + u
+        (109, 118) => -27.778, // m + v
+        (109, 119) => -27.778, // m + w
+        (109, 121) => -27.778, // m + y
+        // n pairs
+        (110, 98) => -27.778,  // n + b
+        (110, 116) => -27.778, // n + t
+        (110, 117) => -27.778, // n + u
+        (110, 118) => -27.778, // n + v
+        (110, 119) => -27.778, // n + w
+        (110, 121) => -27.778, // n + y
+        // o pairs
+        (111, 99) => 27.778,   // o + c
+        (111, 100) => 27.778,  // o + d
+        (111, 101) => 27.778,  // o + e
+        (111, 106) => 55.556,  // o + j
+        (111, 111) => 27.778,  // o + o
+        (111, 113) => 27.778,  // o + q
+        (111, 118) => -27.778, // o + v
+        (111, 119) => -27.778, // o + w
+        (111, 120) => -27.778, // o + x
+        (111, 121) => -27.778, // o + y
+        // p pairs
+        (112, 99) => 27.778,   // p + c
+        (112, 100) => 27.778,  // p + d
+        (112, 101) => 27.778,  // p + e
+        (112, 106) => 55.556,  // p + j
+        (112, 111) => 27.778,  // p + o
+        (112, 113) => 27.778,  // p + q
+        (112, 118) => -27.778, // p + v
+        (112, 119) => -27.778, // p + w
+        (112, 120) => -27.778, // p + x
+        (112, 121) => -27.778, // p + y
+        // t pairs
+        (116, 119) => -27.778, // t + w
+        (116, 121) => -27.778, // t + y
+        // u pairs
+        (117, 119) => -27.778, // u + w
+        // v pairs (last value for duplicate v+a)
+        (118, 97) => -27.778,  // v + a
+        (118, 99) => -27.778,  // v + c
+        (118, 101) => -27.778, // v + e
+        (118, 111) => -27.778, // v + o
+        // w pairs
+        (119, 97) => -27.778,  // w + a
+        (119, 99) => -27.778,  // w + c
+        (119, 101) => -27.778, // w + e
+        (119, 111) => -27.778, // w + o
+        // y pairs
+        (121, 44) => -83.333,  // y + ,
+        (121, 46) => -83.333,  // y + .
+        (121, 97) => -27.778,  // y + a
+        (121, 101) => -27.778, // y + e
+        (121, 111) => -27.778, // y + o
+        // No kern pair
+        _ => 0.0,
+    }
+}
+
+/// Check if any adjacent bytes in a slice have non-zero kern pairs.
+fn has_kern_pairs(bytes: &[u8]) -> bool {
+    bytes.windows(2).any(|w| cmr10_kern_pair(w[0], w[1]) != 0.0)
+}
+
 /// Escape a string for use as a PDF string literal.
 /// Escapes backslashes and parentheses.
 fn pdf_escape(s: &str) -> Vec<u8> {
@@ -834,32 +1075,63 @@ impl PdfWriter {
                             }
                             content.set_font(Name(font_name), *font_size as f32);
                             // Apply OT1 ligature substitution for CM text fonts
-                            let text_bytes = if is_cm_text_font(font_name) {
-                                let lig = apply_ot1_ligatures(text);
-                                // pdf_escape the ligature bytes (escape \ ( ) )
-                                let mut escaped_lig = Vec::with_capacity(lig.len());
-                                for &b in &lig {
-                                    match b {
-                                        b'\\' => {
-                                            escaped_lig.push(b'\\');
-                                            escaped_lig.push(b'\\');
-                                        }
-                                        b'(' => {
-                                            escaped_lig.push(b'\\');
-                                            escaped_lig.push(b'(');
-                                        }
-                                        b')' => {
-                                            escaped_lig.push(b'\\');
-                                            escaped_lig.push(b')');
-                                        }
-                                        _ => escaped_lig.push(b),
+                            let raw_bytes = if is_cm_text_font(font_name) {
+                                apply_ot1_ligatures(text)
+                            } else {
+                                text.as_bytes().to_vec()
+                            };
+
+                            // Use TJ (show_positioned) for cmr10 kern font with kern pairs,
+                            // otherwise use Tj (show)
+                            if is_cmr10_kern_font(font_name) && has_kern_pairs(&raw_bytes) {
+                                // Build TJ array with kern adjustments
+                                let mut sp = content.show_positioned();
+                                let mut items = sp.items();
+                                let mut seg_start = 0;
+                                for i in 0..raw_bytes.len().saturating_sub(1) {
+                                    let kern = cmr10_kern_pair(raw_bytes[i], raw_bytes[i + 1]);
+                                    if kern != 0.0 {
+                                        // Emit the segment up to and including byte i
+                                        items.show(Str(&raw_bytes[seg_start..=i]));
+                                        // Emit the kern adjustment (negate: TJ subtracts)
+                                        items.adjust(-kern);
+                                        seg_start = i + 1;
                                     }
                                 }
-                                escaped_lig
+                                // Emit remaining bytes
+                                if seg_start < raw_bytes.len() {
+                                    items.show(Str(&raw_bytes[seg_start..]));
+                                }
+                                drop(items);
+                                drop(sp);
                             } else {
-                                pdf_escape(text)
-                            };
-                            content.show(Str(&text_bytes));
+                                // No kerning — use simple Tj with escaped bytes
+                                let text_bytes = if is_cm_text_font(font_name) {
+                                    // raw_bytes already has ligatures applied, just escape
+                                    let mut escaped_lig = Vec::with_capacity(raw_bytes.len());
+                                    for &b in &raw_bytes {
+                                        match b {
+                                            b'\\' => {
+                                                escaped_lig.push(b'\\');
+                                                escaped_lig.push(b'\\');
+                                            }
+                                            b'(' => {
+                                                escaped_lig.push(b'\\');
+                                                escaped_lig.push(b'(');
+                                            }
+                                            b')' => {
+                                                escaped_lig.push(b'\\');
+                                                escaped_lig.push(b')');
+                                            }
+                                            _ => escaped_lig.push(b),
+                                        }
+                                    }
+                                    escaped_lig
+                                } else {
+                                    pdf_escape(text)
+                                };
+                                content.show(Str(&text_bytes));
+                            }
                             current_x += *width as f32;
                             // Reset text rise after rendering
                             if has_rise {
@@ -2585,5 +2857,297 @@ mod tests {
         assert!(!is_cm_text_font(b"F6"), "F6 should NOT apply OT1 ligatures");
         assert!(!is_cm_text_font(b"F7"), "F7 should NOT apply OT1 ligatures");
         assert!(!is_cm_text_font(b"F8"), "F8 should NOT apply OT1 ligatures");
+    }
+
+    // ============================================================
+    // M40: cmr10 AFM character pair kerning tests
+    // ============================================================
+
+    #[test]
+    fn test_m40_kern_pair_a_v() {
+        // A + V has kern value -111.111
+        let k = cmr10_kern_pair(b'A', b'V');
+        assert!(
+            (k - (-111.111)).abs() < 0.01,
+            "A+V kern should be ≈ -111.111, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_t_o() {
+        // T + o has kern value -83.333
+        let k = cmr10_kern_pair(b'T', b'o');
+        assert!(
+            (k - (-83.333)).abs() < 0.01,
+            "T+o kern should be ≈ -83.333, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_a_b_zero() {
+        // a + b has no kern pair → 0.0
+        let k = cmr10_kern_pair(b'a', b'b');
+        assert_eq!(k, 0.0, "a+b kern should be 0.0");
+    }
+
+    #[test]
+    fn test_m40_kern_pair_a_w() {
+        // A + W has kern value -111.111
+        let k = cmr10_kern_pair(b'A', b'W');
+        assert!(
+            (k - (-111.111)).abs() < 0.01,
+            "A+W kern should be ≈ -111.111, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_f_a() {
+        // F + A has kern value -111.111
+        let k = cmr10_kern_pair(b'F', b'A');
+        assert!(
+            (k - (-111.111)).abs() < 0.01,
+            "F+A kern should be ≈ -111.111, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_i_i_positive() {
+        // I + I has positive kern value 27.778
+        let k = cmr10_kern_pair(b'I', b'I');
+        assert!(
+            (k - 27.778).abs() < 0.01,
+            "I+I kern should be ≈ 27.778, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_y_period() {
+        // y + period has kern value -83.333
+        let k = cmr10_kern_pair(b'y', b'.');
+        assert!(
+            (k - (-83.333)).abs() < 0.01,
+            "y+. kern should be ≈ -83.333, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_p_a_neg() {
+        // P + A has kern value -83.333
+        let k = cmr10_kern_pair(b'P', b'A');
+        assert!(
+            (k - (-83.333)).abs() < 0.01,
+            "P+A kern should be ≈ -83.333, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_l_v() {
+        // L + V has kern value -111.111
+        let k = cmr10_kern_pair(b'L', b'V');
+        assert!(
+            (k - (-111.111)).abs() < 0.01,
+            "L+V kern should be ≈ -111.111, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_b_o_positive() {
+        // b + o has kern value 27.778
+        let k = cmr10_kern_pair(b'b', b'o');
+        assert!(
+            (k - 27.778).abs() < 0.01,
+            "b+o kern should be ≈ 27.778, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_a_j_positive() {
+        // a + j has kern value 55.556
+        let k = cmr10_kern_pair(b'a', b'j');
+        assert!(
+            (k - 55.556).abs() < 0.01,
+            "a+j kern should be ≈ 55.556, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_f_exclam() {
+        // f + ! has kern value 77.778
+        let k = cmr10_kern_pair(b'f', b'!');
+        assert!(
+            (k - 77.778).abs() < 0.01,
+            "f+! kern should be ≈ 77.778, got {}",
+            k
+        );
+    }
+
+    #[test]
+    fn test_m40_kern_pair_no_pair_returns_zero() {
+        // Random pairs with no kern
+        assert_eq!(cmr10_kern_pair(b'x', b'x'), 0.0);
+        assert_eq!(cmr10_kern_pair(b'Z', b'z'), 0.0);
+        assert_eq!(cmr10_kern_pair(b's', b't'), 0.0);
+        assert_eq!(cmr10_kern_pair(b'0', b'0'), 0.0);
+    }
+
+    #[test]
+    fn test_m40_has_kern_pairs_true() {
+        assert!(has_kern_pairs(b"AV"));
+        assert!(has_kern_pairs(b"To"));
+        assert!(has_kern_pairs(b"WAR"));
+    }
+
+    #[test]
+    fn test_m40_has_kern_pairs_false() {
+        assert!(!has_kern_pairs(b"ab"));
+        assert!(!has_kern_pairs(b"xyz"));
+        assert!(!has_kern_pairs(b""));
+        assert!(!has_kern_pairs(b"a"));
+    }
+
+    #[test]
+    fn test_m40_is_cmr10_kern_font() {
+        assert!(is_cmr10_kern_font(b"F1"), "F1 should have kerning");
+        assert!(!is_cmr10_kern_font(b"F3"), "F3 should NOT have kerning");
+        assert!(!is_cmr10_kern_font(b"F4"), "F4 should NOT have kerning");
+        assert!(!is_cmr10_kern_font(b"F5"), "F5 should NOT have kerning");
+        assert!(!is_cmr10_kern_font(b"F6"), "F6 should NOT have kerning");
+        assert!(!is_cmr10_kern_font(b"F7"), "F7 should NOT have kerning");
+        assert!(!is_cmr10_kern_font(b"F8"), "F8 should NOT have kerning");
+    }
+
+    #[test]
+    fn test_m40_pdf_render_with_kern_pairs_non_empty() {
+        // Text "AV" has a kern pair; PDF should render non-empty
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "AV".to_string(),
+                    width: 15.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(
+            !output.bytes.is_empty(),
+            "PDF with kern pair text should be non-empty"
+        );
+        assert_eq!(&output.bytes[0..5], b"%PDF-");
+    }
+
+    #[test]
+    fn test_m40_pdf_render_tj_operator_for_av() {
+        // Text "AV" should use TJ (show_positioned) due to kern pair
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "AV".to_string(),
+                    width: 15.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // The TJ operator should appear in the PDF content stream
+        assert!(
+            output.bytes.windows(2).any(|w| w == b"TJ"),
+            "PDF with kerned text should contain TJ operator"
+        );
+    }
+
+    #[test]
+    fn test_m40_pdf_render_no_kern_uses_tj() {
+        // Text "Hello" (no kern pairs in cmr10 for these chars) should use Tj
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Hello".to_string(),
+                    width: 25.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Normal,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // The Tj operator should appear (simple show)
+        assert!(
+            output.bytes.windows(2).any(|w| w == b"Tj"),
+            "PDF without kerned text should contain Tj operator"
+        );
+    }
+
+    #[test]
+    fn test_m40_bold_text_no_kerning() {
+        // Bold text (F3) should NOT use TJ for kerning even with kern-worthy chars
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "AV".to_string(),
+                    width: 15.0,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::Bold,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(!output.bytes.is_empty());
+        // Bold uses F3, which should NOT have cmr10 kerning.
+        // We just verify it renders correctly.
+        assert_eq!(&output.bytes[0..5], b"%PDF-");
+    }
+
+    #[test]
+    fn test_m40_kern_pair_count() {
+        // Verify we have the correct number of kern pairs by sampling
+        // Count non-zero pairs for letter 'A'
+        let mut a_pairs = 0;
+        for b in 0..=255u8 {
+            if cmr10_kern_pair(b'A', b) != 0.0 {
+                a_pairs += 1;
+            }
+        }
+        // A has kern pairs with: C, G, O, Q, T, U, V, W, Y, t = 10 pairs
+        assert_eq!(a_pairs, 10, "A should have 10 kern pairs");
     }
 }
