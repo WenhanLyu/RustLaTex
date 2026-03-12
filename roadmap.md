@@ -53,6 +53,8 @@ Binary-identical output requires:
 - **M20 scope:** Focus on core TeX behaviors: paragraph indentation (20pt first-line indent, suppressed after section headings), page break commands (\newpage/\clearpage/\pagebreak), \vspace, and inter-sentence spacing (wider glue after sentence-ending punctuation). These are visible in every real LaTeX document.
 - **Cycle 60-62 (M20):** M20 completed in 1 implementation cycle + 1 verification. Leo delivered paragraph indentation (20pt Kern, suppressed after headings and via \noindent), \newpage/\clearpage/\pagebreak (Penalty{-10001}), \vspace/\vspace* dimension parsing, inter-sentence spacing (1.5x glue, abbreviation exception). 22 new tests, 360 total tests pass.
 - **M21 scope:** Title/author/date (\title, \author, \date, \maketitle) and page numbers in PDF footer. These are present in virtually every real LaTeX document. \maketitle emits a centered title block; PDF backend renders page numbers in footer.
+- **Cycle ~132 (M31):** M31 completed in 1 implementation cycle. Ares delivered: eprintln! visibility for pixel similarity test, section heading spacing fixes (before section: 24pt, after: 8pt; before subsection: 18pt, after: 6pt), 21 new tests. 579 total tests pass, CI green.
+- **M32 scope:** Embed CM Bold (cmbx10), CM Italic (cmti10), CM Bold Italic (cmbxti10), and CM Typewriter (cmtt10) fonts in PDF output. Replace Helvetica variants with actual CM fonts. Update engine width metrics to use AFM data (cmtt10 is 5.25pt monospace, not 6.0pt). This significantly improves visual output quality.
 - **Cycle 86-88 (M21):** M21 completed in 1 implementation cycle. Leo delivered \title/\author/\date/\maketitle system + PDF page number footer. TranslationContext extended with title/author/date fields. \maketitle emits centered title block at 17pt/12pt. PDF footer renders page numbers. 17 new tests, 377 total tests pass, CI green.
 - **M22 scope:** Footnotes (\footnote), abstract environment, horizontal spacing (\hspace, \hfill, \vfill), and URL/hyperlink commands (\href, \url). These are present in the majority of real academic LaTeX documents and are completely missing from the current implementation.
 - **Cycle 89-94 (M22):** M22 completed in 1 implementation cycle + 1 fix round + 1 verification. Leo delivered \footnote superscript markers + page-bottom rendering, \begin{abstract} centered heading, \hspace/\hfill/\vfill/\quad/\qquad/\,/\; spacing, \url/\href URL commands. Ares fixed abstract 6pt glue + 30pt kern indentation + PDF footnote rule width. 25 new tests, 402 total tests pass, CI green.
@@ -72,8 +74,8 @@ Binary-identical output requires:
 - **Cycle ~130 (M29):** M29 completed in 1 implementation cycle. Leo delivered texlive CI install, examples/compare.tex, and 5 comparison tests (our PDF, pdflatex PDF, gs render ours, gs render pdflatex, pixel similarity log). 541 total tests pass, CI green.
 - **Diana's M30 research:** Diana identified 5 critical rendering gaps vs pdflatex: (1) PDF hsize mismatch 495pt vs 345pt — CRITICAL BUG stretching every line; (2) Wrong page margins (50pt vs 72.27pt); (3) Section headings not bold; (4) \[...\] display math not recognized; (5) List items flow as paragraph text. Fixes #1+#2 estimated to push similarity from ~25% to ~60%.
 - **Cycle ~131 (M30):** M30 completed in 1 implementation cycle. Leo fixed all 5 critical rendering gaps. 558 total tests pass, CI green.
-- **Pixel similarity score not yet visible in CI:** The comparison test uses `println!` which cargo test captures. Fix: switch to `eprintln!`. Priority for M31.
-- **Next focus:** Section heading spacing (24pt/8pt vs our 12pt/6pt) and confirm pixel similarity via CI logs.
+- **Pixel similarity score now visible in CI:** M31 fixed eprintln! — score now appears in CI stderr logs.
+- **M32:** Replace Helvetica font variants with actual CM fonts (cmbx10/cmti10/cmtt10/cmbxti10). Font pfb files already committed to repo. Update AFM width metrics.
 
 ## Milestones
 
@@ -599,7 +601,7 @@ Fix the top 5 rendering gaps identified by Diana's research to dramatically impr
 - **Cycles budget:** 3 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented commit 72ed772, 558 tests pass, CI green
 
-### M31: Section/Paragraph Spacing + Pixel Similarity Visibility
+### M31: Section/Paragraph Spacing + Pixel Similarity Visibility ✅ COMPLETE
 Improve visual quality by fixing spacing to match LaTeX article class and surface the pixel similarity score in CI.
 
 **Goals:**
@@ -608,8 +610,19 @@ Improve visual quality by fixing spacing to match LaTeX article class and surfac
 3. **Fix paragraph spacing model**: LaTeX uses `\parskip=0pt` — no extra space between paragraphs beyond baselineskip. Verify our 6pt inter-paragraph glue is appropriate or adjust.
 4. **15+ new tests** covering spacing values for sections, paragraphs
 
-- **Cycles budget:** 2
-- **Status:** Pending (issue #29)
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Ares implemented, Apollo verified (commit 46a2dbc, 579 tests total)
+
+### M32: Embed CM Bold/Italic/Typewriter Fonts + Accurate Width Metrics
+Replace Helvetica font variants in PDF output with actual Computer Modern fonts for visual accuracy matching pdflatex.
+
+**Goals:**
+1. Embed cmbx10.pfb (CM Bold), cmti10.pfb (CM Italic), cmbxti10.pfb (CM Bold Italic), cmtt10.pfb (CM Typewriter)
+2. Replace F3/F4/F5/F6 (currently Helvetica variants + Courier) with CM Type1 fonts
+3. Update engine width metrics: cmbx10 AFM widths, cmti10 AFM widths, cmtt10 = 5.25pt monospace (not 6.0pt)
+4. 15+ tests covering font embedding and width accuracy
+
+- **Cycles budget:** 2 | **Status:** In progress (issue #30, assigned to Leo)
 
 ---
 
