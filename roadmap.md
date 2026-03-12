@@ -61,6 +61,8 @@ Binary-identical output requires:
 - **M24 scope:** Equation environments (equation, align, align*) + theorem-like environments (\newtheorem, theorem, lemma, proof) + Table of Contents (\tableofcontents) + description list environment. These are the core missing academic document features present in virtually all research papers.
 - **Cycle 99-101 (M24):** M24 completed in 1 implementation cycle + 1 verification. Leo delivered equation/equation*/align/align* with auto-numbering, \newtheorem + pre-registered theorem/lemma/definition/corollary/proposition/remark/example, proof environment with QED □, \tableofcontents two-pass rendering, description list \item[term]. 16 new tests, 442 total tests pass, CI green.
 - **M25 scope:** Bibliography system (\cite/\bibitem/thebibliography), \newenvironment (custom environment definitions), and \input file inclusion. These complete the core academic LaTeX feature set — virtually every research paper uses citations and custom environments.
+- **Cycle 102-104 (M25):** M25 completed in 1 implementation cycle + 1 verification. Leo delivered bibliography system (\bibitem/\cite two-pass), \newenvironment/\renewenvironment, \input/\include file inclusion with working_dir. 17 new tests, 459 total tests pass, CI green.
+- **M26 scope:** TeX hyphenation (pattern-based English hyphenation to improve line breaking quality) + LaTeX counter system (\setcounter, \addtocounter, \value, \arabic, \roman, \alph). These significantly improve document quality and enable richer document customization.
 
 ## Milestones
 
@@ -450,6 +452,48 @@ Implement the remaining core academic LaTeX features:
 - Test `\renewenvironment` overwrites the prior definition
 - Test `\input{file.tex}` includes file content (write a temp file during test)
 - All 442 existing tests continue to pass
+
+- **Cycles budget:** 5
+- **Status:** ✅ Complete — verified by Vera (commit 76cc62a, 459 tests total)
+
+### M26: TeX Hyphenation + LaTeX Counter System
+Improve line-breaking quality and document customization:
+
+**TeX Pattern-Based Hyphenation (rustlatex-engine):**
+- Implement Liang's hyphenation algorithm with a minimal built-in English pattern set
+- Add `Hyphenator` struct with pattern lookup to find allowed hyphenation points in words
+- Integrate with KP line-breaker: insert discretionary Penalty+Kern nodes at hyphen points
+- Hyphen penalty = 50 (discourage but allow), explicit hyphens penalty = 0
+- `\hyphenation{word-list}` command to specify manual hyphenation for specific words
+- `\- ` soft hyphen insertion (explicit discretionary break)
+
+**LaTeX Counter System (rustlatex-engine):**
+- `\setcounter{name}{N}` — set a named counter to integer N
+- `\addtocounter{name}{N}` — add N to a named counter (N can be negative)
+- `\value{name}` — expands to the integer value of the counter (for use in \setcounter)
+- `\newcounter{name}` — declare a new counter (initialized to 0)
+- `\stepcounter{name}` — increment counter by 1 (same as \addtocounter{name}{1})
+- Counter display commands:
+  - `\arabic{counter}` — renders counter as arabic numeral (1, 2, 3...)
+  - `\roman{counter}` — renders as lowercase roman (i, ii, iii...)
+  - `\Roman{counter}` — renders as uppercase roman (I, II, III...)  
+  - `\alph{counter}` — renders as lowercase letter (a, b, c...)
+  - `\Alph{counter}` — renders as uppercase letter (A, B, C...)
+  - `\fnsymbol{counter}` — renders as footnote symbol (*, †, ‡...)
+- Pre-defined counters: `section`, `subsection`, `subsubsection`, `figure`, `table`, `equation`, `enumi`, `enumii`, `enumiii`, `page`
+- Existing section/figure counters should USE the counter system internally
+
+**Tests (15+ new):**
+- Test `\setcounter{page}{5}` sets page counter to 5
+- Test `\addtocounter{section}{2}` increments section counter
+- Test `\newcounter{myctr}` creates counter at 0
+- Test `\arabic{section}` renders current section number
+- Test `\roman{page}` renders page number as roman numeral
+- Test `\alph{enumi}` renders list counter as letter
+- Test hyphenation produces discretionary breaks in long words
+- Test `\hyphenation{algo-rithm}` respects manual hyphenation
+- Test `\-` inserts soft hyphen break
+- All 459 existing tests continue to pass
 
 - **Cycles budget:** 5
 - **Status:** Pending
