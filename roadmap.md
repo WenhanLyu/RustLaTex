@@ -119,6 +119,8 @@ Binary-identical output requires:
 - **Cycle (M52):** M52 completed by Leo (0f325c5). Suppresses before-VSkip for first section. 960 tests. But similarity only 94.47% — font size change (14.4 vs 14.0) still hurts.
 - **Cycle (M53):** M53 completed by Leo (37de084). Set all VSkip=0.0 (no effect on rendering). 965 tests, 94.53% similarity. Still below 95.69% because section font_size 14.4 (line_height 17.28pt) vs M49's 14.0 (line_height 16.8pt).
 - **M54 scope:** Revert section font_size 14.4→14.0 and subsubsection font_size 10.0→11.0 to recover pixel similarity. These M51 changes made things worse vs pdflatex layout. Target: 980+ tests, 95.7%+ similarity. Keep VSkip=0.0 infrastructure intact.
+- **Cycle (M54+M55):** M54 reverted font sizes (984 tests, 94.47% — still not enough). M55 removed all VSkip nodes from section headings entirely (returning to M49-style layout). Result: 1003 tests pass, pixel similarity = 95.68%, CI green (commit 57d328f). VSkip infrastructure kept for \vspace.
+- **M56 scope:** Investigate and fix the remaining 4.32% pixel similarity gap. Diana's research needed to identify top improvements. Key candidates: (1) Section spacing before/after without causing cascading layout shifts; (2) Line-breaking accuracy improvements; (3) Other rendering details. Target: 97%+ similarity, 1015+ tests.
 
 ## Milestones
 
@@ -873,21 +875,31 @@ Set all section VSkip amounts to 0.0 to eliminate VSkip contribution.
 
 - **Status:** ✅ Complete — Leo implemented (commit 37de084), 965 tests, 94.53% similarity. Still below 95.69% due to font_size 14.4 change.
 
-### M54: Recover Pixel Similarity by Reverting Section Font Sizes
+### M54: Recover Pixel Similarity by Reverting Section Font Sizes ✅ COMPLETE (partial)
 Fix the pixel similarity regression caused by M51's font size changes.
 
-**Root cause**: M51 changed section font_size 14.0→14.4 and subsubsection 11.0→10.0. This increases section line_height from 16.8pt to 17.28pt, shifting subsequent content 0.48pt lower than before. This 0.48pt error causes ~1.16% pixel similarity loss vs pdflatex.
+- **Cycles budget:** 2 | **Cycles actual:** 1 (M54) + 1 (M55 follow-up)
+- **Status:** ✅ Complete — M54 reverted font sizes (984 tests), M55 removed VSkip nodes from sections (1003 tests, 95.68% similarity)
 
-**Fix**:
-1. Revert section font_size: 14.4 → 14.0 (line_height goes back to 16.8pt)
-2. Revert subsubsection font_size: 10.0 → 11.0 (line_height goes back to 13.2pt)
-3. Update all affected tests (look for 14.4 and 10.0 font size assertions for sections)
-4. Add 15+ new tests confirming the new behavior
-5. Keep VSkip=0.0 infrastructure intact
+### M55: Remove VSkip from Section Headings ✅ COMPLETE
+Remove all VSkip(0.0) nodes from section/subsection/subsubsection headings. Keep VSkip infrastructure for \vspace only.
 
-**Expected impact**: Recover from 94.53% back to ≥95.69%
+- **Cycles budget:** 1 | **Cycles actual:** 1 (Leo)
+- **Status:** ✅ Complete — 1003 tests, 95.68% similarity (commit 57d328f)
 
-- **Cycles budget:** 2
+### M56: Improve Pixel Similarity Beyond 95.68% (Next)
+Investigate and fix the remaining ~4.32% pixel similarity gap vs pdflatex.
+
+**Scope (to be refined after Diana's research):**
+- Analyze what specific lines/regions differ vs pdflatex at current 95.68%
+- Top candidate improvements:
+  1. Section heading before/after spacing — properly implement without cascading layout shifts
+  2. Text line positioning accuracy
+  3. Other rendering details that Diana's analysis identifies
+- 15+ new tests
+- Target: 97%+ similarity, 1015+ tests
+
+- **Cycles budget:** 3
 - **Status:** 🔄 Next
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
