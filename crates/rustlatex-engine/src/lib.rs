@@ -3,8 +3,18 @@
 //! This crate implements the typesetting engine that transforms an AST into
 //! a laid-out document using TeX's box/glue model. It implements both a greedy
 //! line-breaking algorithm and the Knuth-Plass optimal line-breaking algorithm.
+//!
+//! ## Cross-Reference System (M18)
+//!
+//! The engine supports a label/reference system:
+//! - `\label{key}` registers the current counter (section or figure number) in a label table
+//! - `\ref{key}` resolves to the associated number (e.g., "2" for figure 2)
+//! - `\pageref{key}` resolves to the page number
+//! - `\caption{text}` inside a figure environment renders "Figure N: text"
+//! - Two-pass rendering: first pass collects labels, second pass substitutes `\ref` values
 
 use rustlatex_parser::Node;
+use std::collections::HashMap;
 
 /// Text alignment mode for a line or block.
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -25,6 +35,68 @@ pub enum Alignment {
 pub struct OutputLine {
     pub alignment: Alignment,
     pub nodes: Vec<BoxNode>,
+}
+
+// ===== Cross-Reference System =====
+
+/// Information stored for each label in the document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LabelInfo {
+    /// The counter value associated with this label (e.g., "2" for section 2).
+    pub counter_value: String,
+    /// The page number where this label appears (1-indexed).
+    pub page_number: usize,
+}
+
+/// A table mapping label keys to their resolved information.
+pub type LabelTable = HashMap<String, LabelInfo>;
+
+/// Mutable counters tracked during document translation.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentCounters {
+    /// Current section counter (incremented by `\section`).
+    pub section: usize,
+    /// Current subsection counter (incremented by `\subsection`, reset by `\section`).
+    pub subsection: usize,
+    /// Current subsubsection counter (incremented by `\subsubsection`, reset by `\subsection`).
+    pub subsubsection: usize,
+    /// Current figure counter (incremented by `\caption` inside figure).
+    pub figure: usize,
+    /// The most recent counter value (set after section/caption to be captured by `\label`).
+    pub last_counter_value: String,
+    /// Whether we are currently inside a figure environment.
+    pub in_figure: bool,
+}
+
+/// Translation context carrying mutable state for the two-pass system.
+#[derive(Debug, Clone)]
+pub struct TranslationContext {
+    /// Document counters for numbering.
+    pub counters: DocumentCounters,
+    /// Labels collected during first pass, used during second pass.
+    pub labels: LabelTable,
+    /// Whether this is the collection pass (first pass) or the rendering pass (second pass).
+    pub collecting: bool,
+}
+
+impl TranslationContext {
+    /// Create a new context for label collection (first pass).
+    pub fn new_collecting() -> Self {
+        TranslationContext {
+            counters: DocumentCounters::default(),
+            labels: LabelTable::new(),
+            collecting: true,
+        }
+    }
+
+    /// Create a new context for rendering (second pass) with pre-collected labels.
+    pub fn new_rendering(labels: LabelTable) -> Self {
+        TranslationContext {
+            counters: DocumentCounters::default(),
+            labels,
+            collecting: false,
+        }
+    }
 }
 
 /// A node in the typesetting intermediate representation (box/glue model).
@@ -702,6 +774,432 @@ pub fn translate_node(node: &Node) -> Vec<BoxNode> {
     translate_node_with_metrics(node, &StandardFontMetrics)
 }
 
+/// Translate a parser AST node with full cross-reference context.
+///
+/// This is the context-aware version that tracks section/figure counters,
+/// collects/resolves labels, and renders figures with captions.
+pub fn translate_node_with_context(
+    node: &Node,
+    metrics: &dyn FontMetrics,
+    ctx: &mut TranslationContext,
+) -> Vec<BoxNode> {
+    match node {
+        Node::Text(s) => {
+            let mut result = Vec::new();
+            let words: Vec<&str> = s.split_whitespace().collect();
+            for (i, word) in words.iter().enumerate() {
+                if i > 0 {
+                    result.push(BoxNode::Glue {
+                        natural: metrics.space_width(),
+                        stretch: 1.67,
+                        shrink: 1.11,
+                    });
+                }
+                result.push(BoxNode::Text {
+                    text: word.to_string(),
+                    width: metrics.string_width(word),
+                    font_size: 10.0,
+                });
+            }
+            result
+        }
+        Node::Paragraph(nodes) => {
+            let mut result: Vec<BoxNode> = nodes
+                .iter()
+                .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                .collect();
+            result.push(BoxNode::Glue {
+                natural: 6.0,
+                stretch: 2.0,
+                shrink: 0.0,
+            });
+            result
+        }
+        Node::Command { name, args } => {
+            match name.as_str() {
+                "textbf" | "textit" | "emph" => args
+                    .iter()
+                    .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                    .collect(),
+                "section" | "subsection" | "subsubsection" => {
+                    // Update counters
+                    match name.as_str() {
+                        "section" => {
+                            ctx.counters.section += 1;
+                            ctx.counters.subsection = 0;
+                            ctx.counters.subsubsection = 0;
+                            ctx.counters.last_counter_value = format!("{}", ctx.counters.section);
+                        }
+                        "subsection" => {
+                            ctx.counters.subsection += 1;
+                            ctx.counters.subsubsection = 0;
+                            ctx.counters.last_counter_value =
+                                format!("{}.{}", ctx.counters.section, ctx.counters.subsection);
+                        }
+                        _ => {
+                            // subsubsection
+                            ctx.counters.subsubsection += 1;
+                            ctx.counters.last_counter_value = format!(
+                                "{}.{}.{}",
+                                ctx.counters.section,
+                                ctx.counters.subsection,
+                                ctx.counters.subsubsection
+                            );
+                        }
+                    }
+
+                    let font_size = match name.as_str() {
+                        "section" => 14.0_f64,
+                        "subsection" => 12.0_f64,
+                        _ => 11.0_f64,
+                    };
+                    let title = if let Some(arg) = args.first() {
+                        match arg {
+                            Node::Group(nodes) => nodes
+                                .iter()
+                                .filter_map(|n| {
+                                    if let Node::Text(t) = n {
+                                        Some(t.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                            Node::Text(t) => t.clone(),
+                            _ => String::new(),
+                        }
+                    } else {
+                        String::new()
+                    };
+                    let numbered_title = format!("{} {}", ctx.counters.last_counter_value, title);
+                    let width = metrics.string_width(&numbered_title);
+                    vec![
+                        BoxNode::Kern { amount: 12.0 },
+                        BoxNode::Text {
+                            text: numbered_title,
+                            width,
+                            font_size,
+                        },
+                        BoxNode::Kern { amount: 6.0 },
+                    ]
+                }
+                "label" => {
+                    if let Some(arg) = args.first() {
+                        let key = extract_text_from_node(arg);
+                        if ctx.collecting {
+                            // First pass: register the label with current counter value
+                            ctx.labels.insert(
+                                key,
+                                LabelInfo {
+                                    counter_value: ctx.counters.last_counter_value.clone(),
+                                    page_number: 0, // resolved after page breaking
+                                },
+                            );
+                        }
+                    }
+                    vec![]
+                }
+                "ref" => {
+                    if let Some(arg) = args.first() {
+                        let key = extract_text_from_node(arg);
+                        let resolved = if let Some(info) = ctx.labels.get(&key) {
+                            info.counter_value.clone()
+                        } else {
+                            "??".to_string()
+                        };
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&resolved),
+                            text: resolved,
+                            font_size: 10.0,
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "pageref" => {
+                    if let Some(arg) = args.first() {
+                        let key = extract_text_from_node(arg);
+                        let resolved = if let Some(info) = ctx.labels.get(&key) {
+                            if info.page_number > 0 {
+                                format!("{}", info.page_number)
+                            } else {
+                                "??".to_string()
+                            }
+                        } else {
+                            "??".to_string()
+                        };
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&resolved),
+                            text: resolved,
+                            font_size: 10.0,
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "caption" => {
+                    // Only meaningful inside figure environment
+                    if ctx.counters.in_figure {
+                        ctx.counters.figure += 1;
+                        ctx.counters.last_counter_value = format!("{}", ctx.counters.figure);
+                    }
+                    let caption_text = if let Some(arg) = args.first() {
+                        extract_text_from_node(arg)
+                    } else {
+                        String::new()
+                    };
+                    let label = format!("Figure {}: {}", ctx.counters.figure, caption_text);
+                    let width = metrics.string_width(&label);
+                    vec![
+                        BoxNode::Penalty { value: -10000 },
+                        BoxNode::AlignmentMarker {
+                            alignment: Alignment::Center,
+                        },
+                        BoxNode::Text {
+                            text: label,
+                            width,
+                            font_size: 10.0,
+                        },
+                        BoxNode::AlignmentMarker {
+                            alignment: Alignment::Justify,
+                        },
+                        BoxNode::Glue {
+                            natural: 6.0,
+                            stretch: 2.0,
+                            shrink: 0.0,
+                        },
+                    ]
+                }
+                "LaTeX" => vec![BoxNode::Text {
+                    text: "LaTeX".to_string(),
+                    width: metrics.string_width("LaTeX"),
+                    font_size: 10.0,
+                }],
+                "TeX" => vec![BoxNode::Text {
+                    text: "TeX".to_string(),
+                    width: metrics.string_width("TeX"),
+                    font_size: 10.0,
+                }],
+                "today" => {
+                    let date_str = "January 1, 2025".to_string();
+                    vec![BoxNode::Text {
+                        text: date_str.clone(),
+                        width: metrics.string_width(&date_str),
+                        font_size: 10.0,
+                    }]
+                }
+                "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
+                "centering" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center,
+                }],
+                "raggedright" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::RaggedRight,
+                }],
+                "raggedleft" => vec![BoxNode::AlignmentMarker {
+                    alignment: Alignment::RaggedLeft,
+                }],
+                _ => vec![],
+            }
+        }
+        Node::Environment { name, content, .. } => {
+            match name.as_str() {
+                "figure" => {
+                    let was_in_figure = ctx.counters.in_figure;
+                    ctx.counters.in_figure = true;
+                    let mut result = Vec::new();
+                    // Vertical space before figure
+                    result.push(BoxNode::Glue {
+                        natural: 10.0,
+                        stretch: 4.0,
+                        shrink: 0.0,
+                    });
+                    // Rule at top of figure (visual boundary)
+                    result.push(BoxNode::Rule {
+                        width: 345.0,
+                        height: 0.4,
+                    });
+                    result.push(BoxNode::Penalty { value: -10000 });
+                    // Translate content (which may contain \caption, \label, etc.)
+                    for node in content {
+                        result.extend(translate_node_with_context(node, metrics, ctx));
+                    }
+                    // Rule at bottom of figure
+                    result.push(BoxNode::Rule {
+                        width: 345.0,
+                        height: 0.4,
+                    });
+                    result.push(BoxNode::Penalty { value: -10000 });
+                    // Vertical space after figure
+                    result.push(BoxNode::Glue {
+                        natural: 10.0,
+                        stretch: 4.0,
+                        shrink: 0.0,
+                    });
+                    ctx.counters.in_figure = was_in_figure;
+                    result
+                }
+                "itemize" | "enumerate" => {
+                    let is_enumerate = name == "enumerate";
+                    let mut items: Vec<Vec<&Node>> = Vec::new();
+                    let mut current: Option<Vec<&Node>> = None;
+                    for node in content {
+                        if matches!(node, Node::Command { name: cmd_name, args } if cmd_name == "item" && args.is_empty())
+                        {
+                            if let Some(prev) = current.take() {
+                                items.push(prev);
+                            }
+                            current = Some(Vec::new());
+                        } else if let Some(ref mut cur) = current {
+                            cur.push(node);
+                        }
+                    }
+                    if let Some(last) = current {
+                        items.push(last);
+                    }
+
+                    let mut result = Vec::new();
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 2.0,
+                        shrink: 0.0,
+                    });
+
+                    for (i, item_nodes) in items.iter().enumerate() {
+                        if i > 0 {
+                            result.push(BoxNode::Glue {
+                                natural: 4.0,
+                                stretch: 0.5,
+                                shrink: 0.5,
+                            });
+                        }
+                        result.push(BoxNode::Kern { amount: 20.0 });
+                        if is_enumerate {
+                            let label = format!("{}. ", i + 1);
+                            result.push(BoxNode::Text {
+                                width: 12.0,
+                                text: label,
+                                font_size: 10.0,
+                            });
+                        } else {
+                            result.push(BoxNode::Text {
+                                text: "• ".to_string(),
+                                width: 7.0,
+                                font_size: 10.0,
+                            });
+                        }
+                        for node in item_nodes {
+                            let mut translated = translate_node_with_context(node, metrics, ctx);
+                            result.append(&mut translated);
+                        }
+                    }
+
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 2.0,
+                        shrink: 0.0,
+                    });
+
+                    result
+                }
+                "center" => {
+                    let mut result = vec![BoxNode::AlignmentMarker {
+                        alignment: Alignment::Center,
+                    }];
+                    for node in content {
+                        result.extend(translate_node_with_context(node, metrics, ctx));
+                    }
+                    result.push(BoxNode::AlignmentMarker {
+                        alignment: Alignment::Justify,
+                    });
+                    result
+                }
+                "tabular" => {
+                    // Delegate to the existing non-context tabular handler
+                    translate_node_with_metrics(
+                        &Node::Environment {
+                            name: name.clone(),
+                            options: None,
+                            content: content.clone(),
+                        },
+                        metrics,
+                    )
+                }
+                _ => content
+                    .iter()
+                    .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                    .collect(),
+            }
+        }
+        Node::InlineMath(nodes) => {
+            let text: String = nodes.iter().map(math_node_to_text).collect();
+            vec![BoxNode::Text {
+                width: metrics.string_width(&text),
+                text,
+                font_size: 10.0,
+            }]
+        }
+        Node::DisplayMath(nodes) => {
+            let text: String = nodes.iter().map(math_node_to_text).collect();
+            vec![
+                BoxNode::Penalty { value: -10000 },
+                BoxNode::Text {
+                    width: metrics.string_width(&text),
+                    text,
+                    font_size: 10.0,
+                },
+                BoxNode::Penalty { value: -10000 },
+                BoxNode::Glue {
+                    natural: 6.0,
+                    stretch: 2.0,
+                    shrink: 0.0,
+                },
+            ]
+        }
+        Node::Group(nodes) => nodes
+            .iter()
+            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+            .collect(),
+        Node::Document(nodes) => nodes
+            .iter()
+            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Extract plain text from a Node (used for label/ref key extraction).
+pub fn extract_text_from_node(node: &Node) -> String {
+    match node {
+        Node::Text(s) => s.trim().to_string(),
+        Node::Group(nodes) | Node::MathGroup(nodes) => nodes
+            .iter()
+            .map(extract_text_from_node)
+            .collect::<Vec<_>>()
+            .join(""),
+        Node::Command { name, .. } => name.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Perform two-pass translation of an AST node.
+///
+/// First pass: collects all `\label` definitions with their counter values.
+/// Second pass: resolves `\ref` and `\pageref` using the collected labels.
+///
+/// Returns the box items from the second pass and the label table.
+pub fn translate_two_pass(node: &Node, metrics: &dyn FontMetrics) -> (Vec<BoxNode>, LabelTable) {
+    // First pass: collect labels
+    let mut ctx1 = TranslationContext::new_collecting();
+    let _ = translate_node_with_context(node, metrics, &mut ctx1);
+
+    // Second pass: render with resolved labels
+    let mut ctx2 = TranslationContext::new_rendering(ctx1.labels.clone());
+    let items = translate_node_with_context(node, metrics, &mut ctx2);
+
+    (items, ctx1.labels)
+}
+
 /// Greedy line-breaking algorithm.
 ///
 /// Walks the list of box/glue items, accumulating items into lines. When
@@ -1240,17 +1738,26 @@ impl Engine {
 
     /// Typeset the document and return pages.
     ///
-    /// Translates the AST to box/glue items, performs Knuth-Plass optimal line breaking,
-    /// and packages the result into pages. Uses `StandardFontMetrics` (CM Roman 10pt).
+    /// Uses two-pass rendering for cross-references:
+    /// - Pass 1: Collect labels with counter values
+    /// - Layout pass: Break lines and assign to pages
+    /// - Pass 2: Re-render with resolved labels (including page numbers from pass 1 layout)
+    ///
+    /// Uses `StandardFontMetrics` (CM Roman 10pt).
     /// Splits into multiple pages when accumulated line height exceeds `vsize` (700pt).
     pub fn typeset(&self) -> Vec<Page> {
         let metrics = StandardFontMetrics;
-        let items = translate_node_with_metrics(&self.document, &metrics);
-        let all_lines = break_items_with_alignment(&items, 345.0);
         let content = format!("(stub) document node: {:?}", self.document);
+
+        // Two-pass rendering for cross-references
+        let (items, labels) = translate_two_pass(&self.document, &metrics);
+
+        let all_lines = break_items_with_alignment(&items, 345.0);
 
         let vsize = 700.0_f64;
         let line_height = 12.0_f64;
+
+        // Assign lines to pages to determine page numbers for \pageref
         let mut pages: Vec<Page> = Vec::new();
         let mut current_page_lines: Vec<OutputLine> = Vec::new();
         let mut accumulated_height = 0.0_f64;
@@ -1275,6 +1782,71 @@ impl Engine {
                 box_lines: current_page_lines,
             });
         }
+
+        // If we have labels that need page number resolution, do a re-render
+        if !labels.is_empty() {
+            // Compute page numbers for each label by scanning the pages
+            // for text matching "Figure N:" or section headings
+            let mut resolved_labels = labels;
+            for (page_idx, page) in pages.iter().enumerate() {
+                let page_num = page_idx + 1;
+                for line in &page.box_lines {
+                    for node in &line.nodes {
+                        if let BoxNode::Text { text, .. } = node {
+                            // Check if this text corresponds to any label's counter value
+                            for (_, info) in resolved_labels.iter_mut() {
+                                // Check if this line contains a figure caption or section heading
+                                // with the matching counter value
+                                if info.page_number == 0 {
+                                    let figure_prefix = format!("Figure {}:", info.counter_value);
+                                    let section_prefix = format!("{} ", info.counter_value);
+                                    if text.starts_with(&figure_prefix)
+                                        || text.starts_with(&section_prefix)
+                                    {
+                                        info.page_number = page_num;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check if any label has a resolved page number (needs re-render)
+            let has_pageref = resolved_labels.values().any(|v| v.page_number > 0);
+            if has_pageref {
+                // Re-render with page numbers
+                let mut ctx = TranslationContext::new_rendering(resolved_labels);
+                let items = translate_node_with_context(&self.document, &metrics, &mut ctx);
+                let all_lines = break_items_with_alignment(&items, 345.0);
+
+                // Re-paginate
+                pages.clear();
+                let mut current_page_lines: Vec<OutputLine> = Vec::new();
+                let mut accumulated_height = 0.0_f64;
+                for line in all_lines {
+                    if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
+                        pages.push(Page {
+                            number: pages.len() + 1,
+                            content: content.clone(),
+                            box_lines: current_page_lines,
+                        });
+                        current_page_lines = Vec::new();
+                        accumulated_height = 0.0;
+                    }
+                    current_page_lines.push(line);
+                    accumulated_height += line_height;
+                }
+                if !current_page_lines.is_empty() {
+                    pages.push(Page {
+                        number: pages.len() + 1,
+                        content: content.clone(),
+                        box_lines: current_page_lines,
+                    });
+                }
+            }
+        }
+
         if pages.is_empty() {
             // Always return at least one page for backward compatibility
             pages.push(Page {
@@ -3840,5 +4412,469 @@ mod tests {
         } else {
             panic!("Expected BoxNode::Rule");
         }
+    }
+
+    // ===== M18: Figures & Cross-References Tests =====
+
+    /// Helper: translate using two-pass context
+    fn translate_with_context(node: &Node) -> Vec<BoxNode> {
+        let metrics = StandardFontMetrics;
+        let (items, _) = translate_two_pass(node, &metrics);
+        items
+    }
+
+    #[test]
+    fn test_figure_environment_produces_output() {
+        let node = Node::Document(vec![Node::Environment {
+            name: "figure".to_string(),
+            options: None,
+            content: vec![Node::Text("Figure content".to_string())],
+        }]);
+        let items = translate_with_context(&node);
+        assert!(
+            !items.is_empty(),
+            "Figure environment should produce output"
+        );
+    }
+
+    #[test]
+    fn test_figure_environment_has_rules() {
+        let node = Node::Document(vec![Node::Environment {
+            name: "figure".to_string(),
+            options: None,
+            content: vec![Node::Text("Content".to_string())],
+        }]);
+        let items = translate_with_context(&node);
+        let rule_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Rule { .. }))
+            .count();
+        assert_eq!(
+            rule_count, 2,
+            "Figure should have top and bottom rules, got {}",
+            rule_count
+        );
+    }
+
+    #[test]
+    fn test_figure_environment_has_vertical_glue() {
+        let node = Node::Document(vec![Node::Environment {
+            name: "figure".to_string(),
+            options: None,
+            content: vec![Node::Text("Content".to_string())],
+        }]);
+        let items = translate_with_context(&node);
+        let glue_10 = items.iter().filter(|n| {
+            matches!(n, BoxNode::Glue { natural, .. } if (*natural - 10.0).abs() < f64::EPSILON)
+        }).count();
+        assert!(
+            glue_10 >= 2,
+            "Figure should have glue before and after, got {} instances",
+            glue_10
+        );
+    }
+
+    #[test]
+    fn test_caption_inside_figure_produces_figure_label() {
+        let node = Node::Document(vec![Node::Environment {
+            name: "figure".to_string(),
+            options: None,
+            content: vec![Node::Command {
+                name: "caption".to_string(),
+                args: vec![Node::Group(vec![Node::Text("My caption".to_string())])],
+            }],
+        }]);
+        let items = translate_with_context(&node);
+        let has_caption = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with("Figure 1:")));
+        assert!(
+            has_caption,
+            "Expected 'Figure 1: My caption' in output. Got: {:?}",
+            items
+                .iter()
+                .filter_map(|n| if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_caption_auto_increments_figure_counter() {
+        let node = Node::Document(vec![
+            Node::Environment {
+                name: "figure".to_string(),
+                options: None,
+                content: vec![Node::Command {
+                    name: "caption".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("First".to_string())])],
+                }],
+            },
+            Node::Environment {
+                name: "figure".to_string(),
+                options: None,
+                content: vec![Node::Command {
+                    name: "caption".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("Second".to_string())])],
+                }],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let has_figure1 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with("Figure 1:")));
+        let has_figure2 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with("Figure 2:")));
+        assert!(has_figure1, "Expected 'Figure 1:' in output");
+        assert!(has_figure2, "Expected 'Figure 2:' in output");
+    }
+
+    #[test]
+    fn test_label_and_ref_resolution() {
+        // \section{Intro} \label{sec:intro} ... See section \ref{sec:intro}
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:intro".to_string())])],
+            },
+            Node::Text("See section ".to_string()),
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:intro".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // \ref{sec:intro} should resolve to "1" (first section)
+        let ref_texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            ref_texts.contains(&"1"),
+            "Expected \\ref to resolve to '1', got {:?}",
+            ref_texts
+        );
+    }
+
+    #[test]
+    fn test_ref_unresolved_shows_question_marks() {
+        let node = Node::Document(vec![Node::Command {
+            name: "ref".to_string(),
+            args: vec![Node::Group(vec![Node::Text("nonexistent".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let has_qq = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "??"));
+        assert!(has_qq, "Unresolved \\ref should show '??'");
+    }
+
+    #[test]
+    fn test_pageref_unresolved_shows_question_marks() {
+        let node = Node::Document(vec![Node::Command {
+            name: "pageref".to_string(),
+            args: vec![Node::Group(vec![Node::Text("nonexistent".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let has_qq = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "??"));
+        assert!(has_qq, "Unresolved \\pageref should show '??'");
+    }
+
+    #[test]
+    fn test_section_counter_increments() {
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("First".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("s1".to_string())])],
+            },
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Second".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("s2".to_string())])],
+            },
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("s1".to_string())])],
+            },
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("s2".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let ref_texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Should have "1" and "2" as resolved refs (standalone text nodes)
+        assert!(
+            ref_texts.contains(&"1"),
+            "Expected \\ref{{s1}} → '1', got {:?}",
+            ref_texts
+        );
+        assert!(
+            ref_texts.contains(&"2"),
+            "Expected \\ref{{s2}} → '2', got {:?}",
+            ref_texts
+        );
+    }
+
+    #[test]
+    fn test_subsection_counter_format() {
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sec".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sub".to_string())])],
+            },
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sub".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let has_ref = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "1.1"));
+        assert!(has_ref, "Expected \\ref for subsection to be '1.1'");
+    }
+
+    #[test]
+    fn test_figure_label_ref_resolution() {
+        let node = Node::Document(vec![
+            Node::Environment {
+                name: "figure".to_string(),
+                options: None,
+                content: vec![
+                    Node::Command {
+                        name: "caption".to_string(),
+                        args: vec![Node::Group(vec![Node::Text("A figure".to_string())])],
+                    },
+                    Node::Command {
+                        name: "label".to_string(),
+                        args: vec![Node::Group(vec![Node::Text("fig:one".to_string())])],
+                    },
+                ],
+            },
+            Node::Text("See Figure ".to_string()),
+            Node::Command {
+                name: "ref".to_string(),
+                args: vec![Node::Group(vec![Node::Text("fig:one".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // \ref{fig:one} should resolve to "1"
+        let ref_texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            ref_texts.contains(&"1"),
+            "Expected \\ref{{fig:one}} → '1', got {:?}",
+            ref_texts
+        );
+    }
+
+    #[test]
+    fn test_label_table_construction() {
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:hello".to_string())])],
+            },
+        ]);
+        let metrics = StandardFontMetrics;
+        let (_, labels) = translate_two_pass(&node, &metrics);
+        assert!(
+            labels.contains_key("sec:hello"),
+            "Label table should contain 'sec:hello'"
+        );
+        assert_eq!(
+            labels["sec:hello"].counter_value, "1",
+            "Section 1 label should have counter_value '1'"
+        );
+    }
+
+    #[test]
+    fn test_translation_context_collecting_vs_rendering() {
+        let ctx_c = TranslationContext::new_collecting();
+        assert!(ctx_c.collecting);
+        assert!(ctx_c.labels.is_empty());
+
+        let mut labels = LabelTable::new();
+        labels.insert(
+            "test".to_string(),
+            LabelInfo {
+                counter_value: "5".to_string(),
+                page_number: 2,
+            },
+        );
+        let ctx_r = TranslationContext::new_rendering(labels);
+        assert!(!ctx_r.collecting);
+        assert!(ctx_r.labels.contains_key("test"));
+    }
+
+    #[test]
+    fn test_document_counters_default() {
+        let c = DocumentCounters::default();
+        assert_eq!(c.section, 0);
+        assert_eq!(c.subsection, 0);
+        assert_eq!(c.subsubsection, 0);
+        assert_eq!(c.figure, 0);
+        assert!(!c.in_figure);
+        assert!(c.last_counter_value.is_empty());
+    }
+
+    #[test]
+    fn test_extract_text_from_group_node() {
+        let node = Node::Group(vec![Node::Text("hello".to_string())]);
+        assert_eq!(extract_text_from_node(&node), "hello");
+    }
+
+    #[test]
+    fn test_extract_text_from_nested_group() {
+        let node = Node::Group(vec![
+            Node::Text("ab".to_string()),
+            Node::Text("cd".to_string()),
+        ]);
+        assert_eq!(extract_text_from_node(&node), "abcd");
+    }
+
+    #[test]
+    fn test_section_numbered_title_in_context() {
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let has_numbered = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("1 Intro")));
+        assert!(
+            has_numbered,
+            "Expected numbered section title '1 Intro' in context-aware output"
+        );
+    }
+
+    #[test]
+    fn test_typeset_with_figure_and_caption() {
+        let doc = Node::Document(vec![Node::Environment {
+            name: "figure".to_string(),
+            options: None,
+            content: vec![
+                Node::Text("Figure body".to_string()),
+                Node::Command {
+                    name: "caption".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("Test figure".to_string())])],
+                },
+            ],
+        }]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        let all_text: Vec<&str> = pages
+            .iter()
+            .flat_map(|p| p.box_lines.iter())
+            .flat_map(|l| l.nodes.iter())
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let has_caption = all_text.iter().any(|t| t.starts_with("Figure 1:"));
+        assert!(
+            has_caption,
+            "Expected 'Figure 1: Test figure' in typeset output, got {:?}",
+            all_text
+        );
+    }
+
+    #[test]
+    fn test_typeset_with_label_and_ref() {
+        let doc = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
+            },
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sec:hi".to_string())])],
+            },
+            Node::Paragraph(vec![
+                Node::Text("See section ".to_string()),
+                Node::Command {
+                    name: "ref".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("sec:hi".to_string())])],
+                },
+            ]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        let all_text: Vec<&str> = pages
+            .iter()
+            .flat_map(|p| p.box_lines.iter())
+            .flat_map(|l| l.nodes.iter())
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            all_text.contains(&"1"),
+            "Expected \\ref to resolve to '1' in typeset output, got {:?}",
+            all_text
+        );
     }
 }
