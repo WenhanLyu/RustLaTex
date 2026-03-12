@@ -71,6 +71,9 @@ Binary-identical output requires:
 - **M29 scope:** pdflatex comparison infrastructure. Install texlive-base + texlive-fonts-recommended in CI, add integration tests that compile simple .tex files with BOTH our compiler and pdflatex, render both to PNG via GhostScript, compute pixel similarity. Establishes the baseline measurement for progress toward "binary identical" goal. pdflatex not available locally — CI (ubuntu-latest) is the test environment.
 - **Cycle ~130 (M29):** M29 completed in 1 implementation cycle. Leo delivered texlive CI install, examples/compare.tex, and 5 comparison tests (our PDF, pdflatex PDF, gs render ours, gs render pdflatex, pixel similarity log). 541 total tests pass, CI green.
 - **Diana's M30 research:** Diana identified 5 critical rendering gaps vs pdflatex: (1) PDF hsize mismatch 495pt vs 345pt — CRITICAL BUG stretching every line; (2) Wrong page margins (50pt vs 72.27pt); (3) Section headings not bold; (4) \[...\] display math not recognized; (5) List items flow as paragraph text. Fixes #1+#2 estimated to push similarity from ~25% to ~60%.
+- **Cycle ~131 (M30):** M30 completed in 1 implementation cycle. Leo fixed all 5 critical rendering gaps. 558 total tests pass, CI green.
+- **Pixel similarity score not yet visible in CI:** The comparison test uses `println!` which cargo test captures. Fix: switch to `eprintln!`. Priority for M31.
+- **Next focus:** Section heading spacing (24pt/8pt vs our 12pt/6pt) and confirm pixel similarity via CI logs.
 
 ## Milestones
 
@@ -593,8 +596,20 @@ Fix the top 5 rendering gaps identified by Diana's research to dramatically impr
 
 **Goal:** Dramatically improve visual similarity vs pdflatex (estimated ~25% → ~60%+ similarity). 15+ new tests, all 541 existing tests pass.
 
-- **Cycles budget:** 3
-- **Status:** Pending (issue #28)
+- **Cycles budget:** 3 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented commit 72ed772, 558 tests pass, CI green
+
+### M31: Section/Paragraph Spacing + Pixel Similarity Visibility
+Improve visual quality by fixing spacing to match LaTeX article class and surface the pixel similarity score in CI.
+
+**Goals:**
+1. **Surface pixel similarity**: Change `println!` → `eprintln!` in `test_pixel_similarity_logged` so the score is visible in CI logs (stderr is not captured)
+2. **Fix section heading spacing**: LaTeX article class uses ~24pt before `\section`, ~8pt after; ~18pt before `\subsection`, ~6pt after. Currently we use 12pt/6pt.
+3. **Fix paragraph spacing model**: LaTeX uses `\parskip=0pt` — no extra space between paragraphs beyond baselineskip. Verify our 6pt inter-paragraph glue is appropriate or adjust.
+4. **15+ new tests** covering spacing values for sections, paragraphs
+
+- **Cycles budget:** 2
+- **Status:** Pending (issue #29)
 
 ---
 
