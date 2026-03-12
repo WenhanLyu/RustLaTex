@@ -7,7 +7,7 @@
 use pdf_writer::types::FontFlags;
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
 #[allow(unused_imports)]
-use rustlatex_engine::{Alignment, BoxNode, FootnoteInfo, Page as EnginePage};
+use rustlatex_engine::{Alignment, BoxNode, FontStyle, FootnoteInfo, Page as EnginePage};
 
 /// PDF generation result.
 #[derive(Debug)]
@@ -67,14 +67,21 @@ impl PdfWriter {
         // 3 = font file stream (cmr10.pfb, embedded Type1)
         // 4 = font dictionary (CMR10 Type1)
         // 5 = font descriptor
+        // 6-9 = Base-14 font dictionaries (Helvetica, Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique)
+        // 10 = Base-14 Courier font dictionary
         // For each page i (0-indexed):
-        //   6 + i*2     = page object
-        //   6 + i*2 + 1 = content stream
+        //   11 + i*2     = page object
+        //   11 + i*2 + 1 = content stream
         let catalog_id = Ref::new(1);
         let page_tree_id = Ref::new(2);
         let font_file_id = Ref::new(3);
         let font_id = Ref::new(4);
         let font_descriptor_id = Ref::new(5);
+        let font_helv_id = Ref::new(6);
+        let font_helv_bold_id = Ref::new(7);
+        let font_helv_oblique_id = Ref::new(8);
+        let font_helv_boldoblique_id = Ref::new(9);
+        let font_courier_id = Ref::new(10);
 
         let mut pdf = Pdf::new();
 
@@ -83,7 +90,7 @@ impl PdfWriter {
 
         // Collect page Refs
         let page_refs: Vec<Ref> = (0..page_count)
-            .map(|i| Ref::new((6 + i * 2) as i32))
+            .map(|i| Ref::new((11 + i * 2) as i32))
             .collect();
 
         // Page tree
@@ -216,6 +223,21 @@ impl PdfWriter {
             .font_descriptor(font_descriptor_id)
             .encoding_predefined(Name(b"StandardEncoding"));
 
+        // Base-14 fonts for font style differentiation
+        // F2 = Helvetica (Normal)
+        pdf.type1_font(font_helv_id).base_font(Name(b"Helvetica"));
+        // F3 = Helvetica-Bold
+        pdf.type1_font(font_helv_bold_id)
+            .base_font(Name(b"Helvetica-Bold"));
+        // F4 = Helvetica-Oblique (Italic)
+        pdf.type1_font(font_helv_oblique_id)
+            .base_font(Name(b"Helvetica-Oblique"));
+        // F5 = Helvetica-BoldOblique (BoldItalic)
+        pdf.type1_font(font_helv_boldoblique_id)
+            .base_font(Name(b"Helvetica-BoldOblique"));
+        // F6 = Courier (Typewriter)
+        pdf.type1_font(font_courier_id).base_font(Name(b"Courier"));
+
         // A4 dimensions
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
 
@@ -229,8 +251,8 @@ impl PdfWriter {
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
-            let page_id = Ref::new((6 + i * 2) as i32);
-            let content_id = Ref::new((6 + i * 2 + 1) as i32);
+            let page_id = Ref::new((11 + i * 2) as i32);
+            let content_id = Ref::new((11 + i * 2 + 1) as i32);
 
             // Build content stream
             let mut content = Content::new();
@@ -278,7 +300,16 @@ impl PdfWriter {
                             width,
                             font_size,
                             color,
+                            font_style,
                         } => {
+                            // Select font name based on font_style
+                            let font_name: &[u8] = match font_style {
+                                FontStyle::Normal => b"F1",
+                                FontStyle::Bold => b"F3",
+                                FontStyle::Italic => b"F4",
+                                FontStyle::BoldItalic => b"F5",
+                                FontStyle::Typewriter => b"F6",
+                            };
                             // Set color if non-black
                             let has_color = color.as_ref().is_some_and(|c| !c.is_black());
                             if has_color {
@@ -287,10 +318,10 @@ impl PdfWriter {
                                 content.end_text();
                                 content.set_fill_rgb(c.r as f32, c.g as f32, c.b as f32);
                                 content.begin_text();
-                                content.set_font(Name(b"F1"), *font_size as f32);
+                                content.set_font(Name(font_name), *font_size as f32);
                                 content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                             }
-                            content.set_font(Name(b"F1"), *font_size as f32);
+                            content.set_font(Name(font_name), *font_size as f32);
                             let escaped = pdf_escape(text);
                             content.show(Str(&escaped));
                             current_x += *width as f32;
@@ -406,7 +437,13 @@ impl PdfWriter {
                 page_writer.media_box(media_box);
                 page_writer.contents(content_id);
                 let mut resources = page_writer.resources();
-                resources.fonts().pair(Name(b"F1"), font_id);
+                let mut fonts = resources.fonts();
+                fonts.pair(Name(b"F1"), font_id);
+                fonts.pair(Name(b"F2"), font_helv_id);
+                fonts.pair(Name(b"F3"), font_helv_bold_id);
+                fonts.pair(Name(b"F4"), font_helv_oblique_id);
+                fonts.pair(Name(b"F5"), font_helv_boldoblique_id);
+                fonts.pair(Name(b"F6"), font_courier_id);
             }
         }
 
@@ -419,7 +456,8 @@ impl PdfWriter {
 mod tests {
     use super::*;
     use rustlatex_engine::{
-        Alignment, BoxNode, FontMetrics, OutputLine, Page as EnginePage, StandardFontMetrics,
+        Alignment, BoxNode, FontMetrics, FontStyle, OutputLine, Page as EnginePage,
+        StandardFontMetrics,
     };
 
     #[test]
@@ -449,6 +487,7 @@ mod tests {
                         width: 25.0,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     },
                     BoxNode::Glue {
                         natural: 3.33,
@@ -460,6 +499,7 @@ mod tests {
                         width: 24.76,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     },
                 ],
             }],
@@ -484,6 +524,7 @@ mod tests {
                     width: 25.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -510,6 +551,7 @@ mod tests {
                         width: 20.0,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }],
                 }],
                 footnotes: vec![],
@@ -524,6 +566,7 @@ mod tests {
                         width: 30.0,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }],
                 }],
                 footnotes: vec![],
@@ -573,6 +616,7 @@ mod tests {
                     width: 20.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -762,6 +806,7 @@ mod tests {
                     width: 30.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -785,6 +830,7 @@ mod tests {
                     width: 25.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -814,6 +860,7 @@ mod tests {
                         width: 20.0,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }],
                 }],
                 footnotes: vec![],
@@ -828,6 +875,7 @@ mod tests {
                         width: 30.0,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }],
                 }],
                 footnotes: vec![],
@@ -870,6 +918,7 @@ mod tests {
                     width: 30.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -915,6 +964,7 @@ mod tests {
                     width: 30.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],
@@ -922,6 +972,81 @@ mod tests {
         let writer = PdfWriter::new();
         let output = writer.write(&pages);
         assert!(!output.bytes.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_bytes_contain_base14_font_names() {
+        // Verify that the PDF byte output contains all Base-14 font name strings
+        // for bold, italic, bold-italic, and typewriter fonts.
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "bold".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "italic".to_string(),
+                        width: 20.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Italic,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "bolditalic".to_string(),
+                        width: 40.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::BoldItalic,
+                    }],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![BoxNode::Text {
+                        text: "typewriter".to_string(),
+                        width: 40.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Typewriter,
+                    }],
+                },
+            ],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(!output.bytes.is_empty(), "PDF output should not be empty");
+        assert_eq!(&output.bytes[0..5], b"%PDF-", "Should be valid PDF");
+        // Verify Base-14 font names appear in the PDF byte stream
+        let bytes_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            bytes_str.contains("Helvetica-Bold"),
+            "PDF bytes should contain 'Helvetica-Bold' for Bold font style"
+        );
+        assert!(
+            bytes_str.contains("Helvetica-Oblique"),
+            "PDF bytes should contain 'Helvetica-Oblique' for Italic font style"
+        );
+        assert!(
+            bytes_str.contains("Helvetica-BoldOblique"),
+            "PDF bytes should contain 'Helvetica-BoldOblique' for BoldItalic font style"
+        );
+        assert!(
+            bytes_str.contains("Courier"),
+            "PDF bytes should contain 'Courier' for Typewriter font style"
+        );
     }
 
     #[test]
@@ -937,6 +1062,7 @@ mod tests {
                     width: 50.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![FootnoteInfo {
@@ -960,6 +1086,7 @@ mod tests {
                     width: 50.0,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
             }],
             footnotes: vec![],

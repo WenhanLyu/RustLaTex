@@ -115,6 +115,44 @@ fn parse_graphics_options(opts: &str) -> (f64, f64) {
     (width, height)
 }
 
+/// Font style for text rendering.
+///
+/// Represents the combination of weight, slant, and family for a text run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FontStyle {
+    /// Normal (roman) text — the default.
+    #[default]
+    Normal,
+    /// Bold text (e.g., `\textbf`).
+    Bold,
+    /// Italic text (e.g., `\textit`, `\emph`).
+    Italic,
+    /// Bold italic text (e.g., nested `\textbf{\textit{...}}`).
+    BoldItalic,
+    /// Typewriter (monospace) text (e.g., `\texttt`).
+    Typewriter,
+}
+
+impl FontStyle {
+    /// Combine the current style with a bold modifier.
+    pub fn with_bold(self) -> Self {
+        match self {
+            FontStyle::Normal | FontStyle::Bold => FontStyle::Bold,
+            FontStyle::Italic | FontStyle::BoldItalic => FontStyle::BoldItalic,
+            FontStyle::Typewriter => FontStyle::Bold,
+        }
+    }
+
+    /// Combine the current style with an italic modifier.
+    pub fn with_italic(self) -> Self {
+        match self {
+            FontStyle::Normal | FontStyle::Italic => FontStyle::Italic,
+            FontStyle::Bold | FontStyle::BoldItalic => FontStyle::BoldItalic,
+            FontStyle::Typewriter => FontStyle::Italic,
+        }
+    }
+}
+
 /// Text alignment mode for a line or block.
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
 pub enum Alignment {
@@ -242,6 +280,10 @@ pub struct TranslationContext {
     pub hyphenation_exceptions: HashMap<String, Vec<usize>>,
     /// The Hyphenator instance for pattern-based hyphenation.
     pub hyphenator: Hyphenator,
+    /// Current font style for text rendering (Normal, Bold, Italic, etc.).
+    pub current_font_style: FontStyle,
+    /// Stack of font styles for brace-scoped declarations.
+    pub font_style_stack: Vec<FontStyle>,
 }
 
 impl TranslationContext {
@@ -299,6 +341,8 @@ impl TranslationContext {
             user_counters: Self::default_user_counters(),
             hyphenation_exceptions: HashMap::new(),
             hyphenator: Hyphenator::new(),
+            current_font_style: FontStyle::Normal,
+            font_style_stack: Vec::new(),
         }
     }
 
@@ -327,6 +371,8 @@ impl TranslationContext {
             user_counters: Self::default_user_counters(),
             hyphenation_exceptions: HashMap::new(),
             hyphenator: Hyphenator::new(),
+            current_font_style: FontStyle::Normal,
+            font_style_stack: Vec::new(),
         }
     }
 }
@@ -340,6 +386,7 @@ pub enum BoxNode {
         width: f64,
         font_size: f64,
         color: Option<Color>,
+        font_style: FontStyle,
     },
     /// Inter-word glue with natural width, stretchability, and shrinkability.
     Glue {
@@ -877,6 +924,7 @@ impl Hyphenator {
                 width: metrics.string_width(word),
                 font_size,
                 color,
+                font_style: FontStyle::Normal,
             }];
         }
 
@@ -892,6 +940,7 @@ impl Hyphenator {
                     width: metrics.string_width(&fragment),
                     font_size,
                     color: color.clone(),
+                    font_style: FontStyle::Normal,
                 });
                 // Discretionary hyphen: Penalty(50) allows break with a hyphen
                 result.push(BoxNode::Penalty { value: 50 });
@@ -907,6 +956,7 @@ impl Hyphenator {
                 width: metrics.string_width(&fragment),
                 font_size,
                 color,
+                font_style: FontStyle::Normal,
             });
         }
 
@@ -930,6 +980,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     width: metrics.string_width(word),
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 });
             }
             result
@@ -961,11 +1012,15 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
         }
         Node::Command { name, args } => {
             match name.as_str() {
-                "textbf" | "textit" | "emph" | "texttt" | "mbox" => {
+                "textbf" | "textit" | "emph" | "texttt" | "textrm" | "mbox" => {
                     // For known formatting commands, translate their arguments
                     args.iter()
                         .flat_map(|n| translate_node_with_metrics(n, metrics))
                         .collect()
+                }
+                "bfseries" | "itshape" | "ttfamily" | "normalfont" | "rmfamily" => {
+                    // Declarations — no-op in stateless mode
+                    vec![]
                 }
                 "underline" => {
                     // Render arg text, then append a Rule with the text width
@@ -1012,6 +1067,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             width: metrics.string_width(word),
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                     }
                     result
@@ -1072,6 +1128,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             width,
                             font_size,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -1118,6 +1175,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             text: url_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         }]
                     }
                 }
@@ -1142,6 +1200,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         text: marker,
                         font_size: 7.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
@@ -1149,12 +1208,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     width: metrics.string_width("LaTeX"),
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
                     width: metrics.string_width("TeX"),
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -1163,6 +1224,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         width: metrics.string_width(&date_str),
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -1275,6 +1337,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             width: metrics.string_width(line),
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -1329,6 +1392,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 text: label,
                                 font_size: 10.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                         } else {
                             result.push(BoxNode::Text {
@@ -1336,6 +1400,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 width: 7.0,
                                 font_size: 10.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                         }
                         // Item content
@@ -1372,6 +1437,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         text: heading,
                         font_size: 12.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -1559,6 +1625,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             text: math_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -1581,6 +1648,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 text,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }]
         }
         Node::DisplayMath(nodes) => {
@@ -1592,6 +1660,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     text,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 },
                 BoxNode::Penalty { value: -10000 },
                 BoxNode::Glue {
@@ -1778,6 +1847,7 @@ pub fn translate_node_with_context(
                     width: metrics.string_width(word),
                     font_size: 10.0,
                     color: ctx.current_color.clone(),
+                    font_style: ctx.current_font_style,
                 });
             }
             result
@@ -1813,10 +1883,38 @@ pub fn translate_node_with_context(
         }
         Node::Command { name, args } => {
             match name.as_str() {
-                "textbf" | "textit" | "emph" | "texttt" | "mbox" => args
-                    .iter()
-                    .flat_map(|n| translate_node_with_context(n, metrics, ctx))
-                    .collect(),
+                "textbf" | "textit" | "emph" | "texttt" | "textrm" | "mbox" => {
+                    let saved_style = ctx.current_font_style;
+                    ctx.current_font_style = match name.as_str() {
+                        "textbf" => saved_style.with_bold(),
+                        "textit" | "emph" => saved_style.with_italic(),
+                        "texttt" => FontStyle::Typewriter,
+                        "textrm" => FontStyle::Normal,
+                        _ => saved_style, // mbox
+                    };
+                    let result: Vec<BoxNode> = args
+                        .iter()
+                        .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                        .collect();
+                    ctx.current_font_style = saved_style;
+                    result
+                }
+                "bfseries" => {
+                    ctx.current_font_style = ctx.current_font_style.with_bold();
+                    vec![]
+                }
+                "itshape" => {
+                    ctx.current_font_style = ctx.current_font_style.with_italic();
+                    vec![]
+                }
+                "ttfamily" => {
+                    ctx.current_font_style = FontStyle::Typewriter;
+                    vec![]
+                }
+                "normalfont" | "rmfamily" => {
+                    ctx.current_font_style = FontStyle::Normal;
+                    vec![]
+                }
                 "underline" => {
                     let inner: Vec<BoxNode> = args
                         .iter()
@@ -1860,6 +1958,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(word),
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                     }
                     result
@@ -1954,6 +2053,7 @@ pub fn translate_node_with_context(
                             width,
                             font_size,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Kern { amount: 6.0 },
                     ]
@@ -2005,6 +2105,7 @@ pub fn translate_node_with_context(
                             text: resolved,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         }]
                     } else {
                         vec![]
@@ -2027,6 +2128,7 @@ pub fn translate_node_with_context(
                             text: resolved,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         }]
                     } else {
                         vec![]
@@ -2058,6 +2160,7 @@ pub fn translate_node_with_context(
                             width,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::AlignmentMarker {
                             alignment: Alignment::Justify,
@@ -2110,6 +2213,7 @@ pub fn translate_node_with_context(
                             text: url_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         }]
                     }
                 }
@@ -2151,6 +2255,7 @@ pub fn translate_node_with_context(
                         text: marker,
                         font_size: 7.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
                 "LaTeX" => vec![BoxNode::Text {
@@ -2158,12 +2263,14 @@ pub fn translate_node_with_context(
                     width: metrics.string_width("LaTeX"),
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
                 "TeX" => vec![BoxNode::Text {
                     text: "TeX".to_string(),
                     width: metrics.string_width("TeX"),
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 }],
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
@@ -2172,6 +2279,7 @@ pub fn translate_node_with_context(
                         width: metrics.string_width(&date_str),
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
                 "\\" | "newline" => vec![BoxNode::Penalty { value: -10000 }],
@@ -2245,6 +2353,7 @@ pub fn translate_node_with_context(
                             text: title_text,
                             font_size: 17.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2257,6 +2366,7 @@ pub fn translate_node_with_context(
                                 text: author_text.clone(),
                                 font_size: 12.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                             result.push(BoxNode::Penalty { value: -10000 });
                         }
@@ -2273,6 +2383,7 @@ pub fn translate_node_with_context(
                             text: date_text,
                             font_size: 12.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2383,6 +2494,7 @@ pub fn translate_node_with_context(
                         text: heading,
                         font_size: 14.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Kern { amount: 6.0 });
                     result.push(BoxNode::Penalty { value: -10000 });
@@ -2402,6 +2514,7 @@ pub fn translate_node_with_context(
                             text: entry_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2447,6 +2560,7 @@ pub fn translate_node_with_context(
                             text: label_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                     ]
                 }
@@ -2486,6 +2600,7 @@ pub fn translate_node_with_context(
                         text: cite_text,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
                 "newenvironment" | "renewenvironment" => {
@@ -2553,6 +2668,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2569,6 +2685,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2585,6 +2702,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2601,6 +2719,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2617,6 +2736,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2633,6 +2753,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2649,6 +2770,7 @@ pub fn translate_node_with_context(
                             text,
                             font_size: 10.0,
                             color: ctx.current_color.clone(),
+                            font_style: ctx.current_font_style,
                         }]
                     } else {
                         vec![]
@@ -2702,6 +2824,7 @@ pub fn translate_node_with_context(
                             width: metrics.string_width(line),
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -2784,6 +2907,7 @@ pub fn translate_node_with_context(
                                 text: label,
                                 font_size: 10.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                         } else {
                             result.push(BoxNode::Text {
@@ -2791,6 +2915,7 @@ pub fn translate_node_with_context(
                                 width: 7.0,
                                 font_size: 10.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                         }
                         for node in item_nodes {
@@ -2825,6 +2950,7 @@ pub fn translate_node_with_context(
                         text: heading,
                         font_size: 12.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::AlignmentMarker {
@@ -2895,6 +3021,7 @@ pub fn translate_node_with_context(
                             text: math_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Glue {
                             natural: 20.0,
@@ -2906,6 +3033,7 @@ pub fn translate_node_with_context(
                             text: eq_label,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -2945,6 +3073,7 @@ pub fn translate_node_with_context(
                             text: math_text,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         },
                         BoxNode::Penalty { value: -10000 },
                         BoxNode::Glue {
@@ -2981,6 +3110,7 @@ pub fn translate_node_with_context(
                             text: trimmed,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Glue {
                             natural: 20.0,
@@ -2992,6 +3122,7 @@ pub fn translate_node_with_context(
                             text: eq_label,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -3022,6 +3153,7 @@ pub fn translate_node_with_context(
                             text: trimmed,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
@@ -3041,6 +3173,7 @@ pub fn translate_node_with_context(
                         text: prefix,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Glue {
                         natural: metrics.space_width(),
@@ -3061,6 +3194,7 @@ pub fn translate_node_with_context(
                         text: qed,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Penalty { value: -10000 });
                     result.push(BoxNode::Glue {
@@ -3131,6 +3265,7 @@ pub fn translate_node_with_context(
                                 text: t.clone(),
                                 font_size: 10.0,
                                 color: None,
+                                font_style: FontStyle::Normal,
                             });
                             result.push(BoxNode::Glue {
                                 natural: metrics.space_width(),
@@ -3161,6 +3296,7 @@ pub fn translate_node_with_context(
                         text: heading,
                         font_size: 14.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     });
                     result.push(BoxNode::Kern { amount: 6.0 });
                     result.push(BoxNode::Penalty { value: -10000 });
@@ -3243,6 +3379,7 @@ pub fn translate_node_with_context(
                             text: heading,
                             font_size: 10.0,
                             color: None,
+                            font_style: FontStyle::Normal,
                         });
                         result.push(BoxNode::Glue {
                             natural: metrics.space_width(),
@@ -3277,6 +3414,7 @@ pub fn translate_node_with_context(
                 text,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }]
         }
         Node::DisplayMath(nodes) => {
@@ -3288,6 +3426,7 @@ pub fn translate_node_with_context(
                     text,
                     font_size: 10.0,
                     color: None,
+                    font_style: FontStyle::Normal,
                 },
                 BoxNode::Penalty { value: -10000 },
                 BoxNode::Glue {
@@ -3297,10 +3436,17 @@ pub fn translate_node_with_context(
                 },
             ]
         }
-        Node::Group(nodes) => nodes
-            .iter()
-            .flat_map(|n| translate_node_with_context(n, metrics, ctx))
-            .collect(),
+        Node::Group(nodes) => {
+            // Save font style for brace-scoped declarations
+            let saved_style = ctx.current_font_style;
+            let result: Vec<BoxNode> = nodes
+                .iter()
+                .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                .collect();
+            // Restore font style after group exits
+            ctx.current_font_style = saved_style;
+            result
+        }
         Node::Document(nodes) => nodes
             .iter()
             .flat_map(|n| translate_node_with_context(n, metrics, ctx))
@@ -3339,6 +3485,7 @@ pub fn translate_node_with_context(
                         text: warning,
                         font_size: 10.0,
                         color: None,
+                        font_style: FontStyle::Normal,
                     }]
                 }
             }
@@ -4342,6 +4489,7 @@ mod tests {
             width: w,
             font_size: 10.0,
             color: None,
+            font_style: FontStyle::Normal,
         };
         if let BoxNode::Text { text, width, .. } = &node {
             assert_eq!(text, "hello");
@@ -4403,6 +4551,7 @@ mod tests {
                 width: 12.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }],
         };
         if let BoxNode::HBox {
@@ -4430,6 +4579,7 @@ mod tests {
                 width: 24.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }],
         };
         if let BoxNode::VBox { width, content } = &node {
@@ -4456,6 +4606,7 @@ mod tests {
                 width: cm10_width("hello"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4467,6 +4618,7 @@ mod tests {
                 width: cm10_width("world"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4494,6 +4646,7 @@ mod tests {
                 width: cm10_width("one"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         assert!(matches!(items[2], BoxNode::Glue { .. }));
@@ -4505,6 +4658,7 @@ mod tests {
                 width: cm10_width("two"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
@@ -4515,6 +4669,7 @@ mod tests {
                 width: cm10_width("three"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4566,6 +4721,7 @@ mod tests {
                 width: cm10_width("inside"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4587,6 +4743,7 @@ mod tests {
                 width: cm10_width("bold"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4598,6 +4755,7 @@ mod tests {
                 width: cm10_width("text"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4620,6 +4778,7 @@ mod tests {
                 width: cm10_width("content"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -4631,6 +4790,7 @@ mod tests {
                 width: cm10_width("here"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4661,6 +4821,7 @@ mod tests {
                 width: cm10_width("first"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         // second: s+e+c+o+n+d = 3.89+4.44+4.44+5.00+5.56+5.56 = 28.89
@@ -4671,6 +4832,7 @@ mod tests {
                 width: cm10_width("second"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4698,6 +4860,7 @@ mod tests {
                 width: cm10_width("hello"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -4709,6 +4872,7 @@ mod tests {
                 width: cm10_width("world"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_into_lines(&items, 345.0);
@@ -4728,6 +4892,7 @@ mod tests {
                 width: 60.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -4739,6 +4904,7 @@ mod tests {
                 width: 60.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -4750,6 +4916,7 @@ mod tests {
                 width: 60.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_into_lines(&items, 100.0);
@@ -4776,6 +4943,7 @@ mod tests {
                 width: 50.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -4787,6 +4955,7 @@ mod tests {
                 width: 50.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         // hsize=100, 50 + 50 = 100, fits exactly
@@ -4873,6 +5042,7 @@ mod tests {
                 width: cm10_width("italic"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4893,6 +5063,7 @@ mod tests {
                 width: cm10_width("emphasized"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -4905,6 +5076,7 @@ mod tests {
                 width: 60.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5070,6 +5242,7 @@ mod tests {
                 width: 20.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         // Glue should use FixedMetrics space_width = 5.0
@@ -5086,6 +5259,7 @@ mod tests {
                 width: 20.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -5112,6 +5286,7 @@ mod tests {
             width,
             font_size: 10.0,
             color: None,
+            font_style: FontStyle::Normal,
         }
     }
 
@@ -5141,6 +5316,7 @@ mod tests {
                 width: m.string_width("hello"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::Glue {
                 natural: 3.33,
@@ -5152,6 +5328,7 @@ mod tests {
                 width: m.string_width("world"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = kp.break_lines(&items, 345.0);
@@ -5487,6 +5664,7 @@ mod tests {
             width: 20.0,
             font_size: 10.0,
             color: None,
+            font_style: FontStyle::Normal,
         };
         if let BoxNode::Text { font_size, .. } = node {
             assert_eq!(font_size, 10.0);
@@ -6464,6 +6642,7 @@ mod tests {
             width: 30.0,
             font_size: 10.0,
             color: None,
+            font_style: FontStyle::Normal,
         }];
         let lines = break_items_with_alignment(&items, 345.0);
         assert_eq!(lines.len(), 1);
@@ -6481,6 +6660,7 @@ mod tests {
                 width: 30.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6499,6 +6679,7 @@ mod tests {
                 width: 20.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6517,6 +6698,7 @@ mod tests {
                 width: 20.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6532,6 +6714,7 @@ mod tests {
                 width: 40.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
             BoxNode::AlignmentMarker {
                 alignment: Alignment::Center,
@@ -6541,6 +6724,7 @@ mod tests {
                 width: 50.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6560,6 +6744,7 @@ mod tests {
                 width: 30.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             },
         ];
         let lines = break_items_with_alignment(&items, 345.0);
@@ -6580,6 +6765,7 @@ mod tests {
                 width: 6.0,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }],
         };
         assert_eq!(line.alignment, Alignment::Center);
@@ -7390,6 +7576,7 @@ mod tests {
                 width: cm10_width("mono"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         assert!(matches!(items[1], BoxNode::Glue { .. }));
@@ -7400,6 +7587,7 @@ mod tests {
                 width: cm10_width("text"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -7421,6 +7609,7 @@ mod tests {
                 width: hello_width,
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
         if let BoxNode::Rule { width, height } = &items[1] {
@@ -7497,6 +7686,7 @@ mod tests {
                 width: cm10_width("boxed"),
                 font_size: 10.0,
                 color: None,
+                font_style: FontStyle::Normal,
             }
         );
     }
@@ -10623,5 +10813,440 @@ mod tests {
         let metrics = StandardFontMetrics;
         let (_items, _labels) = translate_two_pass(&doc, &metrics);
         // If this doesn't panic, the two-pass system correctly handles hyphenation
+    }
+
+    // ===== M27: Font Style Differentiation Tests =====
+
+    #[test]
+    fn test_font_style_enum_default() {
+        assert_eq!(FontStyle::default(), FontStyle::Normal);
+    }
+
+    #[test]
+    fn test_font_style_with_bold() {
+        assert_eq!(FontStyle::Normal.with_bold(), FontStyle::Bold);
+        assert_eq!(FontStyle::Bold.with_bold(), FontStyle::Bold);
+        assert_eq!(FontStyle::Italic.with_bold(), FontStyle::BoldItalic);
+        assert_eq!(FontStyle::BoldItalic.with_bold(), FontStyle::BoldItalic);
+        assert_eq!(FontStyle::Typewriter.with_bold(), FontStyle::Bold);
+    }
+
+    #[test]
+    fn test_font_style_with_italic() {
+        assert_eq!(FontStyle::Normal.with_italic(), FontStyle::Italic);
+        assert_eq!(FontStyle::Bold.with_italic(), FontStyle::BoldItalic);
+        assert_eq!(FontStyle::Italic.with_italic(), FontStyle::Italic);
+        assert_eq!(FontStyle::BoldItalic.with_italic(), FontStyle::BoldItalic);
+        assert_eq!(FontStyle::Typewriter.with_italic(), FontStyle::Italic);
+    }
+
+    #[test]
+    fn test_textbf_produces_bold_style_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "textbf".to_string(),
+            args: vec![Node::Group(vec![Node::Text("bold".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bold = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "bold"));
+        assert!(has_bold, "\\textbf should produce Bold font_style");
+    }
+
+    #[test]
+    fn test_textit_produces_italic_style_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "textit".to_string(),
+            args: vec![Node::Group(vec![Node::Text("italic".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_italic = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Italic, .. } if text == "italic"));
+        assert!(has_italic, "\\textit should produce Italic font_style");
+    }
+
+    #[test]
+    fn test_emph_produces_italic_style_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "emph".to_string(),
+            args: vec![Node::Group(vec![Node::Text("emphasized".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_italic = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::Italic,
+                    ..
+                }
+            )
+        });
+        assert!(has_italic, "\\emph should produce Italic font_style");
+    }
+
+    #[test]
+    fn test_texttt_produces_typewriter_style_in_context() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "texttt".to_string(),
+            args: vec![Node::Group(vec![Node::Text("code".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_tt = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Typewriter, .. } if text == "code"));
+        assert!(has_tt, "\\texttt should produce Typewriter font_style");
+    }
+
+    #[test]
+    fn test_textrm_produces_normal_style_in_context() {
+        let metrics = StandardFontMetrics;
+        // Inside \textbf, \textrm should reset to Normal
+        let node = Node::Document(vec![Node::Command {
+            name: "textbf".to_string(),
+            args: vec![Node::Group(vec![
+                Node::Text("bold ".to_string()),
+                Node::Command {
+                    name: "textrm".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("normal".to_string())])],
+                },
+            ])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_normal = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Normal, .. } if text == "normal"));
+        assert!(
+            has_normal,
+            "\\textrm inside \\textbf should reset to Normal"
+        );
+    }
+
+    #[test]
+    fn test_nested_textbf_textit_produces_bolditalic() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "textbf".to_string(),
+            args: vec![Node::Group(vec![Node::Command {
+                name: "textit".to_string(),
+                args: vec![Node::Group(vec![Node::Text("bolditalic".to_string())])],
+            }])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bi = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::BoldItalic, .. } if text == "bolditalic"));
+        assert!(
+            has_bi,
+            "\\textbf{{\\textit{{x}}}} should produce BoldItalic"
+        );
+    }
+
+    #[test]
+    fn test_nested_textit_textbf_produces_bolditalic() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "textit".to_string(),
+            args: vec![Node::Group(vec![Node::Command {
+                name: "textbf".to_string(),
+                args: vec![Node::Group(vec![Node::Text("italicbold".to_string())])],
+            }])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bi = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::BoldItalic,
+                    ..
+                }
+            )
+        });
+        assert!(
+            has_bi,
+            "\\textit{{\\textbf{{x}}}} should produce BoldItalic"
+        );
+    }
+
+    #[test]
+    fn test_bfseries_declaration_sets_bold() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "bfseries".to_string(),
+                args: vec![],
+            },
+            Node::Text("boldtext".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bold = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                }
+            )
+        });
+        assert!(has_bold, "\\bfseries should set font_style to Bold");
+    }
+
+    #[test]
+    fn test_itshape_declaration_sets_italic() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "itshape".to_string(),
+                args: vec![],
+            },
+            Node::Text("italictext".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_italic = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::Italic,
+                    ..
+                }
+            )
+        });
+        assert!(has_italic, "\\itshape should set font_style to Italic");
+    }
+
+    #[test]
+    fn test_ttfamily_declaration_sets_typewriter() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "ttfamily".to_string(),
+                args: vec![],
+            },
+            Node::Text("monospace".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_tt = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::Typewriter,
+                    ..
+                }
+            )
+        });
+        assert!(has_tt, "\\ttfamily should set font_style to Typewriter");
+    }
+
+    #[test]
+    fn test_normalfont_declaration_resets_to_normal() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "bfseries".to_string(),
+                args: vec![],
+            },
+            Node::Command {
+                name: "normalfont".to_string(),
+                args: vec![],
+            },
+            Node::Text("reset".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_normal = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Normal, .. } if text == "reset"));
+        assert!(has_normal, "\\normalfont should reset font_style to Normal");
+    }
+
+    #[test]
+    fn test_brace_scoped_bfseries_restores_style() {
+        let metrics = StandardFontMetrics;
+        // {\bfseries bold text} normal text
+        let node = Node::Document(vec![
+            Node::Group(vec![
+                Node::Command {
+                    name: "bfseries".to_string(),
+                    args: vec![],
+                },
+                Node::Text("bold".to_string()),
+            ]),
+            Node::Text("normal".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bold = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "bold"));
+        let has_normal = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Normal, .. } if text == "normal"));
+        assert!(
+            has_bold,
+            "Text inside brace-scoped \\bfseries should be Bold"
+        );
+        assert!(
+            has_normal,
+            "Text after brace-scoped \\bfseries should be Normal"
+        );
+    }
+
+    #[test]
+    fn test_textbf_style_restores_after_command() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "textbf".to_string(),
+                args: vec![Node::Group(vec![Node::Text("bold".to_string())])],
+            },
+            Node::Text("normal".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bold = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "bold"));
+        let has_normal = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Normal, .. } if text == "normal"));
+        assert!(has_bold, "\\textbf arg should be Bold");
+        assert!(has_normal, "Text after \\textbf should be Normal");
+    }
+
+    #[test]
+    fn test_default_text_has_normal_font_style() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Text("plain".to_string());
+        let items = translate_node_with_metrics(&node, &metrics);
+        for item in &items {
+            if let BoxNode::Text { font_style, .. } = item {
+                assert_eq!(
+                    *font_style,
+                    FontStyle::Normal,
+                    "Default text should have Normal font_style"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_context_default_font_style_is_normal() {
+        let ctx = TranslationContext::new_collecting();
+        assert_eq!(ctx.current_font_style, FontStyle::Normal);
+        assert!(ctx.font_style_stack.is_empty());
+    }
+
+    #[test]
+    fn test_boxnode_text_has_font_style_field() {
+        let node = BoxNode::Text {
+            text: "test".to_string(),
+            width: 20.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Bold,
+        };
+        if let BoxNode::Text { font_style, .. } = &node {
+            assert_eq!(*font_style, FontStyle::Bold);
+        } else {
+            panic!("Expected BoxNode::Text");
+        }
+    }
+
+    #[test]
+    fn test_rmfamily_declaration_resets() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "itshape".to_string(),
+                args: vec![],
+            },
+            Node::Command {
+                name: "rmfamily".to_string(),
+                args: vec![],
+            },
+            Node::Text("roman".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_normal = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, font_style: FontStyle::Normal, .. } if text == "roman"));
+        assert!(has_normal, "\\rmfamily should reset to Normal");
+    }
+
+    #[test]
+    fn test_two_pass_font_style_bold() {
+        // Verify translate_two_pass() preserves Bold font_style for \textbf{} content
+        let input = r"\documentclass{article}\begin{document}\textbf{hello}\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _labels) = translate_two_pass(&doc, &metrics);
+        let has_bold = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "hello")
+        });
+        assert!(
+            has_bold,
+            "translate_two_pass() should produce Bold font_style for \\textbf{{hello}}"
+        );
+    }
+
+    #[test]
+    fn test_two_pass_font_style_italic() {
+        // Verify translate_two_pass() preserves Italic font_style for \textit{} content
+        let input = r"\documentclass{article}\begin{document}\textit{world}\end{document}";
+        let mut parser = Parser::new(input);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let (items, _labels) = translate_two_pass(&doc, &metrics);
+        let has_italic = items.iter().any(|n| {
+            matches!(n, BoxNode::Text { text, font_style: FontStyle::Italic, .. } if text == "world")
+        });
+        assert!(
+            has_italic,
+            "translate_two_pass() should produce Italic font_style for \\textit{{world}}"
+        );
+    }
+
+    #[test]
+    fn test_bfseries_itshape_combined() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "bfseries".to_string(),
+                args: vec![],
+            },
+            Node::Command {
+                name: "itshape".to_string(),
+                args: vec![],
+            },
+            Node::Text("bolditalic".to_string()),
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_bi = items.iter().any(|n| {
+            matches!(
+                n,
+                BoxNode::Text {
+                    font_style: FontStyle::BoldItalic,
+                    ..
+                }
+            )
+        });
+        assert!(has_bi, "\\bfseries + \\itshape should produce BoldItalic");
     }
 }
