@@ -1048,13 +1048,13 @@ fn inter_word_glue(metrics: &dyn FontMetrics, prev_word: &str, style: FontStyle)
         BoxNode::Glue {
             natural: sw * 1.5,
             stretch: 2.5,
-            shrink: 1.11,
+            shrink: 1.11111,
         }
     } else {
         BoxNode::Glue {
             natural: sw,
-            stretch: 1.67,
-            shrink: 1.11,
+            stretch: 1.66667,
+            shrink: 1.11111,
         }
     }
 }
@@ -1431,8 +1431,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         if i > 0 {
                             result.push(BoxNode::Glue {
                                 natural: metrics.space_width(),
-                                stretch: 1.67,
-                                shrink: 1.11,
+                                stretch: 1.66667,
+                                shrink: 1.11111,
                             });
                         }
                         result.push(BoxNode::Text {
@@ -2344,8 +2344,8 @@ pub fn translate_node_with_context(
                         if i > 0 {
                             result.push(BoxNode::Glue {
                                 natural: metrics.space_width_for_style(style),
-                                stretch: 1.67,
-                                shrink: 1.11,
+                                stretch: 1.66667,
+                                shrink: 1.11111,
                             });
                         }
                         result.push(BoxNode::Text {
@@ -3628,8 +3628,8 @@ pub fn translate_node_with_context(
                     });
                     result.push(BoxNode::Glue {
                         natural: metrics.space_width_for_style(ctx.current_font_style),
-                        stretch: 1.67,
-                        shrink: 1.11,
+                        stretch: 1.66667,
+                        shrink: 1.11111,
                     });
                     for node in content {
                         result.extend(translate_node_with_context(node, metrics, ctx));
@@ -3722,8 +3722,8 @@ pub fn translate_node_with_context(
                             });
                             result.push(BoxNode::Glue {
                                 natural: metrics.space_width_for_style(ctx.current_font_style),
-                                stretch: 1.67,
-                                shrink: 1.11,
+                                stretch: 1.66667,
+                                shrink: 1.11111,
                             });
                         }
                         for node in item_nodes {
@@ -3838,8 +3838,8 @@ pub fn translate_node_with_context(
                         });
                         result.push(BoxNode::Glue {
                             natural: metrics.space_width_for_style(ctx.current_font_style),
-                            stretch: 1.67,
-                            shrink: 1.11,
+                            stretch: 1.66667,
+                            shrink: 1.11111,
                         });
 
                         for node in content.iter().skip(content_start_idx) {
@@ -4958,8 +4958,8 @@ mod tests {
     fn test_boxnode_glue_construction() {
         let node = BoxNode::Glue {
             natural: 3.33,
-            stretch: 1.67,
-            shrink: 1.11,
+            stretch: 1.66667,
+            shrink: 1.11111,
         };
         if let BoxNode::Glue {
             natural,
@@ -4968,8 +4968,8 @@ mod tests {
         } = &node
         {
             assert!((natural - 3.33).abs() < f64::EPSILON);
-            assert!((stretch - 1.67).abs() < f64::EPSILON);
-            assert!((shrink - 1.11).abs() < f64::EPSILON);
+            assert!((stretch - 1.66667).abs() < 1e-9);
+            assert!((shrink - 1.11111).abs() < 1e-9);
         } else {
             panic!("Expected BoxNode::Glue");
         }
@@ -5359,8 +5359,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Text {
                 text: "world".to_string(),
@@ -5393,8 +5393,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Text {
                 text: "bbbbbbbbbb".to_string(),
@@ -5406,8 +5406,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Text {
                 text: "cccccccccc".to_string(),
@@ -5447,8 +5447,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Text {
                 text: "bbb".to_string(),
@@ -5584,8 +5584,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Kern { amount: 50.0 },
         ];
@@ -5828,8 +5828,8 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 3.33,
-                stretch: 1.67,
-                shrink: 1.11,
+                stretch: 1.66667,
+                shrink: 1.11111,
             },
             BoxNode::Text {
                 text: "world".to_string(),

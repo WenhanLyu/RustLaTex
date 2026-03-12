@@ -18,6 +18,15 @@ allowing us to compare the output of RustLaTex against pdflatex.
 By comparing the rendered PDFs pixel-by-pixel, we can measure how closely
 our output matches the reference implementation.
 
+Consider the phrase \textbf{bold text here} which exercises cmbx10 kern pairs
+in the bold font rendering path.
+
+The classic kern pair test words AV To Fo VA demonstrate how letter spacing
+improves typographic quality in both normal and bold text.
+
+Newton's second law $F = ma$ and the energy relation $E = mc^2$ show
+inline math rendering with variables and superscripts.
+
 \subsection{Details}
 
 Below is the mass-energy equivalence in display math:
