@@ -1528,7 +1528,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             });
                         } else {
                             result.push(BoxNode::Text {
-                                text: "• ".to_string(),
+                                text: "- ".to_string(),
                                 width: 7.0,
                                 font_size: 10.0,
                                 color: None,
@@ -3069,7 +3069,7 @@ pub fn translate_node_with_context(
                             });
                         } else {
                             result.push(BoxNode::Text {
-                                text: "• ".to_string(),
+                                text: "- ".to_string(),
                                 width: 7.0,
                                 font_size: 10.0,
                                 color: None,
@@ -6471,8 +6471,8 @@ mod tests {
         let items = translate_node(&node);
         let has_bullet = items
             .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
-        assert!(has_bullet, "Expected a bullet • prefix in itemize output");
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')));
+        assert!(has_bullet, "Expected a dash - prefix in itemize output");
     }
 
     #[test]
@@ -6527,9 +6527,9 @@ mod tests {
         let items = translate_node(&node);
         let bullet_count = items
             .iter()
-            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')))
+            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')))
             .count();
-        assert_eq!(bullet_count, 3, "Expected 3 bullet prefixes for 3 items");
+        assert_eq!(bullet_count, 3, "Expected 3 dash prefixes for 3 items");
     }
 
     #[test]
@@ -6675,12 +6675,12 @@ mod tests {
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let has_bullet = items
+        let has_dash_bullet = items
             .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "- " || text == "- "));
         assert!(
-            !has_bullet,
-            "enumerate should NOT produce bullet • prefixes"
+            !has_dash_bullet,
+            "enumerate should NOT produce dash - bullet prefixes"
         );
     }
 
@@ -6708,7 +6708,7 @@ mod tests {
         let items = translate_node(&node);
         let bullet_node = items
             .iter()
-            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('•')));
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.contains('-')));
         if let Some(BoxNode::Text { width, .. }) = bullet_node {
             assert!(
                 (*width - 7.0).abs() < f64::EPSILON,
@@ -6716,7 +6716,7 @@ mod tests {
                 width
             );
         } else {
-            panic!("Expected a Text node with bullet •");
+            panic!("Expected a Text node with dash -");
         }
     }
 
@@ -12388,5 +12388,118 @@ mod tests {
                 ch, w
             );
         }
+    }
+
+    // ===== M33 tests: bullet dash encoding safety =====
+
+    #[test]
+    fn test_bullet_not_utf8_multibyte() {
+        // Verify bullet text does NOT contain bytes E2 80 A2 (UTF-8 for •)
+        let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { text, .. } = item {
+                let bytes = text.as_bytes();
+                // Check no UTF-8 bullet (E2 80 A2) sequence
+                for window in bytes.windows(3) {
+                    assert!(
+                        window != [0xE2, 0x80, 0xA2],
+                        "Bullet text should not contain UTF-8 • (E2 80 A2), found in '{}'",
+                        text
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_bullet_is_dash() {
+        let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        let bullet_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "- "));
+        assert!(
+            bullet_node.is_some(),
+            "Bullet prefix should be '- ' (dash + space)"
+        );
+    }
+
+    #[test]
+    fn test_bullet_visible_content() {
+        let node = make_itemize(vec![vec![Node::Text("visible".to_string())]]);
+        let items = translate_node(&node);
+        let has_visible = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if !text.trim().is_empty()));
+        assert!(has_visible, "Bullet should produce non-empty visible text");
+    }
+
+    #[test]
+    fn test_enumerate_bullet_not_utf8() {
+        let node = make_enumerate(vec![vec![Node::Text("item".to_string())]]);
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { text, .. } = item {
+                assert!(
+                    !text.contains('•'),
+                    "Enumerate should not contain • character, found in '{}'",
+                    text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_bullet_single_item_no_bullet_char() {
+        let node = make_itemize(vec![vec![Node::Text("single".to_string())]]);
+        let items = translate_node(&node);
+        for item in &items {
+            if let BoxNode::Text { text, .. } = item {
+                assert!(
+                    !text.contains('•'),
+                    "Itemize should not contain • character, found in '{}'",
+                    text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_bullet_dash_encoding_safe() {
+        // Dash '-' is ASCII 0x2D, safe for OT1 encoding
+        let node = make_itemize(vec![vec![Node::Text("safe".to_string())]]);
+        let items = translate_node(&node);
+        let bullet_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text.starts_with('-')));
+        if let Some(BoxNode::Text { text, .. }) = bullet_node {
+            assert!(
+                text.is_ascii(),
+                "Bullet text should be pure ASCII for OT1 safety, got '{}'",
+                text
+            );
+        } else {
+            panic!("Expected a Text node starting with '-'");
+        }
+    }
+
+    #[test]
+    fn test_three_items_all_dash_bullets() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let dash_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { text, .. } if text == "- "))
+            .count();
+        assert_eq!(
+            dash_count, 3,
+            "Expected 3 dash bullet prefixes for 3 items, got {}",
+            dash_count
+        );
     }
 }
