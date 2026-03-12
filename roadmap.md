@@ -89,6 +89,8 @@ Binary-identical output requires:
 - **M38 scope:** Embed cmmi10.pfb (CM Math Italic) and cmsy10.pfb (CM Math Symbols) in PDF output. Map FontStyle::MathItalic to F7 (cmmi10 instead of cmti10). Render BoxNode::Bullet using cmsy10 glyph 15 instead of Bezier circle. Shift page Ref IDs from 18+ to 24+ to accommodate 6 new fixed refs. Diana's research confirmed fonts available at /tmp/amsfonts_extract/ (SIL OFL license) — copy to crates/rustlatex-pdf/fonts/ and commit.
 - **Diana's M38 research (issue #40, closed):** Confirmed cmmi10/cmsy10 downloadable from CTAN amsfonts (SIL OFL 1.1). cmmi10 Latin letters at same ASCII positions as OT1. cmsy10 bullet at position 15 (5pt advance, 3.87pt diameter). Expected +0.5-0.9% pixel similarity improvement. Low implementation risk.
 - **Cycle (M38):** M38 completed in 1 implementation cycle (Ares). Embedded cmmi10.pfb (F7/MathItalic) + cmsy10.pfb (F8/bullet). Shifted page Refs from 18 to 24. Bullet now uses cmsy10 glyph 15 (5pt advance). 706 total tests pass, CI green (commit 315adba).
+- **M39 scope:** Math operator spacing (thin/thick spaces around binary operators and relations in math mode) + fix CI pixel similarity visibility. Binary ops (+/-/×) get 1.667pt on each side; relations (=/</>/) get 2.778pt on each side. This is the most visible remaining gap in compare.tex.
+- **M40 research (Diana):** Investigate character pair kerning (cmr10 AFM kern pairs), math mode rendering accuracy, word spacing exact values, page geometry validation, and actual pixel similarity score.
 
 ## Milestones
 
@@ -707,6 +709,17 @@ Improve math font visual fidelity by embedding actual Computer Modern Math fonts
 - **Status:** ✅ Complete — Ares implemented (commit 315adba)
 
 
+
+### M39: Math Operator Spacing + CI Pixel Similarity Fix
+Improve math rendering quality by adding proper thin/thick spaces around math operators.
+
+**Goals:**
+1. **Math operator spacing** — In math_node_to_boxes_inner(), add Kern nodes around binary operators (+,-,×,÷,±,∓,·) and relations (=,<,>,≤,≥,≠,∈,⊂,∪,∩,→,←): binary ops get 1.667pt kern on each side, relations get 2.778pt kern on each side. This matches pdflatex behavior.
+2. **CI pixel similarity fix** — Change CI to capture the similarity score (write to file or use different mechanism).
+3. **10+ new tests** — verify operator spacing for +, =, ×, and that non-operators don't get spacing.
+
+- **Cycles budget:** 2 | **Cycles actual:** pending
+- **Status:** 🔄 In progress (issue #43)
 
 ---
 
