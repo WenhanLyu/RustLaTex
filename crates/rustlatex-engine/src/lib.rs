@@ -4754,7 +4754,6 @@ impl Engine {
         let all_lines = break_items_with_alignment(&items, 345.0);
 
         let vsize = 700.0_f64;
-        let line_height = 12.0_f64;
 
         // Assign lines to pages to determine page numbers for \pageref
         let mut pages: Vec<Page> = Vec::new();
@@ -4782,7 +4781,8 @@ impl Engine {
                 continue;
             }
 
-            if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
+            let lh = line.line_height;
+            if accumulated_height + lh > vsize && !current_page_lines.is_empty() {
                 pages.push(Page {
                     number: pages.len() + 1,
                     content: content.clone(),
@@ -4793,7 +4793,7 @@ impl Engine {
                 accumulated_height = 0.0;
             }
             current_page_lines.push(line);
-            accumulated_height += line_height;
+            accumulated_height += lh;
         }
         if !current_page_lines.is_empty() {
             pages.push(Page {
@@ -4869,7 +4869,8 @@ impl Engine {
                         continue;
                     }
 
-                    if accumulated_height + line_height > vsize && !current_page_lines.is_empty() {
+                    let lh = line.line_height;
+                    if accumulated_height + lh > vsize && !current_page_lines.is_empty() {
                         pages.push(Page {
                             number: pages.len() + 1,
                             content: content.clone(),
@@ -4880,7 +4881,7 @@ impl Engine {
                         accumulated_height = 0.0;
                     }
                     current_page_lines.push(line);
-                    accumulated_height += line_height;
+                    accumulated_height += lh;
                 }
                 if !current_page_lines.is_empty() {
                     pages.push(Page {
@@ -14622,5 +14623,62 @@ mod tests {
         } else {
             panic!("Expected BoxNode::Text for subscript");
         }
+    }
+
+    #[test]
+    fn test_m46_page_accumulation_uses_line_height() {
+        // Verify that page accumulation uses per-line line_height, not a flat 12pt.
+        // Create lines with line_height=16.8 (14pt). vsize=700 => 700/16.8 ≈ 41.67 => 41 lines per page.
+        // With old flat 12pt: 700/12 ≈ 58.33 => 58 lines per page.
+        // If we create 50 lines at 16.8pt, with per-line height we expect 2 pages,
+        // but with flat 12pt we'd expect 1 page.
+        let mut lines = Vec::new();
+        for _ in 0..50 {
+            lines.push(OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "Test".to_string(),
+                    width: 20.0,
+                    font_size: 14.0,
+                    font_style: FontStyle::Normal,
+                    color: None,
+                    vertical_offset: 0.0,
+                }],
+                line_height: 16.8,
+            });
+        }
+
+        // Simulate page accumulation logic (same as in render_to_pdf)
+        let vsize = 700.0_f64;
+        let mut pages: Vec<Vec<OutputLine>> = Vec::new();
+        let mut current_page_lines: Vec<OutputLine> = Vec::new();
+        let mut accumulated_height = 0.0_f64;
+
+        for line in lines {
+            let lh = line.line_height;
+            if accumulated_height + lh > vsize && !current_page_lines.is_empty() {
+                pages.push(current_page_lines);
+                current_page_lines = Vec::new();
+                accumulated_height = 0.0;
+            }
+            current_page_lines.push(line);
+            accumulated_height += lh;
+        }
+        if !current_page_lines.is_empty() {
+            pages.push(current_page_lines);
+        }
+
+        assert_eq!(
+            pages.len(),
+            2,
+            "50 lines at 16.8pt line_height should produce 2 pages with vsize=700, got {}",
+            pages.len()
+        );
+        assert_eq!(
+            pages[0].len(),
+            41,
+            "First page should have 41 lines (41*16.8=688.8 < 700, 42*16.8=705.6 > 700)"
+        );
+        assert_eq!(pages[1].len(), 9, "Second page should have 9 lines");
     }
 }

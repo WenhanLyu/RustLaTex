@@ -67,7 +67,7 @@ fn is_cm_text_font(font_name: &[u8]) -> bool {
 /// Return true if kerning should be applied for this font name.
 /// Return true if this font uses AFM kern pairs (F1=cmr10 Normal, F3=cmbx10 Bold, F4=cmti10 Italic, F5=cmbxti10 BoldItalic).
 fn is_cmr10_kern_font(font_name: &[u8]) -> bool {
-    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5")
+    matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5" | b"F7")
 }
 
 /// Look up the cmbx10 AFM kern pair value for a pair of byte-encoded glyphs.
@@ -978,6 +978,274 @@ fn has_cmbxti10_kern_pairs(bytes: &[u8]) -> bool {
         .any(|w| cmbxti10_kern_pair(w[0], w[1]) != 0.0)
 }
 
+/// Look up the cmmi10 AFM kern pair value for a pair of byte-encoded glyphs.
+///
+/// Returns the kern value in AFM units (per 1000 em), or 0.0 if no kern pair
+/// exists. Based on the 166 KPX entries from cmmi10.afm.
+///
+/// Glyph names are mapped to OML byte positions:
+/// - Greek uppercase: Gamma=0, Delta=1, Theta=2, Lambda=3, Xi=4, Pi=5, Sigma=6,
+///   Upsilon=7, Phi=8, Psi=9, Omega=10
+/// - Greek lowercase at positions 11-39
+/// - period=58, comma=59, slash=61, partialdiff=64, lscript=96, tie=127
+/// - A-Z at 65-90, a-z at 97-122
+pub fn cmmi10_kern_pair(a: u8, b: u8) -> f32 {
+    match (a, b) {
+        // Gamma (0)
+        (0, 61) => -55.556,
+        (0, 59) => -111.111,
+        (0, 58) => -111.111,
+        (0, 127) => 83.333,
+        // Delta (1)
+        (1, 127) => 166.667,
+        // Theta (2)
+        (2, 127) => 83.333,
+        // Lambda (3)
+        (3, 127) => 166.667,
+        // Xi (4)
+        (4, 127) => 83.333,
+        // Pi (5)
+        (5, 61) => -55.556,
+        (5, 59) => -55.556,
+        (5, 58) => -55.556,
+        (5, 127) => 55.556,
+        // Sigma (6)
+        (6, 127) => 83.333,
+        // Upsilon (7)
+        (7, 61) => -55.556,
+        (7, 59) => -111.111,
+        (7, 58) => -111.111,
+        (7, 127) => 55.556,
+        // Phi (8)
+        (8, 127) => 83.333,
+        // Psi (9)
+        (9, 61) => -55.556,
+        (9, 59) => -55.556,
+        (9, 58) => -55.556,
+        (9, 127) => 55.556,
+        // Omega (10)
+        (10, 127) => 83.333,
+        // alpha (11)
+        (11, 127) => 27.778,
+        // beta (12)
+        (12, 127) => 83.333,
+        // delta (14)
+        (14, 59) => -55.556,
+        (14, 58) => -55.556,
+        (14, 127) => 55.556,
+        // epsilon1 (15)
+        (15, 127) => 55.556,
+        // zeta (16)
+        (16, 127) => 83.333,
+        // eta (17)
+        (17, 127) => 55.556,
+        // theta (18)
+        (18, 127) => 83.333,
+        // iota (19)
+        (19, 127) => 55.556,
+        // mu (22)
+        (22, 127) => 27.778,
+        // nu (23)
+        (23, 59) => -55.556,
+        (23, 58) => -55.556,
+        (23, 127) => 27.778,
+        // xi (24)
+        (24, 127) => 111.111,
+        // rho (26)
+        (26, 127) => 83.333,
+        // sigma (27)
+        (27, 59) => -55.556,
+        (27, 58) => -55.556,
+        // tau (28)
+        (28, 59) => -55.556,
+        (28, 58) => -55.556,
+        (28, 127) => 27.778,
+        // upsilon (29)
+        (29, 127) => 27.778,
+        // phi (30)
+        (30, 127) => 83.333,
+        // chi (31)
+        (31, 127) => 55.556,
+        // psi (32)
+        (32, 127) => 111.111,
+        // epsilon (34)
+        (34, 127) => 83.333,
+        // theta1 (35)
+        (35, 127) => 83.333,
+        // rho1 (37)
+        (37, 127) => 83.333,
+        // sigma1 (38)
+        (38, 127) => 83.333,
+        // phi1 (39)
+        (39, 127) => 83.333,
+        // slash (61)
+        (61, 1) => -55.556,
+        (61, 65) => -55.556,
+        (61, 77) => -55.556,
+        (61, 78) => -55.556,
+        (61, 89) => 55.556,
+        (61, 90) => -55.556,
+        // partialdiff (64)
+        (64, 127) => 83.333,
+        // A (65)
+        (65, 127) => 138.889,
+        // B (66)
+        (66, 127) => 83.333,
+        // C (67)
+        (67, 61) => -27.778,
+        (67, 59) => -55.556,
+        (67, 58) => -55.556,
+        (67, 127) => 83.333,
+        // D (68)
+        (68, 127) => 55.556,
+        // E (69)
+        (69, 127) => 83.333,
+        // F (70)
+        (70, 61) => -55.556,
+        (70, 59) => -111.111,
+        (70, 58) => -111.111,
+        (70, 127) => 83.333,
+        // G (71)
+        (71, 127) => 83.333,
+        // H (72)
+        (72, 61) => -55.556,
+        (72, 59) => -55.556,
+        (72, 58) => -55.556,
+        (72, 127) => 55.556,
+        // I (73)
+        (73, 127) => 111.111,
+        // J (74)
+        (74, 61) => -55.556,
+        (74, 59) => -111.111,
+        (74, 58) => -111.111,
+        (74, 127) => 166.667,
+        // K (75)
+        (75, 61) => -55.556,
+        (75, 59) => -55.556,
+        (75, 58) => -55.556,
+        (75, 127) => 55.556,
+        // L (76)
+        (76, 127) => 27.778,
+        // M (77)
+        (77, 61) => -55.556,
+        (77, 59) => -55.556,
+        (77, 58) => -55.556,
+        (77, 127) => 83.333,
+        // N (78)
+        (78, 61) => -83.333,
+        (78, 59) => -55.556,
+        (78, 58) => -55.556,
+        (78, 127) => 83.333,
+        // O (79)
+        (79, 127) => 83.333,
+        // P (80)
+        (80, 61) => -55.556,
+        (80, 59) => -111.111,
+        (80, 58) => -111.111,
+        (80, 127) => 83.333,
+        // Q (81)
+        (81, 127) => 83.333,
+        // R (82)
+        (82, 127) => 83.333,
+        // S (83)
+        (83, 61) => -55.556,
+        (83, 59) => -55.556,
+        (83, 58) => -55.556,
+        (83, 127) => 83.333,
+        // T (84)
+        (84, 61) => -27.778,
+        (84, 59) => -55.556,
+        (84, 58) => -55.556,
+        (84, 127) => 83.333,
+        // U (85)
+        (85, 59) => -111.111,
+        (85, 58) => -111.111,
+        (85, 61) => -55.556,
+        (85, 127) => 27.778,
+        // V (86)
+        (86, 59) => -166.667,
+        (86, 58) => -166.667,
+        (86, 61) => -111.111,
+        // W (87)
+        (87, 59) => -166.667,
+        (87, 58) => -166.667,
+        (87, 61) => -111.111,
+        // X (88)
+        (88, 61) => -83.333,
+        (88, 59) => -55.556,
+        (88, 58) => -55.556,
+        (88, 127) => 83.333,
+        // Y (89)
+        (89, 59) => -166.667,
+        (89, 58) => -166.667,
+        (89, 61) => -111.111,
+        // Z (90)
+        (90, 61) => -55.556,
+        (90, 59) => -55.556,
+        (90, 58) => -55.556,
+        (90, 127) => 83.333,
+        // lscript (96)
+        (96, 127) => 111.111,
+        // c (99)
+        (99, 127) => 55.556,
+        // d (100)
+        (100, 89) => 55.556,
+        (100, 90) => -55.556,
+        (100, 106) => -111.111,
+        (100, 102) => -166.667,
+        (100, 127) => 166.667,
+        // e (101)
+        (101, 127) => 55.556,
+        // f (102)
+        (102, 59) => -55.556,
+        (102, 58) => -55.556,
+        (102, 127) => 166.667,
+        // g (103)
+        (103, 127) => 27.778,
+        // h (104)
+        (104, 127) => -27.778,
+        // j (106)
+        (106, 59) => -55.556,
+        (106, 58) => -55.556,
+        // l (108)
+        (108, 127) => 83.333,
+        // o (111)
+        (111, 127) => 55.556,
+        // p (112)
+        (112, 127) => 83.333,
+        // q (113)
+        (113, 127) => 83.333,
+        // r (114)
+        (114, 59) => -55.556,
+        (114, 58) => -55.556,
+        (114, 127) => 55.556,
+        // s (115)
+        (115, 127) => 55.556,
+        // t (116)
+        (116, 127) => 83.333,
+        // u (117)
+        (117, 127) => 27.778,
+        // v (118)
+        (118, 127) => 27.778,
+        // w (119)
+        (119, 127) => 83.333,
+        // x (120)
+        (120, 127) => 27.778,
+        // y (121)
+        (121, 127) => 55.556,
+        // z (122)
+        (122, 127) => 55.556,
+        _ => 0.0,
+    }
+}
+
+/// Check if any adjacent bytes have non-zero cmmi10 kern pairs.
+fn has_cmmi10_kern_pairs(bytes: &[u8]) -> bool {
+    bytes
+        .windows(2)
+        .any(|w| cmmi10_kern_pair(w[0], w[1]) != 0.0)
+}
+
 /// Compute the total kern pair adjustment for a font+bytes sequence.
 ///
 /// Sums all adjacent kern pair values in the byte sequence for the given font.
@@ -1026,6 +1294,7 @@ fn font_kern_pair(font_name: &[u8], a: u8, b: u8) -> f32 {
         b"F3" => cmbx10_kern_pair(a, b),
         b"F4" => cmti10_kern_pair(a, b),
         b"F5" => cmbxti10_kern_pair(a, b),
+        b"F7" => cmmi10_kern_pair(a, b),
         _ => cmr10_kern_pair(a, b),
     }
 }
@@ -1036,6 +1305,7 @@ fn font_has_kern_pairs(font_name: &[u8], bytes: &[u8]) -> bool {
         b"F3" => has_cmbx10_kern_pairs(bytes),
         b"F4" => has_cmti10_kern_pairs(bytes),
         b"F5" => has_cmbxti10_kern_pairs(bytes),
+        b"F7" => has_cmmi10_kern_pairs(bytes),
         _ => has_kern_pairs(bytes),
     }
 }
@@ -3821,7 +4091,7 @@ mod tests {
             "F5 should have kerning (cmbxti10)"
         );
         assert!(!is_cmr10_kern_font(b"F6"), "F6 should NOT have kerning");
-        assert!(!is_cmr10_kern_font(b"F7"), "F7 should NOT have kerning");
+        assert!(is_cmr10_kern_font(b"F7"), "F7 should have kerning (cmmi10)");
         assert!(!is_cmr10_kern_font(b"F8"), "F8 should NOT have kerning");
     }
 
@@ -4633,5 +4903,108 @@ mod tests {
         // Z+Z has no kern pair in cmbx10
         let k = font_kern_pair(b"F3", b'Z', b'Z');
         assert_eq!(k, 0.0, "font_kern_pair(F3, Z, Z) should be 0");
+    }
+
+    // ---- M46 tests: cmmi10 kern pairs ----
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_d_y() {
+        assert_eq!(cmmi10_kern_pair(100, 89), 55.556);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_d_z() {
+        assert_eq!(cmmi10_kern_pair(100, 90), -55.556);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_d_f() {
+        assert_eq!(cmmi10_kern_pair(100, 102), -166.667);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_d_j() {
+        assert_eq!(cmmi10_kern_pair(100, 106), -111.111);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_d_tie() {
+        assert_eq!(cmmi10_kern_pair(100, 127), 166.667);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_a_tie() {
+        assert_eq!(cmmi10_kern_pair(65, 127), 138.889);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_f_comma() {
+        assert_eq!(cmmi10_kern_pair(70, 59), -111.111);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_no_pair() {
+        assert_eq!(cmmi10_kern_pair(65, 66), 0.0);
+    }
+
+    #[test]
+    fn test_m46_is_cmr10_kern_font_f7_true() {
+        assert!(is_cmr10_kern_font(b"F7"), "F7 should have kerning (cmmi10)");
+    }
+
+    #[test]
+    fn test_m46_is_cmr10_kern_font_f6_false() {
+        assert!(!is_cmr10_kern_font(b"F6"), "F6 should NOT have kerning");
+    }
+
+    #[test]
+    fn test_m46_has_cmmi10_kern_pairs_dj() {
+        assert!(
+            has_cmmi10_kern_pairs(&[100, 106]),
+            "d+j should have a cmmi10 kern pair"
+        );
+    }
+
+    #[test]
+    fn test_m46_has_cmmi10_kern_pairs_no_pair() {
+        assert!(
+            !has_cmmi10_kern_pairs(&[65, 66]),
+            "A+B should NOT have a cmmi10 kern pair"
+        );
+    }
+
+    #[test]
+    fn test_m46_font_kern_pair_f7_dispatches() {
+        let k = font_kern_pair(b"F7", 100, 89);
+        assert_eq!(k, 55.556, "font_kern_pair(F7, d, Y) should be 55.556");
+    }
+
+    #[test]
+    fn test_m46_font_has_kern_pairs_f7() {
+        assert!(
+            font_has_kern_pairs(b"F7", &[100, 89]),
+            "F7 with d+Y should have kern pairs"
+        );
+    }
+
+    #[test]
+    fn test_m46_compute_kern_pair_total_f7() {
+        // d(100) + Y(89) + Z(90) => kern(d,Y)=55.556, kern(Y,Z)=0.0
+        let total = compute_kern_pair_total(b"F7", &[100, 89, 90]);
+        assert!(
+            (total - 55.556).abs() < 0.001,
+            "Expected ~55.556, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_gamma_slash() {
+        assert_eq!(cmmi10_kern_pair(0, 61), -55.556);
+    }
+
+    #[test]
+    fn test_m46_cmmi10_kern_pair_v_period() {
+        assert_eq!(cmmi10_kern_pair(86, 58), -166.667);
     }
 }
