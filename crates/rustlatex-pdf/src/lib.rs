@@ -326,7 +326,7 @@ impl PdfWriter {
                 // Draw horizontal rule above footnotes
                 let rule_y =
                     footnote_area_top + (page.footnotes.len() as f32 * footnote_line_height) + 5.0;
-                content.rect(margin_left, rule_y, 100.0, 0.4);
+                content.rect(margin_left, rule_y, 50.0, 0.4);
                 content.fill_nonzero();
 
                 // Render each footnote

@@ -826,10 +826,18 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     result.push(BoxNode::AlignmentMarker {
                         alignment: Alignment::Justify,
                     });
-                    // Abstract body text (indented)
+                    // 6pt Glue between heading and body
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+                    // Abstract body text (indented with 30pt Kern on each side)
+                    result.push(BoxNode::Kern { amount: 30.0 });
                     for node in content {
                         result.extend(translate_node_with_metrics(node, metrics));
                     }
+                    result.push(BoxNode::Kern { amount: 30.0 });
                     // 12pt vertical space after abstract
                     result.push(BoxNode::Glue {
                         natural: 12.0,
@@ -1679,10 +1687,18 @@ pub fn translate_node_with_context(
                     result.push(BoxNode::AlignmentMarker {
                         alignment: Alignment::Justify,
                     });
-                    // Abstract body text
+                    // 6pt Glue between heading and body
+                    result.push(BoxNode::Glue {
+                        natural: 6.0,
+                        stretch: 0.0,
+                        shrink: 0.0,
+                    });
+                    // Abstract body text (indented with 30pt Kern on each side)
+                    result.push(BoxNode::Kern { amount: 30.0 });
                     for node in content {
                         result.extend(translate_node_with_context(node, metrics, ctx));
                     }
+                    result.push(BoxNode::Kern { amount: 30.0 });
                     // 12pt vertical space after abstract
                     result.push(BoxNode::Glue {
                         natural: 12.0,
@@ -6874,6 +6890,51 @@ mod tests {
         assert!(
             has_heading,
             "Abstract should render heading in context mode"
+        );
+    }
+
+    #[test]
+    fn test_abstract_has_6pt_glue_between_heading_and_body() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "abstract".to_string(),
+            options: None,
+            content: vec![Node::Text("Body text".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Find the "Abstract" heading text node
+        let heading_pos = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "Abstract"));
+        assert!(heading_pos.is_some(), "Should have Abstract heading");
+        let heading_pos = heading_pos.unwrap();
+        // After the heading, there should be a 6pt Glue before body content
+        let has_6pt_glue_after_heading = items[heading_pos..]
+            .iter()
+            .any(|n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 6.0).abs() < 0.001));
+        assert!(
+            has_6pt_glue_after_heading,
+            "Expected 6pt Glue between Abstract heading and body text"
+        );
+    }
+
+    #[test]
+    fn test_abstract_has_30pt_kern_indentation() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "abstract".to_string(),
+            options: None,
+            content: vec![Node::Text("Body text".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let kern_30_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 30.0).abs() < 0.001))
+            .count();
+        assert!(
+            kern_30_count >= 2,
+            "Expected at least 2 Kern(30.0) for left+right indentation, got {}",
+            kern_30_count
         );
     }
 
