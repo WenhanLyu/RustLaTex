@@ -63,6 +63,8 @@ Binary-identical output requires:
 - **M25 scope:** Bibliography system (\cite/\bibitem/thebibliography), \newenvironment (custom environment definitions), and \input file inclusion. These complete the core academic LaTeX feature set — virtually every research paper uses citations and custom environments.
 - **Cycle 102-104 (M25):** M25 completed in 1 implementation cycle + 1 verification. Leo delivered bibliography system (\bibitem/\cite two-pass), \newenvironment/\renewenvironment, \input/\include file inclusion with working_dir. 17 new tests, 459 total tests pass, CI green.
 - **M26 scope:** TeX hyphenation (pattern-based English hyphenation to improve line breaking quality) + LaTeX counter system (\setcounter, \addtocounter, \value, \arabic, \roman, \alph). These significantly improve document quality and enable richer document customization.
+- **Cycle 109-111 (M26):** M26 completed in 1 implementation cycle. Leo delivered Hyphenator with Liang's algorithm, ~50 English patterns, \hyphenation exception command, \- soft hyphen, full counter system (\setcounter/\addtocounter/\newcounter/\stepcounter/\arabic/\roman/\Roman/\alph/\Alph/\fnsymbol). 33 new tests, 492 total tests pass, CI green.
+- **M27 scope:** Font style support (bold, italic, bold-italic, typewriter) in PDF output. Currently \textbf/\textit/\emph/\texttt all render identically — they don't change font face in the PDF. For the project goal of "binary identical" output, font styles must produce visually correct PDF output using appropriate font resources.
 
 ## Milestones
 
@@ -456,7 +458,7 @@ Implement the remaining core academic LaTeX features:
 - **Cycles budget:** 5
 - **Status:** ✅ Complete — verified by Vera (commit 76cc62a, 459 tests total)
 
-### M26: TeX Hyphenation + LaTeX Counter System
+### M26: TeX Hyphenation + LaTeX Counter System ✅ COMPLETE
 Improve line-breaking quality and document customization:
 
 **TeX Pattern-Based Hyphenation (rustlatex-engine):**
@@ -494,6 +496,44 @@ Improve line-breaking quality and document customization:
 - Test `\hyphenation{algo-rithm}` respects manual hyphenation
 - Test `\-` inserts soft hyphen break
 - All 459 existing tests continue to pass
+
+- **Cycles budget:** 5 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented, 492 tests pass, CI green (commit ce0908f)
+
+### M27: Font Style Support (Bold/Italic/Typewriter in PDF Output)
+Implement proper font face differentiation in PDF output so that `\textbf`, `\textit`, `\emph`, and `\texttt` produce visually distinct output using appropriate PDF font resources.
+
+**Background:** Currently all text renders using a single font face in the PDF. The `BoxNode::Text` has no font style field, and the PDF backend uses only one font resource regardless of formatting commands. This is a significant gap — virtually every LaTeX document uses bold and italic text.
+
+**Engine changes (rustlatex-engine):**
+- Add `FontStyle` enum: `Normal`, `Bold`, `Italic`, `BoldItalic`, `Typewriter`
+- Add `font_style: FontStyle` field to `BoxNode::Text` (default: `Normal`)
+- Track current font style in `TranslationContext` (field: `current_font_style: FontStyle`)
+- `\textbf{text}` → render content with `FontStyle::Bold`
+- `\textit{text}` / `\emph{text}` → render content with `FontStyle::Italic`
+- `\textbf{\textit{text}}` / `\bfseries\itshape` → `FontStyle::BoldItalic` (nested styles)
+- `\texttt{text}` → render content with `FontStyle::Typewriter`
+- `\textrm{text}` → render content with `FontStyle::Normal`
+- Handle font-switching declarations: `\bfseries`, `\itshape`, `\ttfamily`, `\normalfont` (set style in context until end of group)
+- Braces `{...}` create font style scope (style restored when group ends)
+
+**PDF changes (rustlatex-pdf):**
+- Register multiple font resources: Helvetica (Normal), Helvetica-Bold (Bold), Helvetica-Oblique (Italic), Helvetica-BoldOblique (BoldItalic), Courier (Typewriter)
+- When rendering a `BoxNode::Text`, use the appropriate font resource based on `font_style`
+- Font widths: each font has different character widths — use appropriate width table for each style
+- The engine must use consistent width calculations (width of bold/italic text differs from normal)
+
+**Tests (15+ new):**
+- Test `\textbf{hello}` produces Text nodes with `font_style: Bold`
+- Test `\textit{hello}` produces Text nodes with `font_style: Italic`
+- Test `\emph{hello}` produces Text nodes with `font_style: Italic`
+- Test `\texttt{hello}` produces Text nodes with `font_style: Typewriter`
+- Test `\textrm{hello}` produces Text nodes with `font_style: Normal`
+- Test `\bfseries` declaration sets bold style for subsequent text in group
+- Test nested `\textbf{\textit{x}}` produces BoldItalic style
+- Test PDF output contains multiple font references (Helvetica-Bold etc.)
+- Test font style survives two-pass rendering
+- All 492 existing tests continue to pass
 
 - **Cycles budget:** 5
 - **Status:** Pending
