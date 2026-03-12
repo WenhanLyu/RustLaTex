@@ -235,6 +235,8 @@ pub struct TranslationContext {
     pub user_environments: HashMap<String, (String, String)>,
     /// Working directory for \input file resolution.
     pub working_dir: Option<String>,
+    /// User-accessible LaTeX counters (for \newcounter, \setcounter, \stepcounter, etc.).
+    pub user_counters: HashMap<String, i64>,
 }
 
 impl TranslationContext {
@@ -249,6 +251,22 @@ impl TranslationContext {
         defs.insert("remark".to_string(), ("Remark".to_string(), 0));
         defs.insert("example".to_string(), ("Example".to_string(), 0));
         defs
+    }
+
+    /// Create the default set of user-accessible counters.
+    fn default_user_counters() -> HashMap<String, i64> {
+        let mut counters = HashMap::new();
+        counters.insert("section".to_string(), 0);
+        counters.insert("subsection".to_string(), 0);
+        counters.insert("subsubsection".to_string(), 0);
+        counters.insert("figure".to_string(), 0);
+        counters.insert("table".to_string(), 0);
+        counters.insert("equation".to_string(), 0);
+        counters.insert("enumi".to_string(), 0);
+        counters.insert("enumii".to_string(), 0);
+        counters.insert("enumiii".to_string(), 0);
+        counters.insert("page".to_string(), 1);
+        counters
     }
 
     /// Create a new context for label collection (first pass).
@@ -273,6 +291,7 @@ impl TranslationContext {
             bib_counter: 0,
             user_environments: HashMap::new(),
             working_dir: None,
+            user_counters: Self::default_user_counters(),
         }
     }
 
@@ -298,6 +317,7 @@ impl TranslationContext {
             bib_counter: 0,
             user_environments: HashMap::new(),
             working_dir: None,
+            user_counters: Self::default_user_counters(),
         }
     }
 }
@@ -1585,12 +1605,21 @@ pub fn translate_node_with_context(
                             ctx.counters.subsection = 0;
                             ctx.counters.subsubsection = 0;
                             ctx.counters.last_counter_value = format!("{}", ctx.counters.section);
+                            // Sync to user_counters
+                            ctx.user_counters
+                                .insert("section".to_string(), ctx.counters.section as i64);
+                            ctx.user_counters.insert("subsection".to_string(), 0);
+                            ctx.user_counters.insert("subsubsection".to_string(), 0);
                         }
                         "subsection" => {
                             ctx.counters.subsection += 1;
                             ctx.counters.subsubsection = 0;
                             ctx.counters.last_counter_value =
                                 format!("{}.{}", ctx.counters.section, ctx.counters.subsection);
+                            // Sync to user_counters
+                            ctx.user_counters
+                                .insert("subsection".to_string(), ctx.counters.subsection as i64);
+                            ctx.user_counters.insert("subsubsection".to_string(), 0);
                         }
                         _ => {
                             // subsubsection
@@ -1600,6 +1629,11 @@ pub fn translate_node_with_context(
                                 ctx.counters.section,
                                 ctx.counters.subsection,
                                 ctx.counters.subsubsection
+                            );
+                            // Sync to user_counters
+                            ctx.user_counters.insert(
+                                "subsubsection".to_string(),
+                                ctx.counters.subsubsection as i64,
                             );
                         }
                     }
@@ -1735,6 +1769,9 @@ pub fn translate_node_with_context(
                     if ctx.counters.in_figure {
                         ctx.counters.figure += 1;
                         ctx.counters.last_counter_value = format!("{}", ctx.counters.figure);
+                        // Sync to user_counters
+                        ctx.user_counters
+                            .insert("figure".to_string(), ctx.counters.figure as i64);
                     }
                     let caption_text = if let Some(arg) = args.first() {
                         extract_text_from_node(arg)
@@ -2194,6 +2231,161 @@ pub fn translate_node_with_context(
                     }
                     vec![]
                 }
+                // ===== LaTeX Counter System =====
+                "newcounter" => {
+                    // \newcounter{name} — define a new counter initialized to 0
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        if !counter_name.is_empty() {
+                            ctx.user_counters.entry(counter_name).or_insert(0);
+                        }
+                    }
+                    vec![]
+                }
+                "setcounter" => {
+                    // \setcounter{name}{value}
+                    if args.len() >= 2 {
+                        let counter_name = extract_text_content(&args[0]).trim().to_string();
+                        let value_str = extract_text_content(&args[1]).trim().to_string();
+                        if let Ok(val) = value_str.parse::<i64>() {
+                            ctx.user_counters.insert(counter_name, val);
+                        }
+                    }
+                    vec![]
+                }
+                "addtocounter" => {
+                    // \addtocounter{name}{value}
+                    if args.len() >= 2 {
+                        let counter_name = extract_text_content(&args[0]).trim().to_string();
+                        let value_str = extract_text_content(&args[1]).trim().to_string();
+                        if let Ok(val) = value_str.parse::<i64>() {
+                            let entry = ctx.user_counters.entry(counter_name).or_insert(0);
+                            *entry += val;
+                        }
+                    }
+                    vec![]
+                }
+                "stepcounter" => {
+                    // \stepcounter{name} — increment counter by 1
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let entry = ctx.user_counters.entry(counter_name).or_insert(0);
+                        *entry += 1;
+                    }
+                    vec![]
+                }
+                "arabic" => {
+                    // \arabic{counter} — format counter value as decimal
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = format!("{}", val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "roman" => {
+                    // \roman{counter} — format counter value as lowercase roman numeral
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = to_roman(val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "Roman" => {
+                    // \Roman{counter} — format counter value as uppercase roman numeral
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = to_roman(val).to_uppercase();
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "alph" => {
+                    // \alph{counter} — format counter value as lowercase letter (1=a)
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = to_alph(val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "Alph" => {
+                    // \Alph{counter} — format counter value as uppercase letter (1=A)
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = to_alph_upper(val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "fnsymbol" => {
+                    // \fnsymbol{counter} — format counter value as footnote symbol
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = to_fnsymbol(val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
+                "value" => {
+                    // \value{counter} — output counter value as text (same as \arabic)
+                    if let Some(arg) = args.first() {
+                        let counter_name = extract_text_content(arg).trim().to_string();
+                        let val = ctx.user_counters.get(&counter_name).copied().unwrap_or(0);
+                        let text = format!("{}", val);
+                        vec![BoxNode::Text {
+                            width: metrics.string_width(&text),
+                            text,
+                            font_size: 10.0,
+                            color: ctx.current_color.clone(),
+                        }]
+                    } else {
+                        vec![]
+                    }
+                }
                 _ => vec![],
             }
         }
@@ -2389,6 +2581,9 @@ pub fn translate_node_with_context(
                     let eq_num = ctx.equation_counter;
                     // Store equation number for labels
                     ctx.counters.last_counter_value = format!("{}", eq_num);
+                    // Sync to user_counters
+                    ctx.user_counters
+                        .insert("equation".to_string(), eq_num as i64);
                     let math_text = env_content_to_math_text(content);
                     let eq_label = format!("({})", eq_num);
                     let result = vec![
@@ -2479,6 +2674,9 @@ pub fn translate_node_with_context(
                         ctx.equation_counter += 1;
                         let eq_num = ctx.equation_counter;
                         ctx.counters.last_counter_value = format!("{}", eq_num);
+                        // Sync to user_counters
+                        ctx.user_counters
+                            .insert("equation".to_string(), eq_num as i64);
                         let eq_label = format!("({})", eq_num);
                         result.push(BoxNode::Text {
                             width: metrics.string_width(&trimmed),
@@ -2898,6 +3096,80 @@ fn footnote_marker(n: usize) -> String {
         8 => "⁸".to_string(),
         9 => "⁹".to_string(),
         _ => format!("{}", n),
+    }
+}
+
+/// Convert an integer to a lowercase Roman numeral string.
+///
+/// Supports values from 1 to 3999. Returns an empty string for 0 or negative values.
+pub fn to_roman(mut n: i64) -> String {
+    if n <= 0 {
+        return String::new();
+    }
+    let numerals = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ];
+    let mut result = String::new();
+    for &(value, symbol) in &numerals {
+        while n >= value {
+            result.push_str(symbol);
+            n -= value;
+        }
+    }
+    result
+}
+
+/// Convert an integer to a lowercase letter (1='a', 2='b', ..., 26='z').
+///
+/// Values outside 1..=26 return "?".
+fn to_alph(n: i64) -> String {
+    if (1..=26).contains(&n) {
+        let ch = (b'a' + (n as u8) - 1) as char;
+        ch.to_string()
+    } else {
+        "?".to_string()
+    }
+}
+
+/// Convert an integer to an uppercase letter (1='A', 2='B', ..., 26='Z').
+///
+/// Values outside 1..=26 return "?".
+fn to_alph_upper(n: i64) -> String {
+    if (1..=26).contains(&n) {
+        let ch = (b'A' + (n as u8) - 1) as char;
+        ch.to_string()
+    } else {
+        "?".to_string()
+    }
+}
+
+/// Convert an integer to a footnote symbol (LaTeX `\fnsymbol` style).
+///
+/// 1=*, 2=†, 3=‡, 4=§, 5=¶, 6=‖, 7=**, 8=††, 9=‡‡
+fn to_fnsymbol(n: i64) -> String {
+    match n {
+        1 => "*".to_string(),
+        2 => "†".to_string(),
+        3 => "‡".to_string(),
+        4 => "§".to_string(),
+        5 => "¶".to_string(),
+        6 => "‖".to_string(),
+        7 => "**".to_string(),
+        8 => "††".to_string(),
+        9 => "‡‡".to_string(),
+        _ => "?".to_string(),
     }
 }
 
@@ -9459,5 +9731,379 @@ mod tests {
             "Should contain 'inside' content, got: {}",
             combined
         );
+    }
+
+    // ===== M26: LaTeX Counter System Tests =====
+
+    #[test]
+    fn test_to_roman_basic() {
+        assert_eq!(to_roman(1), "i");
+        assert_eq!(to_roman(4), "iv");
+        assert_eq!(to_roman(9), "ix");
+        assert_eq!(to_roman(14), "xiv");
+        assert_eq!(to_roman(42), "xlii");
+        assert_eq!(to_roman(99), "xcix");
+        assert_eq!(to_roman(2024), "mmxxiv");
+        assert_eq!(to_roman(0), "");
+        assert_eq!(to_roman(-1), "");
+    }
+
+    #[test]
+    fn test_to_roman_all_numerals() {
+        assert_eq!(to_roman(1000), "m");
+        assert_eq!(to_roman(900), "cm");
+        assert_eq!(to_roman(500), "d");
+        assert_eq!(to_roman(400), "cd");
+        assert_eq!(to_roman(100), "c");
+        assert_eq!(to_roman(90), "xc");
+        assert_eq!(to_roman(50), "l");
+        assert_eq!(to_roman(40), "xl");
+        assert_eq!(to_roman(10), "x");
+        assert_eq!(to_roman(5), "v");
+    }
+
+    #[test]
+    fn test_newcounter_creates_counter() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "newcounter".to_string(),
+            args: vec![Node::Group(vec![Node::Text("mycounter".to_string())])],
+        }]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("mycounter"),
+            Some(&0),
+            "\\newcounter should create counter initialized to 0"
+        );
+    }
+
+    #[test]
+    fn test_setcounter_sets_value() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("myc".to_string())])],
+            },
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("myc".to_string())]),
+                    Node::Group(vec![Node::Text("42".to_string())]),
+                ],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("myc"),
+            Some(&42),
+            "\\setcounter should set counter to 42"
+        );
+    }
+
+    #[test]
+    fn test_addtocounter_adds_value() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("cnt".to_string())])],
+            },
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("cnt".to_string())]),
+                    Node::Group(vec![Node::Text("10".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "addtocounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("cnt".to_string())]),
+                    Node::Group(vec![Node::Text("5".to_string())]),
+                ],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("cnt"),
+            Some(&15),
+            "\\addtocounter should add 5 to 10 → 15"
+        );
+    }
+
+    #[test]
+    fn test_stepcounter_increments_by_one() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("step".to_string())])],
+            },
+            Node::Command {
+                name: "stepcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("step".to_string())])],
+            },
+            Node::Command {
+                name: "stepcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("step".to_string())])],
+            },
+            Node::Command {
+                name: "stepcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("step".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("step"),
+            Some(&3),
+            "Three \\stepcounter calls should give 3"
+        );
+    }
+
+    #[test]
+    fn test_arabic_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("section".to_string())]),
+                    Node::Group(vec![Node::Text("5".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "arabic".to_string(),
+                args: vec![Node::Group(vec![Node::Text("section".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_5 = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "5"));
+        assert!(has_5, "\\arabic{{section}} should produce '5'");
+    }
+
+    #[test]
+    fn test_roman_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("page".to_string())]),
+                    Node::Group(vec![Node::Text("4".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "roman".to_string(),
+                args: vec![Node::Group(vec![Node::Text("page".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_iv = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "iv"));
+        assert!(has_iv, "\\roman{{page}} with value 4 should produce 'iv'");
+    }
+
+    #[test]
+    fn test_roman_uppercase_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("page".to_string())]),
+                    Node::Group(vec![Node::Text("4".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "Roman".to_string(),
+                args: vec![Node::Group(vec![Node::Text("page".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_iv = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "IV"));
+        assert!(has_iv, "\\Roman{{page}} with value 4 should produce 'IV'");
+    }
+
+    #[test]
+    fn test_alph_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("item".to_string())])],
+            },
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("item".to_string())]),
+                    Node::Group(vec![Node::Text("3".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "alph".to_string(),
+                args: vec![Node::Group(vec![Node::Text("item".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_c = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "c"));
+        assert!(has_c, "\\alph with value 3 should produce 'c'");
+    }
+
+    #[test]
+    fn test_alph_upper_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("item".to_string())])],
+            },
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("item".to_string())]),
+                    Node::Group(vec![Node::Text("1".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "Alph".to_string(),
+                args: vec![Node::Group(vec![Node::Text("item".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_a = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "A"));
+        assert!(has_a, "\\Alph with value 1 should produce 'A'");
+    }
+
+    #[test]
+    fn test_fnsymbol_format() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "newcounter".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sym".to_string())])],
+            },
+            Node::Command {
+                name: "setcounter".to_string(),
+                args: vec![
+                    Node::Group(vec![Node::Text("sym".to_string())]),
+                    Node::Group(vec![Node::Text("1".to_string())]),
+                ],
+            },
+            Node::Command {
+                name: "fnsymbol".to_string(),
+                args: vec![Node::Group(vec![Node::Text("sym".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let has_star = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "*"));
+        assert!(has_star, "\\fnsymbol with value 1 should produce '*'");
+    }
+
+    #[test]
+    fn test_section_syncs_user_counters() {
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("First".to_string())])],
+            },
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Second".to_string())])],
+            },
+        ]);
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("section"),
+            Some(&2),
+            "After two \\section commands, section counter should be 2"
+        );
+    }
+
+    #[test]
+    fn test_equation_syncs_user_counters() {
+        let src = r"\begin{equation}a\end{equation}\begin{equation}b\end{equation}";
+        let mut parser = Parser::new(src);
+        let doc = parser.parse();
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let _ = translate_node_with_context(&doc, &metrics, &mut ctx);
+        assert_eq!(
+            ctx.user_counters.get("equation"),
+            Some(&2),
+            "After two equation environments, equation counter should be 2"
+        );
+    }
+
+    #[test]
+    fn test_default_user_counters_initialized() {
+        let ctx = TranslationContext::new_collecting();
+        assert_eq!(ctx.user_counters.get("section"), Some(&0));
+        assert_eq!(ctx.user_counters.get("subsection"), Some(&0));
+        assert_eq!(ctx.user_counters.get("subsubsection"), Some(&0));
+        assert_eq!(ctx.user_counters.get("figure"), Some(&0));
+        assert_eq!(ctx.user_counters.get("table"), Some(&0));
+        assert_eq!(ctx.user_counters.get("equation"), Some(&0));
+        assert_eq!(ctx.user_counters.get("enumi"), Some(&0));
+        assert_eq!(ctx.user_counters.get("enumii"), Some(&0));
+        assert_eq!(ctx.user_counters.get("enumiii"), Some(&0));
+        assert_eq!(ctx.user_counters.get("page"), Some(&1));
+    }
+
+    #[test]
+    fn test_default_user_counters_in_rendering() {
+        let ctx = TranslationContext::new_rendering(LabelTable::new());
+        assert_eq!(ctx.user_counters.get("section"), Some(&0));
+        assert_eq!(ctx.user_counters.get("page"), Some(&1));
+    }
+
+    #[test]
+    fn test_fnsymbol_all_values() {
+        assert_eq!(to_fnsymbol(1), "*");
+        assert_eq!(to_fnsymbol(2), "†");
+        assert_eq!(to_fnsymbol(3), "‡");
+        assert_eq!(to_fnsymbol(4), "§");
+        assert_eq!(to_fnsymbol(5), "¶");
+        assert_eq!(to_fnsymbol(6), "‖");
+        assert_eq!(to_fnsymbol(7), "**");
+        assert_eq!(to_fnsymbol(8), "††");
+        assert_eq!(to_fnsymbol(9), "‡‡");
+        assert_eq!(to_fnsymbol(0), "?");
+        assert_eq!(to_fnsymbol(10), "?");
+    }
+
+    #[test]
+    fn test_alph_boundary_values() {
+        assert_eq!(to_alph(1), "a");
+        assert_eq!(to_alph(26), "z");
+        assert_eq!(to_alph(0), "?");
+        assert_eq!(to_alph(27), "?");
+        assert_eq!(to_alph_upper(1), "A");
+        assert_eq!(to_alph_upper(26), "Z");
+        assert_eq!(to_alph_upper(0), "?");
+        assert_eq!(to_alph_upper(27), "?");
     }
 }
