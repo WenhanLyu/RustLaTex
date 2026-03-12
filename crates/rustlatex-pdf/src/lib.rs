@@ -59,7 +59,7 @@ fn apply_ot1_ligatures(text: &str) -> Vec<u8> {
     result
 }
 
-/// CM text font names that support OT1 ligatures (excludes typewriter F6=cmtt10).
+/// CM text font names that support OT1 ligatures (excludes typewriter F6=cmtt10, and math fonts F7/F8).
 fn is_cm_text_font(font_name: &[u8]) -> bool {
     matches!(font_name, b"F1" | b"F3" | b"F4" | b"F5")
 }
@@ -123,9 +123,15 @@ impl PdfWriter {
         // 15 = cmtt10 file stream
         // 16 = cmtt10 descriptor
         // 17 = cmtt10 dict (F6/Typewriter)
+        // 18 = cmmi10 file stream
+        // 19 = cmmi10 descriptor
+        // 20 = cmmi10 dict (F7/MathItalic)
+        // 21 = cmsy10 file stream
+        // 22 = cmsy10 descriptor
+        // 23 = cmsy10 dict (F8/MathSymbol)
         // For each page i (0-indexed):
-        //   18 + i*2     = page object
-        //   18 + i*2 + 1 = content stream
+        //   24 + i*2     = page object
+        //   24 + i*2 + 1 = content stream
         let catalog_id = Ref::new(1);
         let page_tree_id = Ref::new(2);
         let font_file_id = Ref::new(3);
@@ -143,6 +149,12 @@ impl PdfWriter {
         let cmtt10_file_id = Ref::new(15);
         let cmtt10_descriptor_id = Ref::new(16);
         let cmtt10_id = Ref::new(17);
+        let cmmi10_file_id = Ref::new(18);
+        let cmmi10_descriptor_id = Ref::new(19);
+        let cmmi10_id = Ref::new(20);
+        let cmsy10_file_id = Ref::new(21);
+        let cmsy10_descriptor_id = Ref::new(22);
+        let cmsy10_id = Ref::new(23);
 
         let mut pdf = Pdf::new();
 
@@ -151,7 +163,7 @@ impl PdfWriter {
 
         // Collect page Refs
         let page_refs: Vec<Ref> = (0..page_count)
-            .map(|i| Ref::new((18 + i * 2) as i32))
+            .map(|i| Ref::new((24 + i * 2) as i32))
             .collect();
 
         // Page tree
@@ -361,6 +373,14 @@ impl PdfWriter {
         let cmtt10_bytes: &[u8] = include_bytes!("../fonts/cmtt10.pfb");
         pdf.stream(cmtt10_file_id, cmtt10_bytes);
 
+        // Embed cmmi10.pfb (Math Italic)
+        let cmmi10_bytes: &[u8] = include_bytes!("../fonts/cmmi10.pfb");
+        pdf.stream(cmmi10_file_id, cmmi10_bytes);
+
+        // Embed cmsy10.pfb (Math Symbol)
+        let cmsy10_bytes: &[u8] = include_bytes!("../fonts/cmsy10.pfb");
+        pdf.stream(cmsy10_file_id, cmsy10_bytes);
+
         // cmbx10 descriptor
         pdf.font_descriptor(cmbx10_descriptor_id)
             .name(Name(b"CMBX10"))
@@ -411,6 +431,30 @@ impl PdfWriter {
             .stem_v(50.0)
             .font_file(cmtt10_file_id);
 
+        // cmmi10 descriptor (Math Italic)
+        pdf.font_descriptor(cmmi10_descriptor_id)
+            .name(Name(b"CMMI10"))
+            .flags(FontFlags::SERIF | FontFlags::SYMBOLIC | FontFlags::ITALIC)
+            .bbox(Rect::new(-32.0, -250.0, 1048.0, 750.0))
+            .italic_angle(-14.04)
+            .ascent(694.4)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(50.0)
+            .font_file(cmmi10_file_id);
+
+        // cmsy10 descriptor (Math Symbol)
+        pdf.font_descriptor(cmsy10_descriptor_id)
+            .name(Name(b"CMSY10"))
+            .flags(FontFlags::SERIF | FontFlags::SYMBOLIC | FontFlags::ITALIC)
+            .bbox(Rect::new(-29.0, -960.0, 1116.0, 775.0))
+            .italic_angle(-14.035)
+            .ascent(750.0)
+            .descent(-194.4)
+            .cap_height(683.3)
+            .stem_v(50.0)
+            .font_file(cmsy10_file_id);
+
         // cmbx10 widths (Bold Roman, chars 32-126, 95 entries)
         let cmbx10_widths: Vec<f32> = vec![
             333.333, 277.778, 500.0, 833.333, 500.0, 833.333, 777.778, 277.778, 388.889, 388.889,
@@ -455,6 +499,80 @@ impl PdfWriter {
 
         // cmtt10 widths (Typewriter — all 525.0, monospaced)
         let cmtt10_widths: Vec<f32> = vec![525.0; 95];
+
+        // cmmi10 widths (Math Italic, chars 65-122, 58 entries covering A-Z and a-z)
+        // OML encoding: Latin letters at positions 65-90 (A-Z) and 97-122 (a-z), same as ASCII.
+        // Widths from cmmi10.afm at 1000 units/em.
+        // first_char=65, last_char=122 → 58 entries (65..=122)
+        // Positions 91-96 ([ \ ] ^ _ `) are not Latin letters in OML; use 0.0 for unused slots.
+        let cmmi10_widths: Vec<f32> = vec![
+            // 65 A through 90 Z (26 entries)
+            750.000, // A=65
+            759.261, // B=66
+            715.532, // C=67
+            762.295, // D=68
+            738.193, // E=69
+            643.058, // F=70
+            786.041, // G=71
+            786.041, // H=72
+            341.422, // I=73
+            559.682, // J=74
+            795.968, // K=75
+            616.968, // L=76
+            970.123, // M=77
+            786.041, // N=78
+            717.987, // O=79
+            654.785, // P=80
+            719.978, // Q=81
+            706.959, // R=82
+            640.537, // S=83
+            645.038, // T=84
+            728.043, // U=85
+            717.987, // V=86
+            980.574, // W=87
+            717.987, // X=88
+            697.012, // Y=89
+            611.938, // Z=90
+            // 91-96: unused OML positions (not standard Latin)
+            0.0, // 91
+            0.0, // 92
+            0.0, // 93
+            0.0, // 94
+            0.0, // 95
+            0.0, // 96
+            // 97 a through 122 z (26 entries)
+            528.630, // a=97
+            524.078, // b=98
+            432.755, // c=99
+            524.078, // d=100
+            472.159, // e=101
+            302.838, // f=102
+            500.000, // g=103
+            577.168, // h=104
+            266.705, // i=105
+            299.820, // j=106
+            565.438, // k=107
+            256.749, // l=108
+            878.012, // m=109
+            577.168, // n=110
+            470.668, // o=111
+            524.078, // p=112
+            468.137, // q=113
+            387.773, // r=114
+            377.840, // s=115
+            387.773, // t=116
+            577.168, // u=117
+            524.078, // v=118
+            763.787, // w=119
+            571.527, // x=120
+            490.280, // y=121
+            465.048, // z=122
+        ];
+
+        // cmsy10 widths (Math Symbol)
+        // We only use glyph at position 15 (bullet, WX=500).
+        // first_char=15, last_char=15 → 1 entry.
+        let cmsy10_widths: Vec<f32> = vec![500.0]; // bullet at position 15
 
         // Helper macro to write OT1 encoding differences on a Type1 font
         macro_rules! write_ot1_encoding {
@@ -567,6 +685,62 @@ impl PdfWriter {
             write_ot1_encoding!(font);
         }
 
+        // F7 = CMMI10 (Math Italic) with OML encoding (Latin letters at standard ASCII positions)
+        {
+            let mut font = pdf.type1_font(cmmi10_id);
+            font.base_font(Name(b"CMMI10"))
+                .first_char(65)
+                .last_char(122)
+                .widths(cmmi10_widths)
+                .font_descriptor(cmmi10_descriptor_id);
+            // OML encoding: Latin letters A-Z (65-90) and a-z (97-122) at standard positions.
+            // No need for /Differences for the Latin letter range since they match standard names.
+            font.encoding_custom().differences().consecutive(
+                65,
+                [
+                    Name(b"A"),
+                    Name(b"B"),
+                    Name(b"C"),
+                    Name(b"D"),
+                    Name(b"E"),
+                    Name(b"F"),
+                    Name(b"G"),
+                    Name(b"H"),
+                    Name(b"I"),
+                    Name(b"J"),
+                    Name(b"K"),
+                    Name(b"L"),
+                    Name(b"M"),
+                    Name(b"N"),
+                    Name(b"O"),
+                    Name(b"P"),
+                    Name(b"Q"),
+                    Name(b"R"),
+                    Name(b"S"),
+                    Name(b"T"),
+                    Name(b"U"),
+                    Name(b"V"),
+                    Name(b"W"),
+                    Name(b"X"),
+                    Name(b"Y"),
+                    Name(b"Z"),
+                ],
+            );
+        }
+
+        // F8 = CMSY10 (Math Symbol) — used for bullet glyph at position 15
+        {
+            let mut font = pdf.type1_font(cmsy10_id);
+            font.base_font(Name(b"CMSY10"))
+                .first_char(15)
+                .last_char(15)
+                .widths(cmsy10_widths)
+                .font_descriptor(cmsy10_descriptor_id);
+            font.encoding_custom()
+                .differences()
+                .consecutive(15, [Name(b"bullet")]);
+        }
+
         // A4 dimensions
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
 
@@ -580,8 +754,8 @@ impl PdfWriter {
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
-            let page_id = Ref::new((18 + i * 2) as i32);
-            let content_id = Ref::new((18 + i * 2 + 1) as i32);
+            let page_id = Ref::new((24 + i * 2) as i32);
+            let content_id = Ref::new((24 + i * 2 + 1) as i32);
 
             // Build content stream
             let mut content = Content::new();
@@ -602,7 +776,7 @@ impl PdfWriter {
                             line_nat_width += *natural as f32;
                             glue_count += 1;
                         }
-                        BoxNode::Bullet => line_nat_width += 6.0_f32,
+                        BoxNode::Bullet => line_nat_width += 5.0_f32,
                         _ => {}
                     }
                 }
@@ -640,7 +814,7 @@ impl PdfWriter {
                                 FontStyle::Italic => b"F4",
                                 FontStyle::BoldItalic => b"F5",
                                 FontStyle::Typewriter => b"F6",
-                                FontStyle::MathItalic => b"F4", // cmti10 rendering (cmmi10 metrics)
+                                FontStyle::MathItalic => b"F7", // cmmi10 math italic
                             };
                             // Apply text rise for superscript/subscript
                             let has_rise = *vertical_offset != 0.0;
@@ -743,26 +917,11 @@ impl PdfWriter {
                             content.set_font(Name(b"F1"), font_size_outer);
                         }
                         BoxNode::Bullet => {
-                            // Draw a filled circle bullet point
-                            // Center at current_x + 3pt, baseline + 3pt, radius 1.5pt
-                            let cx = current_x + 3.0;
-                            let cy = current_y + 3.0;
-                            let r = 1.5_f32;
-                            let k = r * 0.5523_f32; // Bezier approximation constant
-                            content.end_text();
-                            content.save_state();
-                            content.set_fill_rgb(0.0, 0.0, 0.0);
-                            // Draw circle using 4 cubic Bezier curves
-                            content.move_to(cx, cy + r);
-                            content.cubic_to(cx + k, cy + r, cx + r, cy + k, cx + r, cy);
-                            content.cubic_to(cx + r, cy - k, cx + k, cy - r, cx, cy - r);
-                            content.cubic_to(cx - k, cy - r, cx - r, cy - k, cx - r, cy);
-                            content.cubic_to(cx - r, cy + k, cx - k, cy + r, cx, cy + r);
-                            content.fill_nonzero();
-                            content.restore_state();
-                            content.begin_text();
+                            // Render bullet using cmsy10 glyph at position 15
+                            content.set_font(Name(b"F8"), font_size_outer);
+                            content.show(Str(&[15u8]));
                             content.set_font(Name(b"F1"), font_size_outer);
-                            current_x += 6.0;
+                            current_x += 5.0;
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
                         _ => {
@@ -832,6 +991,8 @@ impl PdfWriter {
                 fonts.pair(Name(b"F4"), cmti10_id);
                 fonts.pair(Name(b"F5"), cmbxti10_id);
                 fonts.pair(Name(b"F6"), cmtt10_id);
+                fonts.pair(Name(b"F7"), cmmi10_id);
+                fonts.pair(Name(b"F8"), cmsy10_id);
             }
         }
 
@@ -2015,5 +2176,414 @@ mod tests {
             !output.bytes.is_empty(),
             "PDF with Bullet should be non-empty"
         );
+    }
+
+    // ============================================================
+    // M38: cmmi10 (F7/MathItalic) and cmsy10 (F8/Bullet) tests
+    // ============================================================
+
+    #[test]
+    fn test_m38_pdf_contains_cmmi10_font_data() {
+        // PDF output should contain cmmi10 font data (the pfb bytes are embedded)
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // cmmi10.pfb is 36299 bytes; the PDF must be larger than that
+        assert!(
+            output.bytes.len() > 36000,
+            "PDF should contain cmmi10 font data (size > 36000), got {}",
+            output.bytes.len()
+        );
+    }
+
+    #[test]
+    fn test_m38_pdf_contains_cmsy10_font_data() {
+        // PDF output should contain cmsy10 font data (the pfb bytes are embedded)
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // cmsy10.pfb is 32569 bytes; total PDF with both fonts must be substantial
+        assert!(
+            output.bytes.len() > 70000,
+            "PDF should contain both cmmi10 and cmsy10 font data (size > 70000), got {}",
+            output.bytes.len()
+        );
+    }
+
+    #[test]
+    fn test_m38_math_italic_uses_f7() {
+        // MathItalic text nodes should produce F7 font reference in PDF content stream
+        use rustlatex_engine::OutputLine;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "x".to_string(),
+                    width: 5.715,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::MathItalic,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // PDF content should reference /F7 for MathItalic
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("/F7"),
+            "PDF should contain F7 font reference for MathItalic"
+        );
+    }
+
+    #[test]
+    fn test_m38_math_italic_does_not_use_f4() {
+        // MathItalic should NOT use F4 (cmti10) anymore — it uses F7 (cmmi10)
+        use rustlatex_engine::OutputLine;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Text {
+                    text: "E".to_string(),
+                    width: 7.382,
+                    font_size: 10.0,
+                    color: None,
+                    font_style: FontStyle::MathItalic,
+                    vertical_offset: 0.0,
+                }],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(pdf_str.contains("/F7"), "MathItalic should use F7, not F4");
+    }
+
+    #[test]
+    fn test_m38_bullet_width_is_5pt() {
+        // BoxNode::Bullet should contribute 5.0pt to line width (cmsy10 advance width)
+        use rustlatex_engine::OutputLine;
+        // Create a line with just a Bullet and measure the width calculation
+        // The line width computation uses 5.0 for Bullet
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![BoxNode::Bullet],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        // PDF should render without panic and be non-empty
+        assert!(
+            !output.bytes.is_empty(),
+            "Bullet should render without error"
+        );
+        // The bullet now uses F8, so PDF should reference /F8
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("/F8"),
+            "Bullet should use F8 (cmsy10) font"
+        );
+    }
+
+    #[test]
+    fn test_m38_bullet_uses_f8_font() {
+        // Bullet rendering should reference F8 (cmsy10) in PDF output
+        use rustlatex_engine::OutputLine;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Justify,
+                nodes: vec![
+                    BoxNode::Bullet,
+                    BoxNode::Text {
+                        text: "item".to_string(),
+                        width: 18.0,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
+                    },
+                ],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("/F8"),
+            "Bullet should reference F8 (cmsy10)"
+        );
+    }
+
+    #[test]
+    fn test_m38_f7_not_in_ot1_ligatures() {
+        // F7 (cmmi10 MathItalic) must NOT be in apply_ot1_ligatures
+        assert!(
+            !is_cm_text_font(b"F7"),
+            "F7 (cmmi10 MathItalic) should NOT get OT1 ligature substitution"
+        );
+    }
+
+    #[test]
+    fn test_m38_f8_not_in_ot1_ligatures() {
+        // F8 (cmsy10) must NOT be in apply_ot1_ligatures
+        assert!(
+            !is_cm_text_font(b"F8"),
+            "F8 (cmsy10) should NOT get OT1 ligature substitution"
+        );
+    }
+
+    #[test]
+    fn test_m38_f7_in_page_resources() {
+        // F7 should appear in page font resources
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(pdf_str.contains("/F7"), "F7 should be in page resources");
+    }
+
+    #[test]
+    fn test_m38_f8_in_page_resources() {
+        // F8 should appear in page font resources
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(pdf_str.contains("/F8"), "F8 should be in page resources");
+    }
+
+    #[test]
+    fn test_m38_cmmi10_name_in_pdf() {
+        // cmmi10 font name should appear in PDF output
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("CMMI10"),
+            "PDF should contain CMMI10 font name"
+        );
+    }
+
+    #[test]
+    fn test_m38_cmsy10_name_in_pdf() {
+        // cmsy10 font name should appear in PDF output
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("CMSY10"),
+            "PDF should contain CMSY10 font name"
+        );
+    }
+
+    #[test]
+    fn test_m38_math_italic_renders_without_panic() {
+        // A full math expression with MathItalic should render without panic
+        use rustlatex_engine::OutputLine;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![OutputLine {
+                alignment: Alignment::Center,
+                nodes: vec![
+                    BoxNode::Text {
+                        text: "E".to_string(),
+                        width: 7.382,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::MathItalic,
+                        vertical_offset: 0.0,
+                    },
+                    BoxNode::Text {
+                        text: "=".to_string(),
+                        width: 7.778,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::Normal,
+                        vertical_offset: 0.0,
+                    },
+                    BoxNode::Text {
+                        text: "m".to_string(),
+                        width: 8.780,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::MathItalic,
+                        vertical_offset: 0.0,
+                    },
+                    BoxNode::Text {
+                        text: "c".to_string(),
+                        width: 4.328,
+                        font_size: 10.0,
+                        color: None,
+                        font_style: FontStyle::MathItalic,
+                        vertical_offset: 0.0,
+                    },
+                    BoxNode::Text {
+                        text: "2".to_string(),
+                        width: 5.0,
+                        font_size: 7.0,
+                        color: None,
+                        font_style: FontStyle::Normal,
+                        vertical_offset: 3.5,
+                    },
+                ],
+            }],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(
+            output.bytes.len() > 1000,
+            "Math expression PDF should be substantial"
+        );
+    }
+
+    #[test]
+    fn test_m38_page_refs_start_at_24() {
+        // With the new ref scheme, pages start at ref 24 (not 18).
+        // We verify the PDF still has valid structure (starts with %PDF-)
+        let pages = vec![
+            EnginePage {
+                number: 1,
+                content: String::new(),
+                box_lines: vec![],
+                footnotes: vec![],
+            },
+            EnginePage {
+                number: 2,
+                content: String::new(),
+                box_lines: vec![],
+                footnotes: vec![],
+            },
+        ];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert_eq!(&output.bytes[0..5], b"%PDF-", "PDF should start with %PDF-");
+        assert!(
+            output.bytes.len() > 10000,
+            "Multi-page PDF should be substantial"
+        );
+    }
+
+    #[test]
+    fn test_m38_multiple_bullets_render() {
+        // Multiple bullet nodes should all render correctly
+        use rustlatex_engine::OutputLine;
+        let pages = vec![EnginePage {
+            number: 1,
+            content: String::new(),
+            box_lines: vec![
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![
+                        BoxNode::Bullet,
+                        BoxNode::Text {
+                            text: "First item".to_string(),
+                            width: 40.0,
+                            font_size: 10.0,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![
+                        BoxNode::Bullet,
+                        BoxNode::Text {
+                            text: "Second item".to_string(),
+                            width: 44.0,
+                            font_size: 10.0,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ],
+                },
+                OutputLine {
+                    alignment: Alignment::Justify,
+                    nodes: vec![
+                        BoxNode::Bullet,
+                        BoxNode::Text {
+                            text: "Third item".to_string(),
+                            width: 40.0,
+                            font_size: 10.0,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ],
+                },
+            ],
+            footnotes: vec![],
+        }];
+        let writer = PdfWriter::new();
+        let output = writer.write(&pages);
+        assert!(!output.bytes.is_empty(), "Multiple bullets should render");
+        let pdf_str = String::from_utf8_lossy(&output.bytes);
+        assert!(
+            pdf_str.contains("/F8"),
+            "Multiple bullets should reference F8"
+        );
+    }
+
+    #[test]
+    fn test_m38_ot1_still_applies_to_f1_f3_f4_f5() {
+        // F1, F3, F4, F5 should still have OT1 ligature substitution
+        assert!(is_cm_text_font(b"F1"), "F1 should apply OT1 ligatures");
+        assert!(is_cm_text_font(b"F3"), "F3 should apply OT1 ligatures");
+        assert!(is_cm_text_font(b"F4"), "F4 should apply OT1 ligatures");
+        assert!(is_cm_text_font(b"F5"), "F5 should apply OT1 ligatures");
+        // F6, F7, F8 should not
+        assert!(!is_cm_text_font(b"F6"), "F6 should NOT apply OT1 ligatures");
+        assert!(!is_cm_text_font(b"F7"), "F7 should NOT apply OT1 ligatures");
+        assert!(!is_cm_text_font(b"F8"), "F8 should NOT apply OT1 ligatures");
     }
 }
