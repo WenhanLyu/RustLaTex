@@ -657,7 +657,7 @@ Improve math rendering quality and fix visual similarity measurement infrastruct
 
 - **Tests:** 15+ new, 641+ total
 - **Cycles budget:** 2
-- **Status:** 🔄 In progress (issue #35)
+- **Status:** 🔄 Implementation phase (Ares team)
 
 
 
