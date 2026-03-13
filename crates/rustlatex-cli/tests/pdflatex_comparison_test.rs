@@ -784,3 +784,169 @@ fn test_compare_ppm_files_boundary_tolerance() {
     let _ = std::fs::remove_file(&p1);
     let _ = std::fs::remove_file(&p2);
 }
+
+/// Parse PPM P6 binary data and return (width, height, pixel_data).
+/// pixel_data is a Vec<u8> of RGB triplets in row-major order.
+fn parse_ppm(data: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
+    if !data.starts_with(b"P6") {
+        return None;
+    }
+    // find the first 3 newlines to locate pixel data
+    let mut nl_positions = Vec::new();
+    for (pos, &b) in data.iter().enumerate() {
+        if b == b'\n' {
+            nl_positions.push(pos);
+            if nl_positions.len() == 3 {
+                break;
+            }
+        }
+    }
+    if nl_positions.len() < 3 {
+        return None;
+    }
+    let pixel_offset = nl_positions[2] + 1;
+    // header between first newline+1 and second newline contains "width height"
+    let header_str =
+        String::from_utf8_lossy(&data[nl_positions[0] + 1..nl_positions[1]]).to_string();
+    let parts: Vec<&str> = header_str.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let width: usize = parts[0].parse().ok()?;
+    let height: usize = parts[1].parse().ok()?;
+    let pixels = data[pixel_offset..].to_vec();
+    Some((width, height, pixels))
+}
+
+/// Find the first non-white row and column in a PPM image.
+/// Returns (first_row, first_col) where the first non-white pixel appears.
+/// "White" means all three channels >= 250.
+fn find_first_non_white(
+    width: usize,
+    height: usize,
+    pixels: &[u8],
+) -> (Option<usize>, Option<usize>) {
+    let mut first_row: Option<usize> = None;
+    let mut first_col: Option<usize> = None;
+
+    for row in 0..height {
+        for col in 0..width {
+            let idx = (row * width + col) * 3;
+            if idx + 2 >= pixels.len() {
+                break;
+            }
+            let r = pixels[idx];
+            let g = pixels[idx + 1];
+            let b = pixels[idx + 2];
+            // Non-white: any channel below 250
+            if r < 250 || g < 250 || b < 250 {
+                if first_row.is_none() {
+                    first_row = Some(row);
+                }
+                if first_col.is_none() || col < first_col.unwrap() {
+                    first_col = Some(col);
+                }
+            }
+        }
+    }
+    (first_row, first_col)
+}
+
+#[test]
+fn test_ppm_text_bounding_box() {
+    // Diagnostic test: finds first non-white row and column in both our PPM
+    // and pdflatex PPM, reports offsets to stderr.
+    if skip_pdflatex() || !pdflatex_available() || !gs_available() {
+        eprintln!("test_ppm_text_bounding_box: SKIPPED (pdflatex or gs not available)");
+        return;
+    }
+
+    let tex_path = compare_tex_path();
+    if !tex_path.exists() {
+        eprintln!("test_ppm_text_bounding_box: SKIPPED (compare.tex not found)");
+        return;
+    }
+
+    // --- Compile with our compiler ---
+    let our_pdf =
+        std::env::temp_dir().join(format!("rustlatex_bbox_ours_{}.pdf", std::process::id()));
+    let _ = std::fs::remove_file(&our_pdf);
+    let our_status = Command::new(env!("CARGO_BIN_EXE_rustlatex"))
+        .args([tex_path.to_str().unwrap(), "-o", our_pdf.to_str().unwrap()])
+        .output();
+    let our_ok = our_status
+        .as_ref()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !our_ok {
+        eprintln!("test_ppm_text_bounding_box: SKIPPED (our compiler failed)");
+        return;
+    }
+
+    // --- Compile with pdflatex ---
+    let pdflatex_dir =
+        std::env::temp_dir().join(format!("rustlatex_bbox_pdflatex_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&pdflatex_dir);
+    let pdflatex_status = Command::new("pdflatex")
+        .args([
+            "-interaction=nonstopmode",
+            &format!("-output-directory={}", pdflatex_dir.display()),
+            tex_path.to_str().unwrap(),
+        ])
+        .output();
+    let pdflatex_ok = pdflatex_status
+        .as_ref()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !pdflatex_ok {
+        eprintln!("test_ppm_text_bounding_box: SKIPPED (pdflatex failed)");
+        return;
+    }
+    let pdflatex_pdf = pdflatex_dir.join("compare.pdf");
+    if !pdflatex_pdf.exists() {
+        eprintln!("test_ppm_text_bounding_box: SKIPPED (pdflatex PDF not found)");
+        return;
+    }
+
+    // --- Render both to PPM ---
+    let our_ppm = render_pdf_to_ppm(&our_pdf, "bbox_ours");
+    let pdflatex_ppm = render_pdf_to_ppm(&pdflatex_pdf, "bbox_pdflatex");
+
+    // --- Parse PPMs ---
+    let our_data = std::fs::read(&our_ppm).expect("failed to read our PPM");
+    let pdflatex_data = std::fs::read(&pdflatex_ppm).expect("failed to read pdflatex PPM");
+
+    let (our_w, our_h, our_pixels) = parse_ppm(&our_data).expect("failed to parse our PPM");
+    let (pdf_w, pdf_h, pdf_pixels) =
+        parse_ppm(&pdflatex_data).expect("failed to parse pdflatex PPM");
+
+    // --- Find bounding boxes ---
+    let (our_first_row, our_first_col) = find_first_non_white(our_w, our_h, &our_pixels);
+    let (pdf_first_row, pdf_first_col) = find_first_non_white(pdf_w, pdf_h, &pdf_pixels);
+
+    eprintln!("=== test_ppm_text_bounding_box DIAGNOSTIC ===");
+    eprintln!(
+        "Our PPM:     {}x{}, first_non_white row={:?} col={:?}",
+        our_w, our_h, our_first_row, our_first_col
+    );
+    eprintln!(
+        "pdflatex PPM: {}x{}, first_non_white row={:?} col={:?}",
+        pdf_w, pdf_h, pdf_first_row, pdf_first_col
+    );
+
+    if let (Some(our_r), Some(pdf_r)) = (our_first_row, pdf_first_row) {
+        let row_offset = our_r as i64 - pdf_r as i64;
+        eprintln!("Row offset (ours - pdflatex): {} pixels", row_offset);
+    }
+    if let (Some(our_c), Some(pdf_c)) = (our_first_col, pdf_first_col) {
+        let col_offset = our_c as i64 - pdf_c as i64;
+        eprintln!("Col offset (ours - pdflatex): {} pixels", col_offset);
+    }
+    eprintln!("=== END DIAGNOSTIC ===");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&our_pdf);
+    let _ = std::fs::remove_file(&our_ppm);
+    let _ = std::fs::remove_file(&pdflatex_ppm);
+    let _ = std::fs::remove_dir_all(&pdflatex_dir);
+}

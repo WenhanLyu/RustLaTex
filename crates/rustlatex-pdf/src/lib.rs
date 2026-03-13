@@ -2042,12 +2042,12 @@ impl PdfWriter {
         // A4 dimensions
         let media_box = Rect::new(0.0, 0.0, 595.0, 842.0);
 
-        // Margins
-        let margin_left: f32 = 72.27;
-        let margin_top: f32 = 109.0;
+        // Margins (pdflatex article class a4paper symmetric centering)
+        let margin_left: f32 = 126.25;
+        let margin_top: f32 = 124.0;
         let font_size_outer: f32 = 10.0;
 
-        // Starting y position: page height - top margin = 842 - 109 = 733
+        // Starting y position: page height - top margin = 842 - 124 = 718
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
@@ -3058,16 +3058,16 @@ mod tests {
 
     #[test]
     fn test_m30_pdf_margin_left() {
-        // Verify the margin_left constant is 72.27 (1 inch)
-        let margin_left: f32 = 72.27;
-        assert!((margin_left - 72.27).abs() < 0.01);
+        // Verify the margin_left constant is 126.25 (pdflatex article a4paper symmetric)
+        let margin_left: f32 = 126.25;
+        assert!((margin_left - 126.25).abs() < 0.01);
     }
 
     #[test]
     fn test_m30_pdf_margin_top() {
-        // Verify margin_top is 109.0
-        let margin_top: f32 = 109.0;
-        assert!((margin_top - 109.0).abs() < 0.01);
+        // Verify margin_top is 124.0 (pdflatex article first-baseline position)
+        let margin_top: f32 = 124.0;
+        assert!((margin_top - 124.0).abs() < 0.01);
     }
 
     #[test]
@@ -3086,10 +3086,10 @@ mod tests {
 
     #[test]
     fn test_m30_pdf_start_y() {
-        // start_y = 842 - 109 = 733
-        let margin_top: f32 = 109.0;
+        // start_y = 842 - 124 = 718
+        let margin_top: f32 = 124.0;
         let start_y: f32 = 842.0 - margin_top;
-        assert!((start_y - 733.0).abs() < 0.01);
+        assert!((start_y - 718.0).abs() < 0.01);
     }
 
     // ===== M32 tests: Computer Modern font embedding =====
