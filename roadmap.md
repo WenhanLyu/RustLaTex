@@ -141,6 +141,8 @@ Binary-identical output requires:
 - **VSkip anti-pattern:** VSkip-only lines use their `line_height = amount` for vertical advance in the PDF backend. This is the WRONG model: pdflatex integrates spacing into the baseline skip calculation for neighboring lines, not as separate VSkip lines. Adding VSkip before/after lists adds spacing that ISN'T in pdflatex's model (at those exact positions relative to our layout), causing cascading mismatches.
 - **LESSON: Do NOT add VSkip around itemize lists** — confirmed regresses. Add this to the same rule as section heading VSkip.
 - **Cycle (M67):** M67 completed (a14a9a7). Reverted M66 VSkip regression, fixed display math 10pt (natural:12→10, stretch:3→2, shrink:9→5), fixed subsection line_height 14.0→14.5. 720 engine tests pass. Expected similarity ≥ 97.24% + small improvement from display math fix.
+- **Cycle (M68):** M68 completed (b51eddd). Section line_height 18→21pt (absorbing afterskip effect). Pixel similarity = **97.31%** (+0.07% from 97.24%). CI green, 720+ engine tests pass.
+- **Cycle (M69):** M69 implemented by Leo (47cdf9f). Two fixes: display math post-processing (+10pt to Center-aligned 10pt lines and preceding lines) + subsection line_height 14.5→17.0. CI result: **97.30% — essentially unchanged from 97.31%**. Both fixes had ~zero net impact. Possible explanations: subsection 17.0 overshot creating regression that cancelled display math gain; or display math post-processing isn't triggered or doesn't affect the actual mismatch pixels. Diana analyzing root cause for M70 planning.
 
 ## Milestones
 
@@ -1000,17 +1002,26 @@ Adjust section heading effective line_height from 18.0 to 21.0pt in compute_line
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Ares implemented commit b51eddd)
 - **Status:** ✅ Complete — CI green, 720+ engine tests pass
 
-### M69: Display Math line_height Post-Processing + Subsection line_height Adjustment
+### M69: Display Math line_height Post-Processing + Subsection line_height Adjustment ⚠️ NO IMPROVEMENT
 
-Diana's research (see diana/note.md) confirms two clean non-VSkip fixes for the remaining 2.69% gap:
+Diana's research (see diana/note.md) predicted two fixes for the remaining 2.69% gap:
 
-1. **Display math post-processing**: Both `Glue(10pt)` above/below display math are stripped by `strip_glue`. Fix: after `break_items_with_alignment` builds lines, scan for `Center`-aligned lines (display math) and add 10pt to the preceding line's `line_height` (abovedisplayskip) and 10pt to the math line's own `line_height` (belowdisplayskip). This matches pdflatex's `\abovedisplayskip = 10pt` and `\belowdisplayskip = 10pt`.
+1. **Display math post-processing**: Implemented — Center-aligned 10pt lines get +10 line_height, preceding line gets +10
+2. **Subsection line_height 14.5→17.0**: Implemented in compute_line_height
 
-2. **Subsection line_height 14.5→17.0**: By the same M68 ratio (afterskip effect on heading line_height), subsection line_height should increase from 14.5 to ~17.0. pdflatex afterskip for \subsection = 6.46pt.
+**Result: 97.30% — essentially unchanged from 97.31% (M68). Both fixes had ~0 net impact.**
 
-**Expected improvement:** +0.8-1.5% pixel similarity (from 97.31% → ~98.1-98.8%)
+Possible explanations:
+- Subsection 17.0 overshot (causing regression) while display math helped (cancelling out)
+- Display math post-processing not triggered (wrong font_size check?)
+- Display math lines are at bottom of page, already partially off-page
 
-- **Cycles budget:** 2 | **Cycles actual:** 1 (Ares, see commit)
+- **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 47cdf9f)
+- **Lesson:** Even theoretically-correct fixes may not move the needle if the page geometry doesn't match expectations. Need deeper analysis before M70.
+
+### M70: TBD — Pending Diana's M69 Failure Analysis
+
+Diana analyzing why M69 failed. Will determine M70 approach based on findings.
 
 ### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
 Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
