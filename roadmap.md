@@ -145,6 +145,7 @@ Binary-identical output requires:
 - **Cycle (M69):** M69 implemented by Leo (47cdf9f). Two fixes: display math post-processing (+10pt to Center-aligned 10pt lines and preceding lines) + subsection line_height 14.5→17.0. CI result: **97.30% — essentially unchanged from 97.31%**. Both fixes had ~zero net impact. Possible explanations: subsection 17.0 overshot creating regression that cancelled display math gain; or display math post-processing isn't triggered or doesn't affect the actual mismatch pixels. Diana analyzing root cause for M70 planning.
 - **Diana's M70 research (CRITICAL):** Diana identified that the greedy line breaker has two critical bugs: (1) `break_into_lines()` does NOT count Glue natural width (~3.3pt per space) in `current_width`, causing lines to accumulate 15-20+ words before triggering a break — producing massively overfull lines (x up to 1299pt on A4). (2) Penalty{-10000} is not handled as forced break in the greedy breaker. Additionally, the KP breaker has tolerance=200 which is too strict for typical lines (badness ≈ 800-6400 >> 200), causing the KP to ALWAYS fall back to the broken greedy breaker. The PDF output has only 6 text y-levels where there should be ~21 lines. **This is why pixel similarity is stuck at ~97%** — most text is catastrophically misplaced. Fix: (1) Add Glue natural width to current_width in break_into_lines(); (2) Handle Penalty{≤-10000} as forced break; (3) Increase KP tolerance to 10000. Expected improvement: 97.3% → 98-99%.
 - **M70 completed but similarity unchanged (97.30%):** M70 implemented all 3 fixes. CI confirmed 97.30% — no improvement. Root cause (Athena direct analysis): The real bug is NOT in the line-breaker algorithms but in the ITEM STREAM structure. Section headings emit just a Text node with NO Penalty separator. Paragraph ends emit Glue{0,1,0} with NO Penalty. So all text is ONE continuous stream: [Section heading text] + [para1 words...] + [para2 words...] + ... The KP/greedy breaks this at 345pt but paragraph 1 (~230pt wide) fits in one line, so the first break puts section heading + para1 + start of para2 on ONE y-level. Fix for M71: add Penalty{-10000} after section headings and at paragraph ends.
+- **M71 REGRESSION (97.30%→96.88%):** M71 added Penalty{-10000} after section headings AND paragraph ends. This REGRESSED similarity from 97.30% to 96.88% (-0.42%). Root cause: Penalty{-10000} after paragraph ends forces each paragraph to break independently in break_items_with_alignment (separate chunk per paragraph). pdflatex breaks text in continuous flow. Different line breaks → more pixel mismatches. KEY INSIGHT: Section headings are ALREADY separated by AlignmentMarker (Center vs Justify). The Penalty after headings is redundant but harmless. The Penalty after PARAGRAPH ENDS is the regression cause. M72 must revert the paragraph-end penalties. LESSON: Paragraph-end forced breaks cause regression just like VSkip around section/list environments.
 
 ## Milestones
 
@@ -1021,19 +1022,28 @@ Possible explanations:
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 47cdf9f)
 - **Lesson:** Even theoretically-correct fixes may not move the needle if the page geometry doesn't match expectations. Need deeper analysis before M70.
 
-### M71: Fix Paragraph/Section Separation with Forced Breaks
-The real root cause of stuck pixel similarity: NO forced breaks between section headings and paragraphs. Everything is one continuous item stream. Section heading + para1 + para2 all land at the same y-coordinate.
+### M72: Revert M71 Paragraph-End Penalty Regression ✅ NEEDED
+Revert the paragraph-end `Penalty{-10000}` added by M71 that caused 96.88% regression.
+
+**Root cause:** M71 added Penalty{-10000} after every paragraph end. This forces each paragraph into a separate chunk in break_items_with_alignment. Each paragraph then breaks independently via KP, producing different line breaks than pdflatex (continuous flow). The section heading Penalty is redundant (AlignmentMarker already separates) but harmless.
 
 **Fix:**
-1. Add `Penalty{-10000}` after section/subsection/subsubsection heading Text node (~line 2513)
-2. Add `Penalty{-10000}` at paragraph ends after existing Glue{natural:0} (~line 2338)
-3. 15+ new tests verifying forced break placement
-4. Expected: 97.30% → 98-99% pixel similarity
+1. Remove the `result.push(BoxNode::Penalty { value: -10000 })` line from paragraph translation (~line 2343) in translate_node_with_context()
+2. Keep section heading Penalty{-10000} (harmless)
+3. Keep M70's KP tolerance=10000 and glue width fixes (neutral/correct)
+4. Update tests that check paragraph output (remove expectation of trailing Penalty)
+5. 10+ new tests
 
-**NOTE:** This is NOT VSkip (banned). Penalty(-10000) forces a line break with no added vertical space.
+**Expected impact:** Recover 97.30% similarity.
+- **Cycles budget:** 1
+- **Status:** 🚧 Planned
 
-- **Cycles budget:** 2
-- **Status:** 🚧 In progress
+### M71: Fix Paragraph/Section Separation with Forced Breaks ⚠️ REGRESSION
+Added Penalty{-10000} after section headings AND paragraph ends.
+
+- **CI result:** 96.88% (REGRESSION from 97.30%, -0.42%)
+- **Status:** ⚠️ REGRESSION — see M72 for fix
+- **Cycles actual:** 1 (Ares, commit 940371d)
 
 ### M70: Fix Critical Line-Breaking Bugs (Greedy Breaker + KP Tolerance)
 Fix the two critical bugs in `break_into_lines()` and increase KP tolerance that are causing massively overfull lines.
