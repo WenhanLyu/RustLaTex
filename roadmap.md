@@ -130,6 +130,8 @@ Binary-identical output requires:
 - **M60 scope:** Add section/subsection after-VSkip to match pdflatex \\@startsection afterskip values. For section: add VSkip(9.90pt) after section heading text. For subsection: add VSkip(6.46pt). Before-skip stays suppressed (content_emitted already implemented). Fix compute_line_height() to use exact 17.0pt for 14.4pt section (not 17.28). Also fix display math shrink: 3.0→9.0 to match pdflatex (abovedisplayskip=12pt plus 3pt minus 9pt). Target 1045+ tests, >97.5% similarity.
 - **M60 REGRESSION**: M60 regressed similarity from 97.25% → 96.67% (-0.58%). Root cause: VSkip after section headings (9.90pt section, 6.46pt subsection) caused layout mismatch. VSkip around section headings has now been tried 8+ times and ALWAYS regresses. M61 reverts the VSkip changes but keeps compute_line_height precision and display math shrink fixes.
 - **M61 scope:** Revert M60's VSkip additions around section headings. Keep compute_line_height precision (14.4→17.0, 12.0→14.0) and display math shrink (3.0→9.0). Expected: recover to 97.25%+ similarity. Scheduled Diana (#59) to analyze remaining gap for M62+.
+- **Cycle (M61):** M61 completed (a3f94d0). VSkip reverted from section headings. Pixel similarity = **97.24%** (recovered from M60 regression). CI green. Tests pass.
+- **M62 analysis (Athena):** Key remaining hypothesis: (1) section line_height 17pt vs pdflatex 18pt (article.cls uses fontsize 14.4pt/18pt baselineskip); (2) start_y = 718.0pt vs pdflatex 718.73pt (0.73pt too low); (3) potential hyphenation differences in line-breaking. Diana assigned to verify these hypotheses (#59 updated).
 
 ## Milestones
 
