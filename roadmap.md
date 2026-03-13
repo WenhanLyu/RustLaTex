@@ -159,6 +159,9 @@ Binary-identical output requires:
 - **M80 REGRESSION (97.33%→96.90%):** M80 implemented all 3 components (paragraph Penalty, section Penalty, forced_j fix). CI showed 96.90% — REGRESSION from 97.33%. Despite the forced_j fix correctly rejecting mega-lines, the paragraph-by-paragraph KP runs produce different breakpoints than pdflatex continuous flow. This is the SAME root cause as M71/M74/M76. Confirmed pattern: ANY paragraph/section separation (Penalty, VSkip, AlignmentMarker) ALWAYS regresses. **Do NOT attempt this approach again.**
 - **M80 lesson**: The mega-line problem (7 y-positions vs pdflatex's ~25) cannot be solved by paragraph separation without regression. True fix requires exact pdflatex algorithm replication — a fundamentally larger undertaking. The project should focus on NON-LAYOUT improvements to maximize the ~10% of the gap that is fixable without structural changes.
 - **CONFIRMED anti-pattern #7**: M80 combination (Penalty+forced_j) REGRESSES. Added to dead ends list.
+- **M82 DEADLINE MISSED (3/3 cycles, REGRESSION 96.86%)**: All three M82 attempts (ParagraphEnd as active splitter, skip empty chunks, ParagraphEnd after sections too) produced 96.86% regression. Per-paragraph KP splitting via ParagraphEnd sentinel is confirmed as anti-pattern #8. Same root cause as all previous separation approaches: our per-paragraph character metrics differ slightly from pdflatex, causing different line breaks.
+- **CONFIRMED anti-pattern #8**: Per-paragraph KP splitting (ParagraphEnd sentinel) REGRESSES. Diana's prediction of "99%+" was incorrect. The `contains_forced_break` + KP-internal bridging prevention was the wrong mechanism; even pre-processing splits give wrong per-paragraph KP results.
+- **M83 strategy**: Revert M82 to recover 97.34%. Expand pixel similarity testing to cover all 5 example documents (hello.tex, sections.tex, math.tex, lists.tex, compare.tex). This broadens the "binary identical" quality measurement and may reveal fixable gaps in simpler documents.
 
 ## Milestones
 
@@ -1353,7 +1356,33 @@ Analyze the per-paragraph structure of compare.tex through our compiler:
 
 **Expected impact:** 97.34% → 98%+ if per-paragraph KP matches pdflatex's output
 **Cycles budget:** 3 (1 for Diana research + 2 for implementation)
-**Status:** 🚧 In progress
+**Status:** ⚠️ DEADLINE MISSED (3/3 cycles used) — ALL approaches regressed to 96.86%
+
+**M82 lesson**: Per-paragraph KP splitting (ParagraphEnd sentinel) REGRESSES just like all other paragraph-separation approaches. The regression is ~0.48% (97.34%→96.86%). Root cause: our per-paragraph character metrics differ slightly from pdflatex, causing different line breaks per-paragraph that accumulate into more pixel mismatches than the global KP approach. This is confirmed as anti-pattern #8.
+
+**CONFIRMED anti-pattern #8**: Per-paragraph KP splitting via ParagraphEnd sentinel REGRESSES. Added to dead ends list.
+
+### M83: Recover 97.34% Baseline + Add Multi-Document Pixel Similarity Tests
+Revert M82's per-paragraph KP splitting regression and add pixel similarity tests for all example documents.
+
+**Goal 1 (Revert M82)**: Recover 97.34% by reverting M82's per-paragraph splitting changes:
+- Remove ParagraphEnd from section/subsection/subsubsection translations in both translate_node_with_metrics and translate_node_with_context (change `vec![Text{...}, ParagraphEnd]` back to `vec![Text{...}]`)
+- Revert break_items_with_alignment ParagraphEnd handling back to no-op (remove the `if !current_chunk.is_empty() { pre_lines.push(...) }` block, keep it as `{}`)
+- Fix tests back to expecting 1 node for sections (not 2)
+- Keep ParagraphEnd variant in enum (still emitted after paragraphs, just no-op in break_items)
+- Target: CI similarity ≥ 97.34%
+
+**Goal 2 (Multi-Document Tests)**: Add pixel similarity tests for other example documents:
+- Add `test_hello_tex_pixel_similarity_logged` for examples/hello.tex
+- Add `test_sections_tex_pixel_similarity_logged` for examples/sections.tex
+- Add `test_math_tex_pixel_similarity_logged` for examples/math.tex
+- Add `test_lists_tex_pixel_similarity_logged` for examples/lists.tex
+- Each test: compile with our compiler + pdflatex, render both to PPM, compute similarity score, log it (non-failing, like the compare.tex test)
+- These provide baseline measurements for the other example documents
+
+**Tests**: 15+ new (including 4 new per-document similarity tests + tests verifying section produces 1 node again)
+**Target**: 1200+ total tests pass, CI green, compare.tex similarity ≥ 97.34%
+**Cycles budget:** 2
 
 ---
 
