@@ -969,18 +969,15 @@ Added VSkip{0.0} after section headings + changed compute_line_height values.
 - **Root cause:** compute_line_height changed to 9.9 (should be 18.0) and 6.46 (should be 14.0)
 - **M64 will fix this regression**
 
-### M64: Revert M63 compute_line_height Regression
-Revert the wrong compute_line_height values from M63.
+### M64: Revert M63 compute_line_height Regression ⚠️ PARTIAL
+Reverted compute_line_height (9.9→18.0, 6.46→14.0) but did NOT remove the VSkip{0.0} nodes M63 added.
 
-**Changes:**
-1. In compute_line_height: change 9.9 → 18.0 for 14.4pt font
-2. In compute_line_height: change 6.46 → 14.0 for 12.0pt font
-3. Update ALL failing tests (many expect 9.9/6.46, need to change back to 18.0/14.0)
-4. Optionally remove VSkip{0.0} nodes from section headings (keep or remove, doesn't affect similarity)
+- **Status:** ⚠️ PARTIAL — similarity dropped FURTHER to 96.63% (M62 was 97.24%). VSkip{0.0} is somehow causing regression despite being "harmless". Full revert needed in M65.
 
-**Expected result:** Recover to 97.24% similarity, restore correct line spacing.
+### M65: Fully Revert M63 VSkip{0.0} + Restore M62 State
+Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection translation. M64 fixed compute_line_height but left VSkip{0.0} nodes in place. These are causing 96.63% vs expected 97.24%.
 
-- **Cycles budget:** 2
+- **Cycles budget:** 1
 
 ---
 
