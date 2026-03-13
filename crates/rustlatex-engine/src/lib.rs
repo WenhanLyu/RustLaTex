@@ -1439,23 +1439,48 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 .first()
                 .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
-            let mut result: Vec<BoxNode> = Vec::new();
-
-            // AlignmentMarker as first item to create a KP segment boundary
-            result.push(BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
+            // Check if paragraph starts with a section command that will emit its own
+            // AlignmentMarker. Placing Kern{15} between two consecutive AlignmentMarkers
+            // would create a phantom segment with no visible content (a 12pt empty line).
+            let starts_with_section = nodes.first().is_some_and(|n| {
+                matches!(n, Node::Command { name, .. }
+                    if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
             });
 
-            // Add paragraph indentation (15pt) unless suppressed
-            if !starts_with_noindent {
+            // Translate children first so we can check for visible content
+            let children: Vec<BoxNode> = nodes
+                .iter()
+                .flat_map(|n| translate_node_with_metrics(n, metrics))
+                .collect();
+
+            // Skip empty paragraphs that produce no visible output (e.g., blank lines
+            // before section headings). This prevents phantom lines in the layout.
+            let has_visible = children.iter().any(|n| {
+                matches!(
+                    n,
+                    BoxNode::Text { .. }
+                        | BoxNode::HBox { .. }
+                        | BoxNode::Bullet
+                        | BoxNode::Rule { .. }
+                )
+            });
+            if !has_visible {
+                return vec![];
+            }
+
+            let mut result = vec![BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            }];
+
+            // Add paragraph indentation (15pt) unless:
+            // - suppressed by \noindent
+            // - paragraph starts with section command (would create phantom Kern segment
+            //   between two consecutive AlignmentMarkers)
+            if !starts_with_noindent && !starts_with_section {
                 result.push(BoxNode::Kern { amount: 15.0 });
             }
 
-            result.extend(
-                nodes
-                    .iter()
-                    .flat_map(|n| translate_node_with_metrics(n, metrics)),
-            );
+            result.extend(children);
             result.push(BoxNode::Glue {
                 natural: 0.0,
                 stretch: 1.0,
@@ -2329,27 +2354,54 @@ pub fn translate_node_with_context(
                 .first()
                 .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
-            let mut result: Vec<BoxNode> = Vec::new();
-
-            // AlignmentMarker as first item to create a KP segment boundary
-            result.push(BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
+            // Check if paragraph starts with a section command that will emit its own
+            // AlignmentMarker. Placing Kern{15} between two consecutive AlignmentMarkers
+            // would create a phantom segment with no visible content (a 12pt empty line).
+            let starts_with_section = nodes.first().is_some_and(|n| {
+                matches!(n, Node::Command { name, .. }
+                    if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
             });
 
-            // Add paragraph indentation (15pt) unless:
-            // - preceded by a section heading (after_heading flag)
-            // - starts with \noindent
-            if !starts_with_noindent && !ctx.after_heading {
-                result.push(BoxNode::Kern { amount: 15.0 });
-            }
-            // Reset after_heading flag (consumed by this paragraph)
+            // Save after_heading before resetting — used for indent suppression below.
+            // We reset now so that child translation sees the correct state.
+            let was_after_heading = ctx.after_heading;
             ctx.after_heading = false;
 
-            result.extend(
-                nodes
-                    .iter()
-                    .flat_map(|n| translate_node_with_context(n, metrics, ctx)),
-            );
+            // Translate children first to check for visible content
+            let children: Vec<BoxNode> = nodes
+                .iter()
+                .flat_map(|n| translate_node_with_context(n, metrics, ctx))
+                .collect();
+
+            // Skip empty paragraphs that produce no visible output (e.g., blank lines
+            // before section headings). This prevents phantom lines in the layout.
+            let has_visible = children.iter().any(|n| {
+                matches!(
+                    n,
+                    BoxNode::Text { .. }
+                        | BoxNode::HBox { .. }
+                        | BoxNode::Bullet
+                        | BoxNode::Rule { .. }
+                )
+            });
+            if !has_visible {
+                return vec![];
+            }
+
+            let mut result = vec![BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            }];
+
+            // Add paragraph indentation (15pt) unless:
+            // - preceded by a section heading (was_after_heading)
+            // - starts with \noindent
+            // - starts with section command (would create phantom Kern segment
+            //   between two consecutive AlignmentMarkers)
+            if !starts_with_noindent && !was_after_heading && !starts_with_section {
+                result.push(BoxNode::Kern { amount: 15.0 });
+            }
+
+            result.extend(children);
             result.push(BoxNode::Glue {
                 natural: 0.0,
                 stretch: 1.0,
@@ -19626,14 +19678,24 @@ mod tests {
 
     #[test]
     fn test_m72_empty_paragraph_no_trailing_penalty() {
-        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
+        // M76-fix: empty paragraph (no visible content) returns vec![] to avoid phantom lines.
+        // It must NOT end with Penalty{-10000}.
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Empty paragraphs now return vec![] (no phantom lines).
+        // Verify last item is not a forced-break Penalty.
+        let ends_with_forced_penalty = nodes.last().map_or(false, |n| {
+            if let BoxNode::Penalty { value } = n {
+                *value <= -10000
+            } else {
+                false
+            }
+        });
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
-            "M74-fix: empty paragraph must end with Glue, got {:?}",
+            !ends_with_forced_penalty,
+            "M76-fix: empty paragraph must not end with forced Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -20032,14 +20094,22 @@ mod tests {
 
     #[test]
     fn test_m74_empty_paragraph_ends_with_penalty() {
-        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
+        // M76-fix: empty paragraph returns vec![] (no phantom lines), not Glue or Penalty.
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Empty paragraphs return vec![] — verify no forced-break Penalty at end.
+        let ends_with_forced_penalty = nodes.last().map_or(false, |n| {
+            if let BoxNode::Penalty { value } = n {
+                *value <= -10000
+            } else {
+                false
+            }
+        });
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
-            "M74-fix: empty paragraph must end with Glue, got {:?}",
+            !ends_with_forced_penalty,
+            "M76-fix: empty paragraph must not end with forced Penalty, got {:?}",
             nodes.last()
         );
     }
