@@ -1439,55 +1439,18 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                 .first()
                 .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
-            // Check if paragraph starts with a section command that will emit its own
-            // AlignmentMarker. Placing Kern{15} between two consecutive AlignmentMarkers
-            // would create a phantom segment with no visible content (a 12pt empty line).
-            let starts_with_section = nodes.first().is_some_and(|n| {
-                matches!(n, Node::Command { name, .. }
-                    if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
-            });
+            let mut result: Vec<BoxNode> = Vec::new();
 
-            // Check if paragraph starts with display math. Display math is block-level
-            // and should not be preceded by a paragraph indent kern.
-            let starts_with_display_math = nodes
-                .first()
-                .is_some_and(|n| matches!(n, Node::DisplayMath(_)));
-
-            // Translate children first so we can check for visible content
-            let children: Vec<BoxNode> = nodes
-                .iter()
-                .flat_map(|n| translate_node_with_metrics(n, metrics))
-                .collect();
-
-            // Skip empty paragraphs that produce no visible output (e.g., blank lines
-            // before section headings). This prevents phantom lines in the layout.
-            let has_visible = children.iter().any(|n| {
-                matches!(
-                    n,
-                    BoxNode::Text { .. }
-                        | BoxNode::HBox { .. }
-                        | BoxNode::Bullet
-                        | BoxNode::Rule { .. }
-                )
-            });
-            if !has_visible {
-                return vec![];
-            }
-
-            let mut result = vec![BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
-            }];
-
-            // Add paragraph indentation (15pt) unless:
-            // - suppressed by \noindent
-            // - paragraph starts with section command (would create phantom Kern segment
-            //   between two consecutive AlignmentMarkers)
-            // - paragraph starts with display math (block-level, no indent)
-            if !starts_with_noindent && !starts_with_section && !starts_with_display_math {
+            // Add paragraph indentation (15pt) unless suppressed
+            if !starts_with_noindent {
                 result.push(BoxNode::Kern { amount: 15.0 });
             }
 
-            result.extend(children);
+            result.extend(
+                nodes
+                    .iter()
+                    .flat_map(|n| translate_node_with_metrics(n, metrics)),
+            );
             result.push(BoxNode::Glue {
                 natural: 0.0,
                 stretch: 1.0,
@@ -1615,19 +1578,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         String::new()
                     };
                     let width = metrics.string_width(&title);
-                    vec![
-                        BoxNode::AlignmentMarker {
-                            alignment: Alignment::Justify,
-                        },
-                        BoxNode::Text {
-                            text: title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                    ]
+                    vec![BoxNode::Text {
+                        text: title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }]
                 }
                 "hspace" => {
                     let dim = if let Some(arg) = args.first() {
@@ -2361,65 +2319,22 @@ pub fn translate_node_with_context(
                 .first()
                 .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
-            // Check if paragraph starts with a section command that will emit its own
-            // AlignmentMarker. Placing Kern{15} between two consecutive AlignmentMarkers
-            // would create a phantom segment with no visible content (a 12pt empty line).
-            let starts_with_section = nodes.first().is_some_and(|n| {
-                matches!(n, Node::Command { name, .. }
-                    if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
-            });
-
-            // Check if paragraph starts with display math. Display math is block-level
-            // and should not be preceded by a paragraph indent kern.
-            let starts_with_display_math = nodes
-                .first()
-                .is_some_and(|n| matches!(n, Node::DisplayMath(_)));
-
-            // Save after_heading before resetting — used for indent suppression below.
-            // We reset now so that child translation sees the correct state.
-            let was_after_heading = ctx.after_heading;
-            ctx.after_heading = false;
-
-            // Translate children first to check for visible content
-            let children: Vec<BoxNode> = nodes
-                .iter()
-                .flat_map(|n| translate_node_with_context(n, metrics, ctx))
-                .collect();
-
-            // Skip empty paragraphs that produce no visible output (e.g., blank lines
-            // before section headings). This prevents phantom lines in the layout.
-            let has_visible = children.iter().any(|n| {
-                matches!(
-                    n,
-                    BoxNode::Text { .. }
-                        | BoxNode::HBox { .. }
-                        | BoxNode::Bullet
-                        | BoxNode::Rule { .. }
-                )
-            });
-            if !has_visible {
-                return vec![];
-            }
-
-            let mut result = vec![BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
-            }];
+            let mut result: Vec<BoxNode> = Vec::new();
 
             // Add paragraph indentation (15pt) unless:
-            // - preceded by a section heading (was_after_heading)
+            // - preceded by a section heading (after_heading flag)
             // - starts with \noindent
-            // - starts with section command (would create phantom Kern segment
-            //   between two consecutive AlignmentMarkers)
-            // - starts with display math (block-level, no indent)
-            if !starts_with_noindent
-                && !was_after_heading
-                && !starts_with_section
-                && !starts_with_display_math
-            {
+            if !starts_with_noindent && !ctx.after_heading {
                 result.push(BoxNode::Kern { amount: 15.0 });
             }
+            // Reset after_heading flag (consumed by this paragraph)
+            ctx.after_heading = false;
 
-            result.extend(children);
+            result.extend(
+                nodes
+                    .iter()
+                    .flat_map(|n| translate_node_with_context(n, metrics, ctx)),
+            );
             result.push(BoxNode::Glue {
                 natural: 0.0,
                 stretch: 1.0,
@@ -2594,19 +2509,14 @@ pub fn translate_node_with_context(
                     let width = metrics.string_width_for_style(&numbered_title, FontStyle::Bold);
                     // VSkip suppressed — do not emit before/after VSkip around section headings.
                     // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![
-                        BoxNode::AlignmentMarker {
-                            alignment: Alignment::Justify,
-                        },
-                        BoxNode::Text {
-                            text: numbered_title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                    ];
+                    let result = vec![BoxNode::Text {
+                        text: numbered_title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -5309,24 +5219,17 @@ mod tests {
             Node::Text("three".to_string()),
         ]);
         let items = translate_node(&node);
-        // AlignmentMarker{Justify} + Kern(15.0) (paragraph indent)
+        // Kern(15.0) (paragraph indent)
         // "one two" → Text("one"), Glue, Text("two")
         // "three" → Text("three")
         // + paragraph spacing Glue
-        // total: 7 items
-        assert_eq!(items.len(), 7);
-        // First item: AlignmentMarker{Justify}
-        assert!(matches!(
-            items[0],
-            BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify
-            }
-        ));
-        // Second item: paragraph indent kern
-        assert_eq!(items[1], BoxNode::Kern { amount: 15.0 });
+        // total: 6 items
+        assert_eq!(items.len(), 6);
+        // First item: paragraph indent kern
+        assert_eq!(items[0], BoxNode::Kern { amount: 15.0 });
         // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
-            items[2],
+            items[1],
             BoxNode::Text {
                 text: "one".to_string(),
                 width: cm10_width("one"),
@@ -5336,10 +5239,10 @@ mod tests {
                 vertical_offset: 0.0,
             }
         );
-        assert!(matches!(items[3], BoxNode::Glue { .. }));
+        assert!(matches!(items[2], BoxNode::Glue { .. }));
         // two: t+w+o = 3.89+7.50+5.00 = 16.39
         assert_eq!(
-            items[4],
+            items[3],
             BoxNode::Text {
                 text: "two".to_string(),
                 width: cm10_width("two"),
@@ -5351,7 +5254,7 @@ mod tests {
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
         assert_eq!(
-            items[5],
+            items[4],
             BoxNode::Text {
                 text: "three".to_string(),
                 width: cm10_width("three"),
@@ -6677,7 +6580,7 @@ mod tests {
 
     #[test]
     fn test_section_has_vertical_vskip_before() {
-        // M76: first node is AlignmentMarker, second is Text
+        // M55: VSkip removed from section headings — first node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6685,13 +6588,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node should be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: section first node should be Text, got {:?}",
             nodes.first()
         );
     }
@@ -6714,7 +6612,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_before() {
-        // M76: first node is AlignmentMarker, second is Text
+        // M55: VSkip removed from section headings — first node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -6722,13 +6620,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node should be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node should be Text, got {:?}",
             nodes.first()
         );
     }
@@ -6790,7 +6683,7 @@ mod tests {
 
     #[test]
     fn test_section_produces_three_nodes() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6799,8 +6692,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: Section should produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: Section should produce exactly 1 node (Text)"
         );
     }
 
@@ -8338,8 +8231,6 @@ mod tests {
 
     #[test]
     fn test_typeset_with_centering_command() {
-        // M76: paragraph emits AlignmentMarker{Justify} which overrides \centering.
-        // The centering marker applies until the paragraph's Justify marker resets it.
         let doc = Node::Document(vec![
             Node::Command {
                 name: "centering".to_string(),
@@ -8350,16 +8241,10 @@ mod tests {
         let engine = Engine::new(doc);
         let pages = engine.typeset();
         assert!(!pages.is_empty());
-        // With M76, paragraph AlignmentMarker{Justify} overrides centering
-        let has_justify = pages.iter().any(|p| {
-            p.box_lines
-                .iter()
-                .any(|l| l.alignment == Alignment::Justify)
-        });
-        assert!(
-            has_justify,
-            "Expected justified lines (paragraph overrides centering)"
-        );
+        let has_centered = pages
+            .iter()
+            .any(|p| p.box_lines.iter().any(|l| l.alignment == Alignment::Center));
+        assert!(has_centered, "Expected at least one centered line");
     }
 
     #[test]
@@ -8383,8 +8268,6 @@ mod tests {
 
     #[test]
     fn test_typeset_raggedright_command() {
-        // M76: paragraph emits AlignmentMarker{Justify} which overrides \raggedright.
-        // The paragraph's Justify marker resets alignment to justified.
         let doc = Node::Document(vec![
             Node::Command {
                 name: "raggedright".to_string(),
@@ -8395,16 +8278,12 @@ mod tests {
         let engine = Engine::new(doc);
         let pages = engine.typeset();
         assert!(!pages.is_empty());
-        // With M76, paragraph AlignmentMarker{Justify} overrides raggedright
-        let has_justify = pages.iter().any(|p| {
+        let has_ragged = pages.iter().any(|p| {
             p.box_lines
                 .iter()
-                .any(|l| l.alignment == Alignment::Justify)
+                .any(|l| l.alignment == Alignment::RaggedRight)
         });
-        assert!(
-            has_justify,
-            "Expected justified lines (paragraph overrides raggedright)"
-        );
+        assert!(has_ragged);
     }
 
     #[test]
@@ -9494,21 +9373,11 @@ mod tests {
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
-        // M76: First item is AlignmentMarker{Justify}, second item is Kern(15.0) for paragraph indentation
-        assert!(
-            matches!(
-                items[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: Paragraph should start with AlignmentMarker{{Justify}}, got {:?}",
-            items[0]
-        );
+        // First item should be Kern(15.0) for paragraph indentation
         assert_eq!(
-            items[1],
+            items[0],
             BoxNode::Kern { amount: 15.0 },
-            "Paragraph should have Kern(15.0) at index 1 for first-line indent"
+            "Paragraph should start with Kern(15.0) for first-line indent"
         );
     }
 
@@ -13407,7 +13276,7 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_is_15_07pt() {
-        // M76: first node is AlignmentMarker{Justify}
+        // M55: VSkip removed — first node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13415,13 +13284,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node must be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: section first node must be Text (no VSkip), got {:?}",
             nodes.first()
         );
     }
@@ -13444,7 +13308,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_before_is_13_99pt() {
-        // M76: first node is AlignmentMarker{Justify}
+        // M55: VSkip removed — first node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13452,13 +13316,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node must be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node must be Text (no VSkip), got {:?}",
             nodes.first()
         );
     }
@@ -13481,7 +13340,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_vskip_before_is_11_63pt() {
-        // M76: first node is AlignmentMarker{Justify}
+        // M55: VSkip removed — first node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13489,13 +13348,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsubsection first node must be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsubsection first node must be Text (no VSkip), got {:?}",
             nodes.first()
         );
     }
@@ -13518,7 +13372,7 @@ mod tests {
 
     #[test]
     fn test_section_has_larger_before_vskip_than_subsection() {
-        // M76: first nodes are AlignmentMarker
+        // M55: VSkip removed — both first nodes are Text
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -13531,22 +13385,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
         assert!(
-            matches!(
-                sec_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node must be AlignmentMarker"
+            matches!(sec_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: section first node must be Text"
         );
         assert!(
-            matches!(
-                sub_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node must be AlignmentMarker"
+            matches!(sub_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node must be Text"
         );
     }
 
@@ -13576,20 +13420,15 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_context_15_07pt() {
-        // M76: first item is AlignmentMarker{Justify}
+        // M55: VSkip removed — first item is now Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: first item should be AlignmentMarker, got {:?}",
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M55: first item should be Text (no VSkip), got {:?}",
             items.first()
         );
     }
@@ -13667,7 +13506,7 @@ mod tests {
 
     #[test]
     fn test_subsection_produces_three_nodes() {
-        // M76: subsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13676,14 +13515,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection should produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_subsubsection_produces_three_nodes() {
-        // M76: subsubsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13692,14 +13531,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection should produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13708,24 +13547,24 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section should produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section should produce 1 node (Text)"
         );
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: section second node should be bold Text"
+            "M65: section first node should be bold Text"
         );
     }
 
     #[test]
     fn test_subsection_spacing_exact_values() {
-        // M76: subsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13734,24 +13573,24 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection should produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection should produce 1 node (Text)"
         );
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: subsection second node should be bold Text"
+            "M65: subsection first node should be bold Text"
         );
     }
 
     #[test]
     fn test_subsubsection_spacing_exact_values() {
-        // M76: subsubsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13760,18 +13599,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection should produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection should produce 1 node (Text)"
         );
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: subsubsection node[1] should be bold Text"
+            "M65: subsubsection node should be bold Text"
         );
     }
 
@@ -14589,21 +14428,11 @@ mod tests {
     fn test_m36_paragraph_indent_is_15pt() {
         let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
         let items = translate_node(&node);
-        // M76: First item is AlignmentMarker{Justify}, second item is Kern(15.0) for paragraph indentation
+        // First item should be Kern(15.0) for paragraph indentation
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: first item should be AlignmentMarker{{Justify}}, got {:?}",
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
+            "Paragraph indent should be 15pt, got {:?}",
             items.first()
-        );
-        assert!(
-            matches!(items.get(1), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
-            "Paragraph indent should be 15pt at index 1, got {:?}",
-            items.get(1)
         );
     }
 
@@ -15756,7 +15585,7 @@ mod tests {
 
     #[test]
     fn test_section_emits_vskip_before() {
-        // M76: first node is AlignmentMarker{Justify}
+        // M56: section emits Text + VSkip(12.24); first node is Text (no before-VSkip)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15764,13 +15593,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node must be AlignmentMarker"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M56: section first node must be Text (no before-VSkip)"
         );
     }
 
@@ -15813,7 +15637,7 @@ mod tests {
 
     #[test]
     fn test_subsection_emits_vskip_before_13_99pt() {
-        // M76: subsection first node is AlignmentMarker
+        // M65: subsection emits only Text (no VSkip)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15821,13 +15645,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node must be AlignmentMarker"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M65: subsection first node must be Text"
         );
         let vskip_count = nodes
             .iter()
@@ -15835,7 +15654,7 @@ mod tests {
             .count();
         assert_eq!(
             vskip_count, 0,
-            "M76: subsection should emit 0 VSkip nodes, got {}",
+            "M65: subsection should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
@@ -16028,20 +15847,16 @@ mod tests {
 
     #[test]
     fn test_section_heading_has_text_between_vskips() {
-        // M76: section emits 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M76: Section should emit 2 nodes (AlignmentMarker + Text)"
-        );
+        assert_eq!(nodes.len(), 1, "M74-fix: Section should emit 1 node (Text)");
         assert!(matches!(
-            &nodes[1],
+            &nodes[0],
             BoxNode::Text {
                 font_style: FontStyle::Bold,
                 ..
@@ -16147,7 +15962,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_kern_before_15_07() {
-        // M76: first node is AlignmentMarker
+        // M55: VSkip removed — first node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16155,13 +15970,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node should be AlignmentMarker"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: section first node should be Text (no VSkip)"
         );
     }
 
@@ -16182,7 +15992,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_kern_before_13_99() {
-        // M76: first node is AlignmentMarker
+        // M55: VSkip removed — first node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16190,13 +16000,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node should be AlignmentMarker"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node should be Text (no VSkip)"
         );
     }
 
@@ -16217,7 +16022,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsubsection_kern_before_11_63() {
-        // M76: first node is AlignmentMarker
+        // M55: VSkip removed — first node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16225,13 +16030,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsubsection first node should be AlignmentMarker"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsubsection first node should be Text (no VSkip)"
         );
     }
 
@@ -16311,7 +16111,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_before_greater_than_subsection_before() {
-        // M76: first nodes are AlignmentMarker
+        // M55: VSkip removed — both first nodes are Text
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -16324,28 +16124,18 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         assert!(
-            matches!(
-                sec_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node must be AlignmentMarker"
+            matches!(sec_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: section first node must be Text"
         );
         assert!(
-            matches!(
-                sub_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node must be AlignmentMarker"
+            matches!(sub_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m51_subsection_before_greater_than_subsubsection_before() {
-        // M76: first nodes are AlignmentMarker
+        // M55: VSkip removed — both first nodes are Text
         let metrics = StandardFontMetrics;
         let sub = Node::Command {
             name: "subsection".to_string(),
@@ -16358,22 +16148,12 @@ mod tests {
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         let subsub_nodes = translate_node_with_metrics(&subsub, &metrics);
         assert!(
-            matches!(
-                sub_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsection first node must be AlignmentMarker"
+            matches!(sub_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsection first node must be Text"
         );
         assert!(
-            matches!(
-                subsub_nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: subsubsection first node must be AlignmentMarker"
+            matches!(subsub_nodes.first(), Some(BoxNode::Text { .. })),
+            "M55: subsubsection first node must be Text"
         );
     }
 
@@ -16451,20 +16231,15 @@ mod tests {
 
     #[test]
     fn test_m52_first_section_gets_zero_before_vskip() {
-        // M76: first item is AlignmentMarker
+        // M55: VSkip removed — first item is Text (section heading)
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: first section should start with AlignmentMarker, got {:?}",
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M55: first section should start with Text (no VSkip), got {:?}",
             items.first()
         );
     }
@@ -16630,7 +16405,7 @@ mod tests {
 
     #[test]
     fn test_m53_section_produces_zero_vskip_before_and_after() {
-        // M76: section produces AlignmentMarker + Text
+        // M65: section produces only Text (no VSkip)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16638,18 +16413,13 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: first node must be AlignmentMarker, got {:?}",
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M65: first node must be Text, got {:?}",
             nodes.first()
         );
         assert!(
             matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M76: last node must be Text, got {:?}",
+            "M74-fix: last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -17161,7 +16931,7 @@ mod tests {
 
     #[test]
     fn test_m55_section_returns_one_node() {
-        // M76: section returns 2 nodes (AlignmentMarker + Text)
+        // M65: section returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17170,14 +16940,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section should return exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsection_returns_one_node() {
-        // M76: subsection returns 2 nodes (AlignmentMarker + Text)
+        // M65: subsection returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17186,14 +16956,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection should return exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsubsection_returns_one_node() {
-        // M76: subsubsection returns 2 nodes (AlignmentMarker + Text)
+        // M65: subsubsection returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17202,8 +16972,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection should return exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection should return exactly 1 node (Text only)"
         );
     }
 
@@ -17216,8 +16986,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(&nodes[1], BoxNode::Text { text, .. } if text == "Title"),
-            "M76: section nodes[1] must be Text with correct title"
+            matches!(&nodes[0], BoxNode::Text { text, .. } if text == "Title"),
+            "M55: section single node must be Text with correct title"
         );
     }
 
@@ -17230,8 +17000,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(&nodes[1], BoxNode::Text { text, .. } if text == "Sub"),
-            "M76: subsection nodes[1] must be Text with correct title"
+            matches!(&nodes[0], BoxNode::Text { text, .. } if text == "Sub"),
+            "M55: subsection single node must be Text with correct title"
         );
     }
 
@@ -17244,8 +17014,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(&nodes[1], BoxNode::Text { text, .. } if text == "Deep"),
-            "M76: subsubsection nodes[1] must be Text with correct title"
+            matches!(&nodes[0], BoxNode::Text { text, .. } if text == "Deep"),
+            "M55: subsubsection single node must be Text with correct title"
         );
     }
 
@@ -17372,21 +17142,21 @@ mod tests {
 
     #[test]
     fn test_m55_section_font_size_14_0() {
-        // M76: section nodes[1] is Text
+        // M56: section font_size is now 14.4
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("A".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 14.4).abs() < 0.001,
                 "M56: section font_size should be 14.4, got {}",
                 font_size
             );
         } else {
-            panic!("M76: section nodes[1] must be Text");
+            panic!("M56: section node must be Text");
         }
     }
 
@@ -17398,14 +17168,14 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("B".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 12.0).abs() < 0.001,
                 "M55: subsection font_size should be 12.0, got {}",
                 font_size
             );
         } else {
-            panic!("M76: subsection nodes[1] must be Text");
+            panic!("M55: subsection node must be Text");
         }
     }
 
@@ -17417,14 +17187,14 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 11.0).abs() < 0.001,
                 "M55: subsubsection font_size should be 11.0, got {}",
                 font_size
             );
         } else {
-            panic!("M76: subsubsection nodes[1] must be Text");
+            panic!("M55: subsubsection node must be Text");
         }
     }
 
@@ -17438,13 +17208,13 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: section nodes[1] must be bold"
+            "M55: section must be bold"
         );
     }
 
@@ -17516,20 +17286,21 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("A".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 14.4).abs() < 0.001,
                 "M56: section font_size must be 14.4, got {}",
                 font_size
             );
         } else {
-            panic!("M76: nodes[1] must be Text");
+            panic!("M56: first node must be Text");
         }
     }
 
-    // 2. M76: Section emits 2 nodes (AlignmentMarker + Text)
+    // 2. M56-fix: Section emits exactly 1 node (Text only, no VSkip)
     #[test]
     fn test_m56_section_after_vskip() {
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17538,32 +17309,29 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must emit exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must emit exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: section nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M71: section first node must be Text"
         );
     }
 
-    // 3. M76: Section emits 2 nodes (AlignmentMarker + Text)
+    // 3. M74-fix: Section emits 1 node (Text only)
     #[test]
     fn test_m56_section_text_before_vskip() {
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M76: section must emit 2 nodes (AlignmentMarker + Text)"
-        );
+        assert_eq!(nodes.len(), 1, "M74-fix: section must emit 1 node (Text)");
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M65: first node must be Text"
         );
     }
 
@@ -17576,20 +17344,21 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("B".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 12.0).abs() < 0.001,
                 "M56: subsection font_size must be 12.0, got {}",
                 font_size
             );
         } else {
-            panic!("M76: nodes[1] must be Text");
+            panic!("M56: first node must be Text");
         }
     }
 
-    // 5. M76: Subsection emits 2 nodes (AlignmentMarker + Text)
+    // 5. M61: Subsection emits exactly 1 node (Text only)
     #[test]
     fn test_m56_subsection_after_vskip() {
+        // M74-fix: subsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17598,18 +17367,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection must emit exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection must emit exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: subsection nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M71: subsection first node must be Text"
         );
     }
 
-    // 6. M76: Subsubsection emits 2 nodes (AlignmentMarker + Text)
+    // 6. M74-fix: Subsubsection emits 1 node (Text only)
     #[test]
     fn test_m56_subsubsection_no_vskip() {
+        // M74-fix: subsubsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17618,12 +17388,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection must emit exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection must emit exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: subsubsection nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M71: subsubsection first node must be Text"
         );
     }
 
@@ -17636,18 +17406,18 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("F".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::Text { font_size, .. } = &nodes[1] {
+        if let BoxNode::Text { font_size, .. } = &nodes[0] {
             assert!(
                 (*font_size - 11.0).abs() < 0.001,
                 "M56: subsubsection font_size must be 11.0, got {}",
                 font_size
             );
         } else {
-            panic!("M76: nodes[1] must be Text");
+            panic!("M56: subsubsection node must be Text");
         }
     }
 
-    // 8. M76: first node is AlignmentMarker
+    // 8. No before-VSkip for section
     #[test]
     fn test_m56_section_no_before_vskip() {
         let metrics = StandardFontMetrics;
@@ -17657,17 +17427,12 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                &nodes[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: first node must be AlignmentMarker"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M56: first node must be Text (no before-VSkip)"
         );
     }
 
-    // 9. M76: first node is AlignmentMarker
+    // 9. No before-VSkip for subsection
     #[test]
     fn test_m56_subsection_no_before_vskip() {
         let metrics = StandardFontMetrics;
@@ -17677,13 +17442,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                &nodes[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: first node must be AlignmentMarker"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M56: first node must be Text (no before-VSkip for subsection)"
         );
     }
 
@@ -17869,7 +17629,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_emits_after_vskip() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17878,18 +17638,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must produce exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: section nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M65: section first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsection_emits_after_vskip() {
-        // M76: subsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17898,18 +17658,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection must produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection must produce exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: subsection nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M71: subsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsubsection_emits_after_vskip() {
-        // M76: subsubsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17918,31 +17678,27 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection must produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection must produce exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: subsubsection nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M65: subsubsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_section_before_vskip_suppressed_at_top() {
-        // M76: context path: first section has AlignmentMarker as first node
+        // context path: first section has no before-VSkip
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Top".to_string())])],
         }]);
         let items = translate_with_context(&node);
+        // First node should be Text (no before-VSkip)
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: first section at top should have AlignmentMarker as first node"
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M60: first section at top should have Text as first node"
         );
     }
 
@@ -17992,7 +17748,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_text_node_has_correct_font() {
-        // M76: section Text is at nodes[1]
+        // section Text has font_size=14.4 and Bold
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18000,14 +17756,14 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(&nodes[1], BoxNode::Text { font_size, font_style: FontStyle::Bold, .. } if (*font_size - 14.4).abs() < 0.01),
-            "M76: section Text must have font_size=14.4 and Bold"
+            matches!(&nodes[0], BoxNode::Text { font_size, font_style: FontStyle::Bold, .. } if (*font_size - 14.4).abs() < 0.01),
+            "M60: section Text must have font_size=14.4 and Bold"
         );
     }
 
     #[test]
     fn test_m60_subsection_text_node_has_correct_font() {
-        // M76: subsection Text is at nodes[1]
+        // subsection Text has font_size=12.0
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -18015,8 +17771,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(&nodes[1], BoxNode::Text { font_size, font_style: FontStyle::Bold, .. } if (*font_size - 12.0).abs() < 0.01),
-            "M76: subsection Text must have font_size=12.0 and Bold"
+            matches!(&nodes[0], BoxNode::Text { font_size, font_style: FontStyle::Bold, .. } if (*font_size - 12.0).abs() < 0.01),
+            "M60: subsection Text must have font_size=12.0 and Bold"
         );
     }
 
@@ -18170,7 +17926,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_node_count_metrics() {
-        // M76: section produces exactly 2 BoxNodes (AlignmentMarker + Text)
+        // M74-fix: section produces exactly 1 BoxNode (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18179,14 +17935,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce exactly 2 BoxNodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must produce exactly 1 BoxNode (Text)"
         );
     }
 
     #[test]
     fn test_m60_section_vskip_after_text_not_before() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18195,12 +17951,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must have exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must have exactly 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: nodes[1] must be Text"
+            matches!(&nodes[0], BoxNode::Text { .. }),
+            "M65: first node must be Text"
         );
     }
 
@@ -18396,7 +18152,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_produces_two_nodes() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18405,8 +18161,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce exactly 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must produce exactly 1 node (Text)"
         );
     }
 
@@ -18428,7 +18184,7 @@ mod tests {
 
     #[test]
     fn test_m63_subsection_emits_vskip_zero() {
-        // M76: subsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -18437,12 +18193,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection must produce 1 node (Text)"
         );
         assert!(
             matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M76: subsection last node must be Text"
+            "M74-fix: subsection last node must be Text"
         );
     }
 
@@ -18521,7 +18277,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_vskip_chunk_boundary() {
-        // M76: section produces [AlignmentMarker, Text]
+        // M74-fix: section produces [Text] only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18530,17 +18286,17 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must produce 1 node (Text)"
         );
         assert!(
-            matches!(&nodes[1], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
+            matches!(&nodes[0], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
         );
     }
 
     #[test]
     fn test_m63_subsubsection_emits_vskip_zero() {
-        // M76: subsubsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -18549,8 +18305,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection must produce 1 node (Text)"
         );
         assert!(matches!(nodes.last(), Some(BoxNode::Text { .. })));
     }
@@ -18572,7 +18328,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_first_node_is_text() {
-        // M76: first node is AlignmentMarker, second is Text
+        // M63: first node is still Text (VSkip comes after)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18580,17 +18336,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                nodes.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: section first node must be AlignmentMarker"
-        );
-        assert!(
-            matches!(&nodes[1], BoxNode::Text { .. }),
-            "M76: section second node must be Text"
+            matches!(nodes.first(), Some(BoxNode::Text { .. })),
+            "M63: section first node must be Text"
         );
     }
 
@@ -19432,7 +19179,7 @@ mod tests {
 
     #[test]
     fn test_m71_section_heading_returns_penalty_as_last_node() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19441,19 +19188,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: section must produce 1 node (Text)"
         );
         assert!(
             matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M76: section last node must be Text, got {:?}",
+            "M74-fix: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsection_heading_includes_forced_break() {
-        // M76: subsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsection produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19462,19 +19209,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsection must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsection must produce 1 node (Text)"
         );
         assert!(
             matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M76: subsection last node must be Text, got {:?}",
+            "M74-fix: subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsubsection_heading_includes_forced_break() {
-        // M76: subsubsection produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: subsubsection produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -19483,12 +19230,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: subsubsection must produce 2 nodes (AlignmentMarker + Text)"
+            1,
+            "M74-fix: subsubsection must produce 1 node (Text)"
         );
         assert!(
             matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M76: subsubsection last node must be Text, got {:?}",
+            "M74-fix: subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -19588,7 +19335,7 @@ mod tests {
 
     #[test]
     fn test_m71_section_heading_first_node_is_text() {
-        // M76: section heading nodes[0] is AlignmentMarker, nodes[1] is bold Text
+        // M71: section heading first node is still Text (bold)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19597,14 +19344,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: section nodes[1] must be bold Text, got {:?}",
-            &nodes[1]
+            "M71: section first node must be bold Text, got {:?}",
+            &nodes[0]
         );
     }
 
@@ -19696,24 +19443,14 @@ mod tests {
 
     #[test]
     fn test_m72_empty_paragraph_no_trailing_penalty() {
-        // M76-fix: empty paragraph (no visible content) returns vec![] to avoid phantom lines.
-        // It must NOT end with Penalty{-10000}.
+        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        // Empty paragraphs now return vec![] (no phantom lines).
-        // Verify last item is not a forced-break Penalty.
-        let ends_with_forced_penalty = nodes.last().map_or(false, |n| {
-            if let BoxNode::Penalty { value } = n {
-                *value <= -10000
-            } else {
-                false
-            }
-        });
         assert!(
-            !ends_with_forced_penalty,
-            "M76-fix: empty paragraph must not end with forced Penalty, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: empty paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
@@ -19968,7 +19705,7 @@ mod tests {
 
     #[test]
     fn test_m74_section_produces_two_nodes() {
-        // M76: section produces 2 nodes (AlignmentMarker + Text)
+        // M74-fix: section produces 1 node: Text only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19977,19 +19714,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M76: section must produce 2 nodes, got {}",
+            1,
+            "M74-fix: section must produce 1 node, got {}",
             nodes.len()
         );
         assert!(
-            matches!(nodes[1], BoxNode::Text { .. }),
-            "M76: nodes[1] must be Text"
+            matches!(nodes[0], BoxNode::Text { .. }),
+            "M74-fix: first node must be Text"
         );
     }
 
     #[test]
     fn test_m74_section_width_uses_bold_font() {
-        // M76: section heading Text is at nodes[1]
+        // M74: section heading width must be computed with Bold font style
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19998,12 +19735,12 @@ mod tests {
             )])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        let text_width = if let BoxNode::Text { width, .. } = &nodes[1] {
+        let text_width = if let Some(BoxNode::Text { width, .. }) = nodes.first() {
             *width
         } else {
-            panic!("M76: nodes[1] must be Text");
+            panic!("M74: first node must be Text");
         };
-        assert!(text_width > 0.0, "M76: section text width must be positive");
+        assert!(text_width > 0.0, "M74: section text width must be positive");
     }
 
     #[test]
@@ -20090,7 +19827,7 @@ mod tests {
 
     #[test]
     fn test_m74_section_text_node_is_first() {
-        // M76: section nodes[0] is AlignmentMarker, nodes[1] is Bold Text
+        // M74: section first node must be Text with Bold style
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -20099,35 +19836,27 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(
-                &nodes[1],
+                &nodes[0],
                 BoxNode::Text {
                     font_style: FontStyle::Bold,
                     ..
                 }
             ),
-            "M76: section nodes[1] must be Bold Text, got {:?}",
-            nodes.get(1)
+            "M74: section first node must be Bold Text, got {:?}",
+            nodes.first()
         );
     }
 
     #[test]
     fn test_m74_empty_paragraph_ends_with_penalty() {
-        // M76-fix: empty paragraph returns vec![] (no phantom lines), not Glue or Penalty.
+        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        // Empty paragraphs return vec![] — verify no forced-break Penalty at end.
-        let ends_with_forced_penalty = nodes.last().map_or(false, |n| {
-            if let BoxNode::Penalty { value } = n {
-                *value <= -10000
-            } else {
-                false
-            }
-        });
         assert!(
-            !ends_with_forced_penalty,
-            "M76-fix: empty paragraph must not end with forced Penalty, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: empty paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
@@ -20192,414 +19921,5 @@ mod tests {
             !lines.is_empty(),
             "M74: underfull forced break must produce at least 1 line"
         );
-    }
-
-    // ===== M76 tests: AlignmentMarker{Justify} as first item in paragraphs and section headings =====
-
-    #[test]
-    fn test_m76_paragraph_starts_with_alignment_marker() {
-        // M76: paragraphs have AlignmentMarker{Justify} as first item
-        let metrics = StandardFontMetrics;
-        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
-        let items = translate_node_with_metrics(&node, &metrics);
-        assert!(
-            matches!(
-                &items[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: paragraph first item must be AlignmentMarker{{Justify}}, got {:?}",
-            &items[0]
-        );
-    }
-
-    #[test]
-    fn test_m76_paragraph_first_item_is_alignment_marker() {
-        // M76: paragraph AlignmentMarker is at index 0, Kern(15.0) at index 1
-        let metrics = StandardFontMetrics;
-        let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
-        let items = translate_node_with_metrics(&node, &metrics);
-        assert!(
-            matches!(
-                items[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: paragraph first item must be AlignmentMarker{{Justify}}"
-        );
-        assert_eq!(
-            items[1],
-            BoxNode::Kern { amount: 15.0 },
-            "M76: paragraph second item must be Kern(15.0) indent"
-        );
-    }
-
-    #[test]
-    fn test_m76_paragraph_produces_text_items() {
-        // M76: paragraph produces AlignmentMarker + Kern + Text + Glue
-        let metrics = StandardFontMetrics;
-        let node = Node::Paragraph(vec![Node::Text("Test".to_string())]);
-        let items = translate_node_with_metrics(&node, &metrics);
-        // Must have AlignmentMarker + Kern + Text content + trailing Glue = at least 4 items
-        assert!(
-            items.len() >= 3,
-            "M76: paragraph must produce at least 3 items, got {}",
-            items.len()
-        );
-        // AlignmentMarker{Justify} at paragraph start
-        assert!(
-            matches!(
-                &items[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: paragraph first item must be AlignmentMarker{{Justify}}"
-        );
-    }
-
-    #[test]
-    fn test_m76_section_starts_with_alignment_marker() {
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M76: section must produce 2 nodes");
-        assert!(
-            matches!(
-                &nodes[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: section first node must be AlignmentMarker{{Justify}}"
-        );
-    }
-
-    #[test]
-    fn test_m76_section_second_item_is_text_bold() {
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Bold".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        assert!(
-            matches!(
-                &nodes[1],
-                BoxNode::Text {
-                    font_style: FontStyle::Bold,
-                    ..
-                }
-            ),
-            "M76: section nodes[1] must be bold Text"
-        );
-    }
-
-    #[test]
-    fn test_m76_subsection_starts_with_alignment_marker() {
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "subsection".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        assert!(
-            matches!(
-                &nodes[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: subsection first node must be AlignmentMarker"
-        );
-    }
-
-    #[test]
-    fn test_m76_subsubsection_starts_with_alignment_marker() {
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "subsubsection".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        assert!(
-            matches!(
-                &nodes[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: subsubsection first node must be AlignmentMarker"
-        );
-    }
-
-    #[test]
-    fn test_m76_section_context_starts_with_alignment_marker() {
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Context".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: context section first item must be AlignmentMarker"
-        );
-    }
-
-    #[test]
-    fn test_m76_two_paragraphs_have_two_alignment_markers() {
-        // M76: two paragraphs each have AlignmentMarker{Justify} as first item
-        let metrics = StandardFontMetrics;
-        let nodes = vec![
-            Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]),
-            Node::Paragraph(vec![Node::Text("Second paragraph.".to_string())]),
-        ];
-        let mut items: Vec<BoxNode> = Vec::new();
-        for n in &nodes {
-            items.extend(translate_node_with_metrics(n, &metrics));
-        }
-        // Two paragraphs produce 2 AlignmentMarker{Justify} nodes
-        let marker_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            marker_count, 2,
-            "M76: two paragraphs produce 2 AlignmentMarker nodes, got {}",
-            marker_count
-        );
-        // Two indent Kern nodes (one per paragraph)
-        let kern_count = items
-            .iter()
-            .filter(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.01))
-            .count();
-        assert_eq!(
-            kern_count, 2,
-            "M76: two paragraphs must produce 2 indent Kern nodes, got {}",
-            kern_count
-        );
-    }
-
-    #[test]
-    fn test_m76_paragraph_context_starts_with_alignment_marker() {
-        // M76: context paragraph starts with AlignmentMarker{Justify} as first item
-        let metrics = StandardFontMetrics;
-        let mut ctx = TranslationContext::new_collecting();
-        let node = Node::Paragraph(vec![Node::Text("Context para".to_string())]);
-        let items = translate_node_with_context(&node, &metrics, &mut ctx);
-        assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: context paragraph first item must be AlignmentMarker{{Justify}}, got {:?}",
-            items.first()
-        );
-        // Second item should be Kern(15.0) indent
-        assert!(
-            matches!(
-                items.get(1),
-                Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < 0.01
-            ),
-            "M76: context paragraph second item must be Kern(15.0) indent, got {:?}",
-            items.get(1)
-        );
-    }
-
-    #[test]
-    fn test_m76_paragraph_noindent_no_kern() {
-        // M76: noindent paragraph has AlignmentMarker{Justify} first, then NO Kern{15.0} (noindent suppresses it)
-        let metrics = StandardFontMetrics;
-        let node = Node::Paragraph(vec![
-            Node::Command {
-                name: "noindent".to_string(),
-                args: vec![],
-            },
-            Node::Text("No indent text".to_string()),
-        ]);
-        let items = translate_node_with_metrics(&node, &metrics);
-        // AlignmentMarker{Justify} at start (M76: all paragraphs get it)
-        assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: noindent paragraph first item must be AlignmentMarker{{Justify}}"
-        );
-        // Second item: NOT Kern (noindent suppresses it)
-        assert!(
-            !matches!(items.get(1), Some(BoxNode::Kern { .. })),
-            "M76: noindent paragraph must NOT have Kern after AlignmentMarker"
-        );
-    }
-
-    #[test]
-    fn test_m76_section_then_paragraph_two_segment_markers() {
-        // M76: section has AlignmentMarker, paragraph also has AlignmentMarker
-        // So section + paragraph = 2 AlignmentMarkers total
-        let metrics = StandardFontMetrics;
-        let sec = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Heading".to_string())])],
-        };
-        let para = Node::Paragraph(vec![Node::Text("Body text here.".to_string())]);
-        let mut items: Vec<BoxNode> = Vec::new();
-        items.extend(translate_node_with_metrics(&sec, &metrics));
-        items.extend(translate_node_with_metrics(&para, &metrics));
-        let marker_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            marker_count, 2,
-            "M76: section + paragraph must produce 2 AlignmentMarker nodes, got {}",
-            marker_count
-        );
-    }
-
-    #[test]
-    fn test_m76_break_items_splits_at_paragraph_marker() {
-        // M76: both section and paragraph AlignmentMarkers create segment boundaries.
-        // The section heading is in one segment; paragraph content in another.
-        // This test verifies that break_items_with_alignment produces 2+ segments
-        // for section + paragraph (each has its own AlignmentMarker).
-        let metrics = StandardFontMetrics;
-        let sec = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Heading".to_string())])],
-        };
-        let para = Node::Paragraph(vec![Node::Text("Body paragraph text.".to_string())]);
-        let mut items: Vec<BoxNode> = Vec::new();
-        items.extend(translate_node_with_metrics(&sec, &metrics));
-        items.extend(translate_node_with_metrics(&para, &metrics));
-        // Verify both section and paragraph produced AlignmentMarkers
-        let marker_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            marker_count, 2,
-            "M76: section + paragraph must produce 2 AlignmentMarker nodes, got {}",
-            marker_count
-        );
-        // break_items_with_alignment creates new segments at each AlignmentMarker
-        let segments = break_items_with_alignment(&items, 468.0);
-        assert!(
-            segments.len() >= 2,
-            "M76: section + paragraph must create 2+ segments via break_items_with_alignment, got {}",
-            segments.len()
-        );
-    }
-
-    #[test]
-    fn test_m76_paragraph_after_section_no_indent_context() {
-        // In context mode, after_heading suppresses kern for paragraph after section
-        // Both section and paragraph have AlignmentMarkers (M76: all get markers)
-        let node = Node::Document(vec![
-            Node::Command {
-                name: "section".to_string(),
-                args: vec![Node::Group(vec![Node::Text("Heading".to_string())])],
-            },
-            Node::Paragraph(vec![Node::Text("Body text.".to_string())]),
-        ]);
-        let items = translate_with_context(&node);
-        // Count AlignmentMarkers — should be exactly 2 (section + paragraph)
-        let marker_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            marker_count, 2,
-            "M76: section + paragraph must have exactly 2 AlignmentMarkers, got {}",
-            marker_count
-        );
-        // After the section's AlignmentMarker, there is a Text node (section heading)
-        // After the section, the paragraph begins with AlignmentMarker (not Kern) since after_heading suppresses indent
-        // Find section text and verify paragraph after it starts with AlignmentMarker, then no Kern
-        let section_text_idx = items.iter().position(|n| {
-            matches!(
-                n,
-                BoxNode::Text {
-                    font_style: FontStyle::Bold,
-                    ..
-                }
-            )
-        });
-        if let Some(sec_idx) = section_text_idx {
-            // After section text, paragraph AlignmentMarker should appear, then no Kern{15.0}
-            // (after_heading suppresses it)
-            let items_after_sec = &items[sec_idx + 1..];
-            // The first item after section should be the paragraph's AlignmentMarker
-            let first_non_glue = items_after_sec
-                .iter()
-                .find(|n| !matches!(n, BoxNode::Glue { .. }));
-            if let Some(item) = first_non_glue {
-                assert!(
-                    !matches!(item, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.01),
-                    "M76: after heading, first item must NOT be Kern(15.0) indent (AlignmentMarker first)"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_m76_section_alignment_marker_is_justify() {
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::AlignmentMarker { alignment } = &nodes[0] {
-            assert_eq!(
-                *alignment,
-                Alignment::Justify,
-                "M76: section AlignmentMarker must be Justify"
-            );
-        } else {
-            panic!("M76: section first node must be AlignmentMarker");
-        }
     }
 }
