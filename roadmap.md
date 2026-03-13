@@ -902,7 +902,7 @@ Investigated and attempted section heading font size (14.0→14.4) + after-VSkip
 - **Cycles budget:** 3 | **Cycles actual:** 3
 - **Status:** ⚠️ Deadline missed — escalated back to Athena for replanning
 
-### M57: Correct PDF Margins to Match pdflatex article class (Next)
+### M57: Correct PDF Margins to Match pdflatex article class
 Fix the margin mismatch between our output and pdflatex's article class defaults.
 
 **Root cause (Diana's forensic analysis):** 
@@ -913,12 +913,26 @@ Fix the margin mismatch between our output and pdflatex's article class defaults
 **Changes:**
 1. `margin_left`: 72.27 → 126.25pt in `rustlatex-pdf/src/lib.rs:2046`
 2. `margin_top`: 109.0 → 124.0pt in `rustlatex-pdf/src/lib.rs:2047`
-3. Update 3 self-referential tests (margin_left, margin_top, start_y assertions)
-4. Add diagnostic test: `test_ppm_text_bounding_box` — finds first/last non-white column+row in both PPMs and reports the offset
+3. Updated 3 self-referential tests (margin_left, margin_top, start_y assertions)
+4. Added diagnostic test: `test_ppm_text_bounding_box` — finds first/last non-white column+row in both PPMs and reports the offset
 
-**Expected impact:** ~96.5%→99%+ similarity if margin analysis is correct. If regression occurs, Athena reverts and uses diagnostic data to find alternative fix.
+**Expected impact:** ~96.5%→99%+ similarity if margin analysis is correct.
+**CI issue:** `test_ppm_text_bounding_box` has a bug (uses `-o` flag that our CLI doesn't support) — fixing in M58.
 
-- **Cycles budget:** 3
+- **Cycles budget:** 3 | **Cycles actual:** 1 (Leo, commit 8e7b658)
+- **Status:** ⚠️ Implemented, CI failing due to test bug — fix in M58
+
+### M58: Fix CI Test Bug + Verify M57 Similarity Score (Next)
+Fix the broken `test_ppm_text_bounding_box` test, get CI green, and read the M57 pixel similarity score.
+
+**Changes:**
+1. Fix line 875 in `crates/rustlatex-cli/tests/pdflatex_comparison_test.rs`: remove `-o` flag from CLI args
+2. Verify CI passes with 0 failures
+3. Read the pixel similarity score from CI logs
+
+**Expected outcome:** CI green, M57 similarity score visible.
+
+- **Cycles budget:** 1
 - **Status:** 🔄 In Progress
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
