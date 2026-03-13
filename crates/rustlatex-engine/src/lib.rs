@@ -1826,21 +1826,13 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     }
 
                     let mut result = Vec::new();
-                    // Before list: paragraph glue (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
-                    result.push(BoxNode::Glue {
-                        natural: 8.0,
-                        stretch: 2.0,
-                        shrink: 4.0,
-                    });
+                    // Before list: topsep (pdflatex \topsep=8pt from lsize10.clo)
+                    result.push(BoxNode::VSkip { amount: 8.0 });
 
                     for (i, item_nodes) in items.iter().enumerate() {
-                        // Inter-item glue (not before first item)
+                        // Inter-item VSkip (not before first item)
                         if i > 0 {
-                            result.push(BoxNode::Glue {
-                                natural: 4.0,
-                                stretch: 0.5,
-                                shrink: 0.5,
-                            });
+                            result.push(BoxNode::VSkip { amount: 4.0 });
                         }
                         // Indentation kern
                         result.push(BoxNode::Kern { amount: 20.0 });
@@ -1867,12 +1859,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
-                    // After list: paragraph glue (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
-                    result.push(BoxNode::Glue {
-                        natural: 8.0,
-                        stretch: 2.0,
-                        shrink: 4.0,
-                    });
+                    // After list: topsep (pdflatex \topsep=8pt from lsize10.clo)
+                    result.push(BoxNode::VSkip { amount: 8.0 });
 
                     result
                 }
@@ -3379,20 +3367,12 @@ pub fn translate_node_with_context(
                     }
 
                     let mut result = Vec::new();
-                    // Before list: pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo
-                    result.push(BoxNode::Glue {
-                        natural: 8.0,
-                        stretch: 2.0,
-                        shrink: 4.0,
-                    });
+                    // Before list: topsep (pdflatex \topsep=8pt from lsize10.clo)
+                    result.push(BoxNode::VSkip { amount: 8.0 });
 
                     for (i, item_nodes) in items.iter().enumerate() {
                         if i > 0 {
-                            result.push(BoxNode::Glue {
-                                natural: 4.0,
-                                stretch: 0.5,
-                                shrink: 0.5,
-                            });
+                            result.push(BoxNode::VSkip { amount: 4.0 });
                         }
                         result.push(BoxNode::Kern { amount: 20.0 });
                         if is_enumerate {
@@ -3416,12 +3396,8 @@ pub fn translate_node_with_context(
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
-                    // After list: pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo
-                    result.push(BoxNode::Glue {
-                        natural: 8.0,
-                        stretch: 2.0,
-                        shrink: 4.0,
-                    });
+                    // After list: topsep (pdflatex \topsep=8pt from lsize10.clo)
+                    result.push(BoxNode::VSkip { amount: 8.0 });
 
                     result
                 }
@@ -7141,146 +7117,128 @@ mod tests {
     }
 
     #[test]
-    fn test_list_surrounded_by_paragraph_glue() {
+    fn test_list_surrounded_by_vskip() {
         let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
-        // First element should be Glue{natural:8.0, shrink:4.0} (pdflatex \topsep)
+        // First element should be VSkip{amount:8.0} (pdflatex \topsep)
         assert!(
-            matches!(items.first(), Some(BoxNode::Glue { natural, shrink, .. }) if (*natural - 8.0).abs() < f64::EPSILON && (*shrink - 4.0).abs() < f64::EPSILON),
-            "Expected Glue(8.0, shrink=4.0) at start of list"
+            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "Expected VSkip(8.0) at start of list"
         );
-        // Last element should be Glue{natural:8.0, shrink:4.0}
+        // Last element should be VSkip{amount:8.0}
         assert!(
-            matches!(items.last(), Some(BoxNode::Glue { natural, shrink, .. }) if (*natural - 8.0).abs() < f64::EPSILON && (*shrink - 4.0).abs() < f64::EPSILON),
-            "Expected Glue(8.0, shrink=4.0) at end of list"
+            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "Expected VSkip(8.0) at end of list"
         );
     }
 
     #[test]
-    fn test_itemize_before_glue_natural_8pt() {
+    fn test_itemize_before_vskip_amount_8pt() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
         match items.first() {
-            Some(BoxNode::Glue { natural, .. }) => {
+            Some(BoxNode::VSkip { amount }) => {
                 assert!(
-                    (*natural - 8.0).abs() < f64::EPSILON,
-                    "before_list natural should be 8.0, got {}",
-                    natural
+                    (*amount - 8.0).abs() < f64::EPSILON,
+                    "before_list VSkip amount should be 8.0, got {}",
+                    amount
                 );
             }
-            other => panic!("Expected Glue at start, got {:?}", other),
+            other => panic!("Expected VSkip at start, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_itemize_before_glue_stretch_2pt() {
+    fn test_itemize_before_is_vskip_not_glue() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        match items.first() {
-            Some(BoxNode::Glue { stretch, .. }) => {
-                assert!(
-                    (*stretch - 2.0).abs() < f64::EPSILON,
-                    "before_list stretch should be 2.0, got {}",
-                    stretch
-                );
-            }
-            other => panic!("Expected Glue at start, got {:?}", other),
-        }
+        assert!(
+            matches!(items.first(), Some(BoxNode::VSkip { .. })),
+            "before_list should be VSkip, not Glue, got {:?}",
+            items.first()
+        );
     }
 
     #[test]
-    fn test_itemize_before_glue_shrink_4pt() {
+    fn test_itemize_before_no_stretch_shrink() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        match items.first() {
-            Some(BoxNode::Glue { shrink, .. }) => {
-                assert!(
-                    (*shrink - 4.0).abs() < f64::EPSILON,
-                    "before_list shrink should be 4.0, got {}",
-                    shrink
-                );
-            }
-            other => panic!("Expected Glue at start, got {:?}", other),
-        }
+        // VSkip has no stretch/shrink fields — just verify it's a VSkip
+        assert!(
+            matches!(items.first(), Some(BoxNode::VSkip { .. })),
+            "before_list should be VSkip (no stretch/shrink), got {:?}",
+            items.first()
+        );
     }
 
     #[test]
-    fn test_itemize_after_glue_natural_8pt() {
+    fn test_itemize_after_vskip_amount_8pt() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
         match items.last() {
-            Some(BoxNode::Glue { natural, .. }) => {
+            Some(BoxNode::VSkip { amount }) => {
                 assert!(
-                    (*natural - 8.0).abs() < f64::EPSILON,
-                    "after_list natural should be 8.0, got {}",
-                    natural
+                    (*amount - 8.0).abs() < f64::EPSILON,
+                    "after_list VSkip amount should be 8.0, got {}",
+                    amount
                 );
             }
-            other => panic!("Expected Glue at end, got {:?}", other),
+            other => panic!("Expected VSkip at end, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_itemize_after_glue_stretch_2pt() {
+    fn test_itemize_after_is_vskip_not_glue() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        match items.last() {
-            Some(BoxNode::Glue { stretch, .. }) => {
-                assert!(
-                    (*stretch - 2.0).abs() < f64::EPSILON,
-                    "after_list stretch should be 2.0, got {}",
-                    stretch
-                );
-            }
-            other => panic!("Expected Glue at end, got {:?}", other),
-        }
+        assert!(
+            matches!(items.last(), Some(BoxNode::VSkip { .. })),
+            "after_list should be VSkip, not Glue, got {:?}",
+            items.last()
+        );
     }
 
     #[test]
-    fn test_itemize_after_glue_shrink_4pt() {
+    fn test_itemize_after_no_stretch_shrink() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        match items.last() {
-            Some(BoxNode::Glue { shrink, .. }) => {
-                assert!(
-                    (*shrink - 4.0).abs() < f64::EPSILON,
-                    "after_list shrink should be 4.0, got {}",
-                    shrink
-                );
-            }
-            other => panic!("Expected Glue at end, got {:?}", other),
-        }
+        // VSkip has no stretch/shrink fields — just verify it's a VSkip
+        assert!(
+            matches!(items.last(), Some(BoxNode::VSkip { .. })),
+            "after_list should be VSkip (no stretch/shrink), got {:?}",
+            items.last()
+        );
     }
 
     #[test]
-    fn test_enumerate_before_glue_topsep() {
+    fn test_enumerate_before_vskip_topsep() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
         match items.first() {
-            Some(BoxNode::Glue { natural, .. }) => {
+            Some(BoxNode::VSkip { amount }) => {
                 assert!(
-                    (*natural - 8.0).abs() < f64::EPSILON,
-                    "enumerate before_list natural should be 8.0, got {}",
-                    natural
+                    (*amount - 8.0).abs() < f64::EPSILON,
+                    "enumerate before_list VSkip amount should be 8.0, got {}",
+                    amount
                 );
             }
-            other => panic!("Expected Glue at start of enumerate, got {:?}", other),
+            other => panic!("Expected VSkip at start of enumerate, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_enumerate_after_glue_topsep() {
+    fn test_enumerate_after_vskip_topsep() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
         match items.last() {
-            Some(BoxNode::Glue { natural, .. }) => {
+            Some(BoxNode::VSkip { amount }) => {
                 assert!(
-                    (*natural - 8.0).abs() < f64::EPSILON,
-                    "enumerate after_list natural should be 8.0, got {}",
-                    natural
+                    (*amount - 8.0).abs() < f64::EPSILON,
+                    "enumerate after_list VSkip amount should be 8.0, got {}",
+                    amount
                 );
             }
-            other => panic!("Expected Glue at end of enumerate, got {:?}", other),
+            other => panic!("Expected VSkip at end of enumerate, got {:?}", other),
         }
     }
 
@@ -7288,9 +7246,9 @@ mod tests {
     fn test_itemize_topsep_not_6pt() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+        if let Some(BoxNode::VSkip { amount }) = items.first() {
             assert!(
-                (*natural - 6.0).abs() > f64::EPSILON,
+                (*amount - 6.0).abs() > f64::EPSILON,
                 "itemize before_list should NOT be 6.0 (old value)"
             );
         }
@@ -7300,12 +7258,273 @@ mod tests {
     fn test_enumerate_topsep_not_6pt() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+        if let Some(BoxNode::VSkip { amount }) = items.first() {
             assert!(
-                (*natural - 6.0).abs() > f64::EPSILON,
+                (*amount - 6.0).abs() > f64::EPSILON,
                 "enumerate before_list should NOT be 6.0 (old value)"
             );
         }
+    }
+
+    // ===== M66 new tests: VSkip behavior verification =====
+
+    #[test]
+    fn test_itemize_topsep_before_is_vskip() {
+        let node = make_itemize(vec![vec![Node::Text("hello".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "M66: first node must be VSkip{{amount:8.0}}, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_itemize_topsep_after_is_vskip() {
+        let node = make_itemize(vec![vec![Node::Text("hello".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "M66: last node must be VSkip{{amount:8.0}}, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_itemize_topsep_before_amount_8pt() {
+        let node = make_itemize(vec![vec![Node::Text("world".to_string())]]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::VSkip { amount }) = items.first() {
+            assert!(
+                (*amount - 8.0).abs() < f64::EPSILON,
+                "M66: topsep before amount must be 8.0, got {}",
+                amount
+            );
+        } else {
+            panic!("M66: first node must be VSkip, got {:?}", items.first());
+        }
+    }
+
+    #[test]
+    fn test_itemize_topsep_after_amount_8pt() {
+        let node = make_itemize(vec![vec![Node::Text("world".to_string())]]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::VSkip { amount }) = items.last() {
+            assert!(
+                (*amount - 8.0).abs() < f64::EPSILON,
+                "M66: topsep after amount must be 8.0, got {}",
+                amount
+            );
+        } else {
+            panic!("M66: last node must be VSkip, got {:?}", items.last());
+        }
+    }
+
+    #[test]
+    fn test_itemize_itemsep_is_vskip() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_4 = items.iter().any(
+            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            vskip_4,
+            "M66: inter-item spacing must be VSkip{{amount:4.0}}"
+        );
+    }
+
+    #[test]
+    fn test_itemize_itemsep_amount_4pt() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_amounts: Vec<f64> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            vskip_amounts.contains(&4.0),
+            "M66: inter-item VSkip amount must be 4.0, vskips found: {:?}",
+            vskip_amounts
+        );
+    }
+
+    #[test]
+    fn test_enumerate_topsep_before_is_vskip() {
+        let node = make_enumerate(vec![vec![Node::Text("item1".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "M66: enumerate first node must be VSkip{{amount:8.0}}, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_enumerate_topsep_after_is_vskip() {
+        let node = make_enumerate(vec![vec![Node::Text("item1".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
+            "M66: enumerate last node must be VSkip{{amount:8.0}}, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_enumerate_itemsep_is_vskip() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_4 = items.iter().any(
+            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            vskip_4,
+            "M66: enumerate inter-item spacing must be VSkip{{amount:4.0}}"
+        );
+    }
+
+    #[test]
+    fn test_itemize_no_glue_at_list_boundary() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            !matches!(items.first(), Some(BoxNode::Glue { .. })),
+            "M66: first node must NOT be Glue, got {:?}",
+            items.first()
+        );
+        assert!(
+            !matches!(items.last(), Some(BoxNode::Glue { .. })),
+            "M66: last node must NOT be Glue, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_enumerate_no_glue_at_list_boundary() {
+        let node = make_enumerate(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            !matches!(items.first(), Some(BoxNode::Glue { .. })),
+            "M66: enumerate first node must NOT be Glue, got {:?}",
+            items.first()
+        );
+        assert!(
+            !matches!(items.last(), Some(BoxNode::Glue { .. })),
+            "M66: enumerate last node must NOT be Glue, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_itemize_two_items_has_vskip_between() {
+        let node = make_itemize(vec![
+            vec![Node::Text("first".to_string())],
+            vec![Node::Text("second".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_count = items
+            .iter()
+            .filter(
+                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+            )
+            .count();
+        assert_eq!(
+            vskip_count, 1,
+            "M66: 2-item list should have exactly 1 inter-item VSkip(4.0), got {}",
+            vskip_count
+        );
+    }
+
+    #[test]
+    fn test_enumerate_two_items_has_vskip_between() {
+        let node = make_enumerate(vec![
+            vec![Node::Text("first".to_string())],
+            vec![Node::Text("second".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_count = items
+            .iter()
+            .filter(
+                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+            )
+            .count();
+        assert_eq!(
+            vskip_count, 1,
+            "M66: 2-item enumerate should have exactly 1 inter-item VSkip(4.0), got {}",
+            vskip_count
+        );
+    }
+
+    #[test]
+    fn test_itemize_three_items_has_two_vskips() {
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let vskip_4_count = items
+            .iter()
+            .filter(
+                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+            )
+            .count();
+        assert_eq!(
+            vskip_4_count, 2,
+            "M66: 3-item list should have exactly 2 inter-item VSkip(4.0), got {}",
+            vskip_4_count
+        );
+    }
+
+    #[test]
+    fn test_itemize_topsep_not_glue_type() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            !matches!(items.first(), Some(BoxNode::Glue { .. })),
+            "M66: first node must be VSkip not Glue"
+        );
+    }
+
+    #[test]
+    fn test_itemize_vskip_total_spacing_24pt() {
+        // 3-item list: topsep(8) + itemsep(4) + itemsep(4) + topsep(8) = 24pt
+        let node = make_itemize(vec![
+            vec![Node::Text("a".to_string())],
+            vec![Node::Text("b".to_string())],
+            vec![Node::Text("c".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let total_vskip: f64 = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::VSkip { amount } = n {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+            .sum();
+        assert!(
+            (total_vskip - 24.0).abs() < f64::EPSILON,
+            "M66: 3-item list total VSkip should be 24.0 (8+4+4+8), got {}",
+            total_vskip
+        );
     }
 
     #[test]
@@ -7329,41 +7548,32 @@ mod tests {
     }
 
     #[test]
-    fn test_itemize_inter_item_glue() {
+    fn test_itemize_inter_item_vskip() {
         let node = make_itemize(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        // Between items there should be a Glue{natural:4.0, stretch:0.5, shrink:0.5}
-        let has_inter_glue = items.iter().any(|n| {
-            matches!(n, BoxNode::Glue { natural, stretch, shrink }
-                if (*natural - 4.0).abs() < f64::EPSILON
-                && (*stretch - 0.5).abs() < f64::EPSILON
-                && (*shrink - 0.5).abs() < f64::EPSILON)
-        });
-        assert!(
-            has_inter_glue,
-            "Expected inter-item Glue(4.0, 0.5, 0.5) in itemize"
+        // Between items there should be a VSkip{amount:4.0}
+        let has_inter_vskip = items.iter().any(
+            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
         );
+        assert!(has_inter_vskip, "Expected inter-item VSkip(4.0) in itemize");
     }
 
     #[test]
-    fn test_enumerate_inter_item_glue() {
+    fn test_enumerate_inter_item_vskip() {
         let node = make_enumerate(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let has_inter_glue = items.iter().any(|n| {
-            matches!(n, BoxNode::Glue { natural, stretch, shrink }
-                if (*natural - 4.0).abs() < f64::EPSILON
-                && (*stretch - 0.5).abs() < f64::EPSILON
-                && (*shrink - 0.5).abs() < f64::EPSILON)
-        });
+        let has_inter_vskip = items.iter().any(
+            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        );
         assert!(
-            has_inter_glue,
-            "Expected inter-item Glue(4.0, 0.5, 0.5) in enumerate"
+            has_inter_vskip,
+            "Expected inter-item VSkip(4.0) in enumerate"
         );
     }
 
