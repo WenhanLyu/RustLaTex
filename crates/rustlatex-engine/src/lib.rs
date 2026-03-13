@@ -4314,6 +4314,18 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
     lines
 }
 
+/// Check whether a chunk has any visible box content (Text, Bullet, HBox).
+/// Chunks that only contain Kern/Glue/Penalty nodes have no visible content
+/// and should not be passed to the line-breaker (they produce erroneous empty lines).
+fn chunk_has_visible_content(items: &[BoxNode]) -> bool {
+    items.iter().any(|n| {
+        matches!(
+            n,
+            BoxNode::Text { .. } | BoxNode::Bullet | BoxNode::HBox { .. }
+        )
+    })
+}
+
 /// Strip leading and trailing `Glue` nodes from a line.
 fn strip_glue(mut items: Vec<BoxNode>) -> Vec<BoxNode> {
     // Strip trailing glue
@@ -4742,14 +4754,19 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
                 // Paragraph boundary: flush current chunk so each paragraph
                 // gets its own independent KP call. ParagraphEnd is consumed
                 // (not emitted to any chunk or pre_lines).
-                if !current_chunk.is_empty() {
+                // Only flush chunks that have visible box content (Text/Bullet/HBox).
+                // Chunks with only Kern/Glue produce erroneous empty lines.
+                if chunk_has_visible_content(&current_chunk) {
                     pre_lines.push(std::mem::take(&mut current_chunk));
+                } else {
+                    current_chunk.clear();
                 }
             } else {
                 current_chunk.push(item.clone());
             }
         }
-        if !current_chunk.is_empty() {
+        // Flush final chunk (same visibility check)
+        if chunk_has_visible_content(&current_chunk) {
             pre_lines.push(current_chunk);
         }
 
