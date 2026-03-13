@@ -1441,11 +1441,6 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
 
             let mut result: Vec<BoxNode> = Vec::new();
 
-            // AlignmentMarker as first item to create a KP segment boundary
-            result.push(BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
-            });
-
             // Add paragraph indentation (15pt) unless suppressed
             if !starts_with_noindent {
                 result.push(BoxNode::Kern { amount: 15.0 });
@@ -2330,11 +2325,6 @@ pub fn translate_node_with_context(
                 .is_some_and(|n| matches!(n, Node::Command { name, .. } if name == "noindent"));
 
             let mut result: Vec<BoxNode> = Vec::new();
-
-            // AlignmentMarker as first item to create a KP segment boundary
-            result.push(BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify,
-            });
 
             // Add paragraph indentation (15pt) unless:
             // - preceded by a section heading (after_heading flag)
@@ -5239,24 +5229,17 @@ mod tests {
             Node::Text("three".to_string()),
         ]);
         let items = translate_node(&node);
-        // AlignmentMarker{Justify} + Kern(15.0) (paragraph indent)
+        // Kern(15.0) (paragraph indent)
         // "one two" → Text("one"), Glue, Text("two")
         // "three" → Text("three")
         // + paragraph spacing Glue
-        // total: 7 items
-        assert_eq!(items.len(), 7);
-        // First item: AlignmentMarker
-        assert!(matches!(
-            items[0],
-            BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify
-            }
-        ));
-        // Second item: paragraph indent kern
-        assert_eq!(items[1], BoxNode::Kern { amount: 15.0 });
+        // total: 6 items
+        assert_eq!(items.len(), 6);
+        // First item: paragraph indent kern
+        assert_eq!(items[0], BoxNode::Kern { amount: 15.0 });
         // one: o+n+e = 5.00+5.56+4.44 = 15.00
         assert_eq!(
-            items[2],
+            items[1],
             BoxNode::Text {
                 text: "one".to_string(),
                 width: cm10_width("one"),
@@ -5266,10 +5249,10 @@ mod tests {
                 vertical_offset: 0.0,
             }
         );
-        assert!(matches!(items[3], BoxNode::Glue { .. }));
+        assert!(matches!(items[2], BoxNode::Glue { .. }));
         // two: t+w+o = 3.89+7.50+5.00 = 16.39
         assert_eq!(
-            items[4],
+            items[3],
             BoxNode::Text {
                 text: "two".to_string(),
                 width: cm10_width("two"),
@@ -5281,7 +5264,7 @@ mod tests {
         );
         // three: t+h+r+e+e = 3.89+6.94+3.92+4.44+4.44 = 23.63
         assert_eq!(
-            items[5],
+            items[4],
             BoxNode::Text {
                 text: "three".to_string(),
                 width: cm10_width("three"),
@@ -8268,9 +8251,8 @@ mod tests {
 
     #[test]
     fn test_typeset_with_centering_command() {
-        // M76: paragraph emits AlignmentMarker{Justify} which overrides \centering
-        // The centering marker now only applies until the next segment marker.
-        // With paragraph-level Justify markers, \centering before a paragraph is overridden.
+        // Paragraphs do NOT emit AlignmentMarker, so \centering before a paragraph
+        // causes the paragraph to be centered (centering is not overridden).
         let doc = Node::Document(vec![
             Node::Command {
                 name: "centering".to_string(),
@@ -8281,13 +8263,10 @@ mod tests {
         let engine = Engine::new(doc);
         let pages = engine.typeset();
         assert!(!pages.is_empty());
-        // With M76, paragraph AlignmentMarker{Justify} overrides centering
-        let has_justify = pages.iter().any(|p| {
-            p.box_lines
-                .iter()
-                .any(|l| l.alignment == Alignment::Justify)
-        });
-        assert!(has_justify, "Expected at least one justified line");
+        let has_centered = pages
+            .iter()
+            .any(|p| p.box_lines.iter().any(|l| l.alignment == Alignment::Center));
+        assert!(has_centered, "Expected at least one centered line");
     }
 
     #[test]
@@ -8311,7 +8290,8 @@ mod tests {
 
     #[test]
     fn test_typeset_raggedright_command() {
-        // M76: paragraph emits AlignmentMarker{Justify} which overrides \raggedright
+        // Paragraphs do NOT emit AlignmentMarker, so \raggedright before a paragraph
+        // causes the paragraph to be ragged-right (not overridden by paragraph AlignmentMarker).
         let doc = Node::Document(vec![
             Node::Command {
                 name: "raggedright".to_string(),
@@ -8322,13 +8302,12 @@ mod tests {
         let engine = Engine::new(doc);
         let pages = engine.typeset();
         assert!(!pages.is_empty());
-        // With M76, paragraph AlignmentMarker{Justify} overrides raggedright
-        let has_justify = pages.iter().any(|p| {
+        let has_ragged = pages.iter().any(|p| {
             p.box_lines
                 .iter()
-                .any(|l| l.alignment == Alignment::Justify)
+                .any(|l| l.alignment == Alignment::RaggedRight)
         });
-        assert!(has_justify);
+        assert!(has_ragged);
     }
 
     #[test]
@@ -9418,17 +9397,11 @@ mod tests {
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
-        // M76: first item is AlignmentMarker{Justify}, second is Kern(15.0)
-        assert!(matches!(
-            items[0],
-            BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify
-            }
-        ));
+        // First item is Kern(15.0) for paragraph indentation
         assert_eq!(
-            items[1],
+            items[0],
             BoxNode::Kern { amount: 15.0 },
-            "Paragraph should have Kern(15.0) as second item for first-line indent"
+            "Paragraph should start with Kern(15.0) for first-line indent"
         );
     }
 
@@ -14509,11 +14482,11 @@ mod tests {
     fn test_m36_paragraph_indent_is_15pt() {
         let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
         let items = translate_node(&node);
-        // M76: first item is AlignmentMarker, second is Kern(15.0)
+        // First item should be Kern(15.0) for paragraph indentation
         assert!(
-            matches!(items.get(1), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
-            "Paragraph indent should be 15pt at index 1, got {:?}",
-            items.get(1)
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
+            "Paragraph indent should be 15pt, got {:?}",
+            items.first()
         );
     }
 
@@ -20089,47 +20062,48 @@ mod tests {
     // ===== M76 tests: AlignmentMarker{Justify} as first item in paragraphs and section headings =====
 
     #[test]
-    fn test_m76_paragraph_starts_with_alignment_marker() {
+    fn test_m76_paragraph_starts_with_indent_kern() {
+        // M76: paragraphs do NOT have AlignmentMarker at start; first item is Kern{15.0} indent
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(
-                &items[0],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M76: paragraph first item must be AlignmentMarker{{Justify}}"
+            matches!(&items[0], BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.01),
+            "M76: paragraph first item must be indent Kern(15.0), got {:?}",
+            &items[0]
         );
     }
 
     #[test]
-    fn test_m76_paragraph_second_item_is_kern() {
+    fn test_m76_paragraph_first_item_is_kern() {
+        // M76: paragraph indent Kern is at index 0 (no AlignmentMarker prepended)
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
-            items[1],
+            items[0],
             BoxNode::Kern { amount: 15.0 },
-            "M76: paragraph second item must be Kern(15.0)"
+            "M76: paragraph first item must be Kern(15.0) indent"
         );
     }
 
     #[test]
-    fn test_m76_paragraph_alignment_marker_is_justify() {
+    fn test_m76_paragraph_produces_text_items() {
+        // M76: paragraph produces text items (Kern + Text + Glue)
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Test".to_string())]);
         let items = translate_node_with_metrics(&node, &metrics);
-        if let BoxNode::AlignmentMarker { alignment } = &items[0] {
-            assert_eq!(
-                *alignment,
-                Alignment::Justify,
-                "M76: alignment must be Justify"
-            );
-        } else {
-            panic!("M76: first item must be AlignmentMarker");
-        }
+        // Must have at least Kern + Text content + trailing Glue
+        assert!(
+            items.len() >= 2,
+            "M76: paragraph must produce at least 2 items, got {}",
+            items.len()
+        );
+        // No AlignmentMarker at paragraph start
+        assert!(
+            !matches!(&items[0], BoxNode::AlignmentMarker { .. }),
+            "M76: paragraph first item must NOT be AlignmentMarker (uses section markers only)"
+        );
     }
 
     #[test]
@@ -20229,7 +20203,9 @@ mod tests {
     }
 
     #[test]
-    fn test_m76_two_paragraphs_have_two_alignment_markers() {
+    fn test_m76_two_paragraphs_produce_content() {
+        // M76: two paragraphs produce proper content (no AlignmentMarkers at para start,
+        // but each paragraph contributes its own Kern+Text+Glue items)
         let metrics = StandardFontMetrics;
         let nodes = vec![
             Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]),
@@ -20239,26 +20215,36 @@ mod tests {
         for n in &nodes {
             items.extend(translate_node_with_metrics(n, &metrics));
         }
+        // Paragraphs do NOT have AlignmentMarkers (section headings do)
         let marker_count = items
             .iter()
             .filter(|n| {
                 matches!(
                     n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
+                    BoxNode::AlignmentMarker { .. }
                 )
             })
             .count();
         assert_eq!(
-            marker_count, 2,
-            "M76: two paragraphs must produce 2 AlignmentMarker nodes, got {}",
+            marker_count, 0,
+            "M76: two standalone paragraphs produce 0 AlignmentMarker nodes, got {}",
             marker_count
+        );
+        // Two indent Kern nodes (one per paragraph)
+        let kern_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.01))
+            .count();
+        assert_eq!(
+            kern_count, 2,
+            "M76: two paragraphs must produce 2 indent Kern nodes, got {}",
+            kern_count
         );
     }
 
     #[test]
-    fn test_m76_paragraph_context_starts_with_alignment_marker() {
+    fn test_m76_paragraph_context_starts_with_kern() {
+        // M76: context paragraph starts with Kern{15.0} indent, NOT AlignmentMarker
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Context para".to_string())]);
@@ -20266,16 +20252,17 @@ mod tests {
         assert!(
             matches!(
                 items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
+                Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < 0.01
             ),
-            "M76: context paragraph first item must be AlignmentMarker"
+            "M76: context paragraph first item must be Kern(15.0) indent, got {:?}",
+            items.first()
         );
     }
 
     #[test]
-    fn test_m76_paragraph_noindent_starts_with_alignment_marker() {
+    fn test_m76_paragraph_noindent_no_kern() {
+        // M76: noindent paragraph does NOT have Kern{15.0} at start (no indent)
+        // and does NOT have AlignmentMarker (paragraphs don't get markers)
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![
             Node::Command {
@@ -20285,24 +20272,22 @@ mod tests {
             Node::Text("No indent text".to_string()),
         ]);
         let items = translate_node_with_metrics(&node, &metrics);
+        // No AlignmentMarker at start
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M76: noindent paragraph first item must be AlignmentMarker"
+            !matches!(items.first(), Some(BoxNode::AlignmentMarker { .. })),
+            "M76: noindent paragraph must NOT have AlignmentMarker"
         );
-        // No Kern after AlignmentMarker for noindent
+        // No Kern at start (noindent suppresses it)
         assert!(
-            !matches!(items.get(1), Some(BoxNode::Kern { .. })),
-            "M76: noindent paragraph should not have Kern after AlignmentMarker"
+            !matches!(items.first(), Some(BoxNode::Kern { .. })),
+            "M76: noindent paragraph must NOT have Kern at start"
         );
     }
 
     #[test]
-    fn test_m76_section_then_paragraph_two_segments() {
+    fn test_m76_section_then_paragraph_one_segment_marker() {
+        // M76: section has AlignmentMarker, paragraph does NOT
+        // So section + paragraph = 1 AlignmentMarker total
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -20324,33 +20309,52 @@ mod tests {
             })
             .count();
         assert_eq!(
-            marker_count, 2,
-            "M76: section + paragraph must produce 2 AlignmentMarker nodes"
+            marker_count, 1,
+            "M76: section + paragraph must produce 1 AlignmentMarker node (section only), got {}",
+            marker_count
         );
     }
 
     #[test]
-    fn test_m76_break_items_splits_at_paragraph_marker() {
+    fn test_m76_break_items_section_splits_paragraph() {
+        // M76: section AlignmentMarker creates a segment boundary.
+        // The section heading is in the first segment; paragraph content flows afterward.
+        // This test verifies the section produces an AlignmentMarker that is recognized
+        // by break_items_with_alignment as a segment separator.
         let metrics = StandardFontMetrics;
-        let nodes = vec![
-            Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]),
-            Node::Paragraph(vec![Node::Text("Second paragraph.".to_string())]),
-        ];
+        let sec = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Heading".to_string())])],
+        };
+        let para = Node::Paragraph(vec![Node::Text("Body paragraph text.".to_string())]);
         let mut items: Vec<BoxNode> = Vec::new();
-        for n in &nodes {
-            items.extend(translate_node_with_metrics(n, &metrics));
-        }
-        let lines = break_items_with_alignment(&items, 345.0);
+        items.extend(translate_node_with_metrics(&sec, &metrics));
+        items.extend(translate_node_with_metrics(&para, &metrics));
+        // Verify section produced an AlignmentMarker
+        let has_section_marker = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::AlignmentMarker { alignment: Alignment::Justify }));
         assert!(
-            lines.len() >= 2,
-            "M76: 2 paragraphs must produce at least 2 lines, got {}",
-            lines.len()
+            has_section_marker,
+            "M76: section must produce AlignmentMarker"
+        );
+        // Verify paragraph does NOT produce an AlignmentMarker
+        // (only the section's marker should be present)
+        let marker_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::AlignmentMarker { .. }))
+            .count();
+        assert_eq!(
+            marker_count, 1,
+            "M76: section + paragraph must have exactly 1 AlignmentMarker (from section), got {}",
+            marker_count
         );
     }
 
     #[test]
     fn test_m76_paragraph_after_section_no_indent_context() {
-        // In context mode, after_heading suppresses kern but not AlignmentMarker
+        // In context mode, after_heading suppresses kern for paragraph after section
+        // Section has AlignmentMarker, paragraph does NOT (M76: only sections get markers)
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -20359,7 +20363,7 @@ mod tests {
             Node::Paragraph(vec![Node::Text("Body text.".to_string())]),
         ]);
         let items = translate_with_context(&node);
-        // Count AlignmentMarkers — should be at least 2 (section + paragraph)
+        // Count AlignmentMarkers — should be exactly 1 (section only, not paragraph)
         let marker_count = items
             .iter()
             .filter(|n| {
@@ -20371,35 +20375,31 @@ mod tests {
                 )
             })
             .count();
-        assert!(
-            marker_count >= 2,
-            "M76: section + paragraph must have at least 2 AlignmentMarkers, got {}",
+        assert_eq!(
+            marker_count, 1,
+            "M76: section + paragraph must have exactly 1 AlignmentMarker (section only), got {}",
             marker_count
         );
-        // No Kern(15.0) should appear right after heading (after_heading suppresses indent)
-        // Find the paragraph's AlignmentMarker (second one) and check next item is not Kern
-        let marker_indices: Vec<usize> = items
+        // After the section's AlignmentMarker, there is a Text node (section heading)
+        // After the section, the paragraph begins with NO Kern (after_heading suppresses indent)
+        // Find section AlignmentMarker and verify paragraph after it has no indent Kern
+        let section_text_idx = items
             .iter()
-            .enumerate()
-            .filter(|(_, n)| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .map(|(i, _)| i)
-            .collect();
-        if marker_indices.len() >= 2 {
-            let para_marker_idx = marker_indices[1];
-            assert!(
-                !matches!(
-                    items.get(para_marker_idx + 1),
-                    Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < 0.01
-                ),
-                "M76: after heading, paragraph must NOT have Kern(15.0) indent"
-            );
+            .position(|n| matches!(n, BoxNode::Text { font_style: FontStyle::Bold, .. }));
+        if let Some(sec_idx) = section_text_idx {
+            // After section text, no Kern{15.0} should appear as paragraph indent
+            // (after_heading suppresses it)
+            let items_after_sec = &items[sec_idx + 1..];
+            // The first visible content after section should NOT be Kern{15.0}
+            let first_non_glue = items_after_sec
+                .iter()
+                .find(|n| !matches!(n, BoxNode::Glue { .. }));
+            if let Some(item) = first_non_glue {
+                assert!(
+                    !matches!(item, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.01),
+                    "M76: after heading, first paragraph must NOT have Kern(15.0) indent"
+                );
+            }
         }
     }
 
