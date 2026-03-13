@@ -1321,7 +1321,39 @@ Recover 97.33%+ baseline by reverting M80, then investigate new non-layout impro
 
 **Cycles budget:** 2
 
-**Status:** 🚧 Planned
+**Status:** ✅ Complete — Leo reverted M80 (commit 9e58802). CI confirmed similarity = **97.34%** (recovered from 96.90%). 1184 tests pass, CI green.
+
+### M82: Paragraph-Level KP Segmentation Research + Implementation
+Implement paragraph-level Knuth-Plass segmentation to solve the mega-line problem.
+
+**Root cause of mega-lines (confirmed):**
+`break_items_with_alignment()` passes ALL document content as ONE segment to KP.
+Result: 7 y-positions instead of ~25 expected. ~90% of the 2.66% gap is this layout defect.
+
+**Proposed approach:**
+Instead of in-stream separators (which always regress), split the stream BEFORE sending to KP.
+The `translate_two_pass_with_dir` function emits nodes sequentially. We need to:
+1. Add a new `BoxNode::ParagraphEnd` (or reuse existing structure) that marks paragraph boundaries
+2. In `break_items_with_alignment`, split the stream at paragraph boundaries BEFORE passing to KP
+3. Run KP independently on each paragraph segment
+4. Apply inter-paragraph spacing (parskip = 0pt in article class, baselineskip between paragraphs)
+
+**Key difference from previous attempts:**
+- Previous: Added Penalty{-10000} IN the stream → KP still processes everything at once
+- This approach: Split stream BEFORE KP → each paragraph gets independent KP treatment
+- The VSkip approach splits at VSkip boundaries (but VSkip has height that regresses)
+- A zero-height separator (ParagraphEnd sentinel consumed by break_items) would split without adding space
+
+**Diana's research task:**
+Analyze the per-paragraph structure of compare.tex through our compiler:
+1. What nodes does each paragraph in compare.tex produce?
+2. If we split at paragraph boundaries, what KP output does each get?
+3. Does per-paragraph KP match pdflatex's per-paragraph KP for compare.tex?
+4. What exact code change implements this cleanly?
+
+**Expected impact:** 97.34% → 98%+ if per-paragraph KP matches pdflatex's output
+**Cycles budget:** 3 (1 for Diana research + 2 for implementation)
+**Status:** 🚧 In progress
 
 ---
 
