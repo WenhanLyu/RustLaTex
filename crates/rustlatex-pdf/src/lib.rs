@@ -2078,6 +2078,7 @@ impl PdfWriter {
                         BoxNode::Text {
                             text,
                             width,
+                            font_size,
                             font_style,
                             ..
                         } => {
@@ -2090,7 +2091,9 @@ impl PdfWriter {
                                 } else {
                                     text.as_bytes().to_vec()
                                 };
-                                line_nat_width += compute_kern_pair_total(fn_name, &raw) / 100.0;
+                                line_nat_width += compute_kern_pair_total(fn_name, &raw)
+                                    * (*font_size as f32)
+                                    / 1000.0;
                             }
                         }
                         BoxNode::Kern { amount } => line_nat_width += *amount as f32,
@@ -2221,7 +2224,15 @@ impl PdfWriter {
                                 };
                                 content.show(Str(&text_bytes));
                             }
-                            current_x += *width as f32;
+                            let kern_adj = if is_cmr10_kern_font(font_name)
+                                && font_has_kern_pairs(font_name, &raw_bytes)
+                            {
+                                compute_kern_pair_total(font_name, &raw_bytes) * (*font_size as f32)
+                                    / 1000.0
+                            } else {
+                                0.0
+                            };
+                            current_x += *width as f32 + kern_adj;
                             // Reset text rise after rendering
                             if has_rise {
                                 content.set_rise(0.0);
@@ -5663,5 +5674,127 @@ mod tests {
             (margin_left - 126.25).abs() < 0.01,
             "M62: margin_left must remain 126.25"
         );
+    }
+
+    // === M79: Kern pair bug-fix tests ===
+
+    #[test]
+    fn test_m79_compute_kern_pair_total_av_nonzero() {
+        // "AV" is a known kern pair in cmr10; total should be nonzero
+        let bytes = b"AV";
+        let total = compute_kern_pair_total(b"F1", bytes);
+        assert!(
+            total != 0.0,
+            "compute_kern_pair_total for 'AV' in cmr10 should be nonzero, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m79_compute_kern_pair_total_no_kern_returns_zero() {
+        // "ab" has no kern pair in cmr10
+        let bytes = b"ab";
+        let total = compute_kern_pair_total(b"F1", bytes);
+        assert!(
+            total == 0.0,
+            "compute_kern_pair_total for 'ab' in cmr10 should be 0.0, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_m79_font_has_kern_pairs_true_for_av() {
+        // cmr10 (F1) should have kern pairs for "AV"
+        assert!(
+            font_has_kern_pairs(b"F1", b"AV"),
+            "font_has_kern_pairs should return true for 'AV' in cmr10"
+        );
+    }
+
+    #[test]
+    fn test_m79_font_has_kern_pairs_false_for_no_kern() {
+        // "ab" has no kern pair in cmr10
+        assert!(
+            !font_has_kern_pairs(b"F1", b"ab"),
+            "font_has_kern_pairs should return false for 'ab' in cmr10"
+        );
+    }
+
+    #[test]
+    fn test_m79_kern_scaling_at_14_4pt() {
+        // BUG #2 fix: kern scaling should use font_size/1000, not /100.
+        // At 14.4pt the result should be 1.44x the 10pt result.
+        let bytes = b"AV";
+        let afm_total = compute_kern_pair_total(b"F1", bytes);
+        let kern_at_10 = afm_total * 10.0 / 1000.0;
+        let kern_at_14_4 = afm_total * 14.4 / 1000.0;
+        assert!(
+            (kern_at_14_4 - kern_at_10 * 1.44).abs() < 0.001,
+            "kern at 14.4pt should be 1.44x kern at 10pt"
+        );
+    }
+
+    #[test]
+    fn test_m79_kern_scaling_at_12pt() {
+        // At 12pt the result should be 1.2x the 10pt result.
+        let bytes = b"AV";
+        let afm_total = compute_kern_pair_total(b"F1", bytes);
+        let kern_at_10 = afm_total * 10.0 / 1000.0;
+        let kern_at_12 = afm_total * 12.0 / 1000.0;
+        assert!(
+            (kern_at_12 - kern_at_10 * 1.2).abs() < 0.001,
+            "kern at 12pt should be 1.2x kern at 10pt"
+        );
+    }
+
+    #[test]
+    fn test_m79_kern_adj_positive_for_kern_text() {
+        // BUG #1 fix: kern_adj should be positive (non-zero) for text with kern pairs
+        let font_name: &[u8] = b"F1";
+        let raw_bytes = b"AV".to_vec();
+        let font_size: f64 = 10.0;
+        let kern_adj =
+            if is_cmr10_kern_font(font_name) && font_has_kern_pairs(font_name, &raw_bytes) {
+                compute_kern_pair_total(font_name, &raw_bytes) * (font_size as f32) / 1000.0
+            } else {
+                0.0
+            };
+        assert!(
+            kern_adj != 0.0,
+            "kern_adj should be nonzero for 'AV' in cmr10, got {}",
+            kern_adj
+        );
+    }
+
+    #[test]
+    fn test_m79_kern_adj_zero_for_no_kern_text() {
+        // BUG #1 fix: kern_adj should be 0.0 for text with no kern pairs
+        let font_name: &[u8] = b"F1";
+        let raw_bytes = b"ab".to_vec();
+        let font_size: f64 = 10.0;
+        let kern_adj =
+            if is_cmr10_kern_font(font_name) && font_has_kern_pairs(font_name, &raw_bytes) {
+                compute_kern_pair_total(font_name, &raw_bytes) * (font_size as f32) / 1000.0
+            } else {
+                0.0
+            };
+        assert!(
+            kern_adj == 0.0,
+            "kern_adj should be 0.0 for 'ab' in cmr10, got {}",
+            kern_adj
+        );
+    }
+
+    #[test]
+    fn test_m79_is_cmr10_kern_font_covers_expected_fonts() {
+        // F1, F3, F4, F5, F7, F8 should all be kern fonts
+        assert!(is_cmr10_kern_font(b"F1"));
+        assert!(is_cmr10_kern_font(b"F3"));
+        assert!(is_cmr10_kern_font(b"F4"));
+        assert!(is_cmr10_kern_font(b"F5"));
+        assert!(is_cmr10_kern_font(b"F7"));
+        assert!(is_cmr10_kern_font(b"F8"));
+        // F6 (typewriter) should NOT be a kern font
+        assert!(!is_cmr10_kern_font(b"F6"));
     }
 }
