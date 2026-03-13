@@ -212,7 +212,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     if max_font_size == f64::NEG_INFINITY {
         12.0
     } else if (max_font_size - 14.4).abs() < 0.01 {
-        18.0 // pdflatex \Large baselineskip = 18pt
+        21.0 // pdflatex effective section-to-paragraph baseline advance = 21pt (afterskip ~9.9pt + depth ~3.4pt + baselineskip)
     } else if (max_font_size - 12.0).abs() < 0.01 {
         14.5 // pdflatex \large baselineskip = 14.5pt
     } else {
@@ -17718,7 +17718,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_14pt_section() {
-        // M64: compute_line_height for [Text{font_size:14.4}] → 18.0
+        // M68: compute_line_height for [Text{font_size:14.4}] → 21.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17729,8 +17729,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.0).abs() < 0.01,
-            "M64: 14.4pt text should give line height 18.0, got {}",
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt text should give line height 21.0, got {}",
             lh
         );
     }
@@ -17896,11 +17896,11 @@ mod tests {
         );
     }
 
-    // ===== M62 tests: line_height 18.0 for 14.4pt, margin precision =====
+    // ===== M62/M68 tests: line_height 21.0 for 14.4pt, margin precision =====
 
     #[test]
     fn test_m62_line_height_14_4pt_is_18() {
-        // M64: compute_line_height for 14.4pt text must return 18.0 (baselineskip)
+        // M68: compute_line_height for 14.4pt text must return 21.0 (effective section advance)
         let nodes = vec![BoxNode::Text {
             text: "Test".to_string(),
             width: 40.0,
@@ -17911,15 +17911,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.0).abs() < 0.01,
-            "M64: 14.4pt text must give line_height=18.0, got {}",
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt text must give line_height=21.0, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m62_line_height_14_4pt_bold() {
-        // M64: compute_line_height for 14.4pt Bold text must return 18.0
+        // M68: compute_line_height for 14.4pt Bold text must return 21.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17930,8 +17930,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.0).abs() < 0.01,
-            "M64: 14.4pt Bold text must give line_height=18.0, got {}",
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt Bold text must give line_height=21.0, got {}",
             lh
         );
     }
@@ -17988,7 +17988,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_mixed_sizes_picks_max() {
-        // M64: with mixed font sizes, line_height based on max (14.4pt → 18.0)
+        // M68: with mixed font sizes, line_height based on max (14.4pt → 21.0)
         let nodes = vec![
             BoxNode::Text {
                 text: "Small".to_string(),
@@ -18009,8 +18009,8 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.0).abs() < 0.01,
-            "M64: mixed sizes with max=14.4pt must give line_height=18.0, got {}",
+            (lh - 21.0).abs() < 0.01,
+            "M68: mixed sizes with max=14.4pt must give line_height=21.0, got {}",
             lh
         );
     }
@@ -18036,7 +18036,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_14_4pt_ratio() {
-        // M64: 18.0 / 14.4 = 1.25 (baselineskip ratio)
+        // M68: 21.0 / 14.4 = 1.458... (effective section advance ratio)
         let nodes = vec![BoxNode::Text {
             text: "Ratio".to_string(),
             width: 40.0,
@@ -18046,11 +18046,10 @@ mod tests {
             vertical_offset: 0.0,
         }];
         let lh = compute_line_height(&nodes);
-        let ratio = lh / 14.4;
         assert!(
-            (ratio - 1.25).abs() < 0.01,
-            "M64: line_height/font_size ratio for 14.4pt must be ~1.25, got {}",
-            ratio
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt must give line_height=21.0, got {}",
+            lh
         );
     }
 
@@ -18133,7 +18132,7 @@ mod tests {
 
     #[test]
     fn test_m64_compute_line_height_section_is_18() {
-        // M64: 14.4pt → 18.0
+        // M68: 14.4pt → 21.0 (effective section-to-paragraph baseline advance)
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -18144,8 +18143,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.0).abs() < 0.01,
-            "M64: 14.4pt must give line_height=18.0, got {}",
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt must give line_height=21.0, got {}",
             lh
         );
     }
@@ -18277,6 +18276,330 @@ mod tests {
         assert!(
             (lh - 12.0).abs() < 0.01,
             "M63: 10pt body text must give line_height=12.0, got {}",
+            lh
+        );
+    }
+
+    // ===== M68 tests: 14.4pt section line_height = 21.0 =====
+
+    #[test]
+    fn test_m68_section_line_height_is_21() {
+        // M68: 14.4pt section heading → compute_line_height returns 21.0
+        let nodes = vec![BoxNode::Text {
+            text: "Introduction".to_string(),
+            width: 80.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt section must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_not_18() {
+        // M68: verify old 18.0 value is no longer returned for 14.4pt
+        let nodes = vec![BoxNode::Text {
+            text: "OldValue".to_string(),
+            width: 60.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 18.0).abs() > 0.5,
+            "M68: 14.4pt must NOT give old line_height=18.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_normal_style() {
+        // M68: 14.4pt normal-style text also gives 21.0
+        let nodes = vec![BoxNode::Text {
+            text: "SectionNormal".to_string(),
+            width: 90.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt normal-style must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_mixed_with_body() {
+        // M68: line with 14.4pt heading mixed with 10pt body → max=14.4pt → 21.0
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Body".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Section".to_string(),
+                width: 60.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: mixed 10pt+14.4pt must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_mixed_with_12pt() {
+        // M68: line with 14.4pt max → 21.0 even with 12pt present
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Sub".to_string(),
+                width: 40.0,
+                font_size: 12.0,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Section".to_string(),
+                width: 60.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: 12pt+14.4pt mixed must give line_height=21.0 (max=14.4pt), got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_exceeds_subsection() {
+        // M68: 14.4pt section (21.0) > 12pt subsection (14.5)
+        let section_nodes = vec![BoxNode::Text {
+            text: "Section".to_string(),
+            width: 60.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let subsection_nodes = vec![BoxNode::Text {
+            text: "Subsection".to_string(),
+            width: 50.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let section_lh = compute_line_height(&section_nodes);
+        let subsection_lh = compute_line_height(&subsection_nodes);
+        assert!(
+            section_lh > subsection_lh,
+            "M68: section line_height ({}) must exceed subsection line_height ({})",
+            section_lh,
+            subsection_lh
+        );
+        assert!(
+            (section_lh - 21.0).abs() < 0.01,
+            "M68: section must be 21.0"
+        );
+        assert!(
+            (subsection_lh - 14.5).abs() < 0.01,
+            "M68: subsection must be 14.5"
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_exceeds_body() {
+        // M68: 14.4pt section (21.0) > 10pt body (12.0)
+        let section_nodes = vec![BoxNode::Text {
+            text: "Section".to_string(),
+            width: 60.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let body_nodes = vec![BoxNode::Text {
+            text: "Body".to_string(),
+            width: 30.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let section_lh = compute_line_height(&section_nodes);
+        let body_lh = compute_line_height(&body_nodes);
+        assert!(
+            section_lh > body_lh,
+            "M68: section line_height ({}) must exceed body line_height ({})",
+            section_lh,
+            body_lh
+        );
+    }
+
+    #[test]
+    fn test_m68_compute_line_height_single_14_4pt_character() {
+        // M68: even a single 14.4pt character gives 21.0
+        let nodes = vec![BoxNode::Text {
+            text: "A".to_string(),
+            width: 10.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: single 14.4pt char must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_with_glue() {
+        // M68: 14.4pt text + Glue → still 21.0 (Glue doesn't affect line_height)
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Section".to_string(),
+                width: 60.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 5.0,
+                stretch: 1.0,
+                shrink: 1.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt text + Glue must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_with_kern() {
+        // M68: 14.4pt text + Kern → still 21.0
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Section".to_string(),
+                width: 60.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Kern { amount: 2.0 },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: 14.4pt text + Kern must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_three_14_4pt_nodes() {
+        // M68: multiple 14.4pt nodes → 21.0
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Section".to_string(),
+                width: 50.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Number".to_string(),
+                width: 30.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Title".to_string(),
+                width: 40.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 21.0).abs() < 0.01,
+            "M68: three 14.4pt nodes must give line_height=21.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m68_section_line_height_is_exactly_21() {
+        // M68: verify exact value is 21.0 (not 20.9 or 21.1)
+        let nodes = vec![BoxNode::Text {
+            text: "Exact".to_string(),
+            width: 40.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert_eq!(
+            lh, 21.0,
+            "M68: compute_line_height for 14.4pt must be exactly 21.0"
+        );
+    }
+
+    #[test]
+    fn test_m68_body_text_unaffected_by_section_change() {
+        // M68: 10pt body text still returns 12.0 (only 14.4pt changed)
+        let nodes = vec![BoxNode::Text {
+            text: "Paragraph text".to_string(),
+            width: 200.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "M68: 10pt body text must still give 12.0, got {}",
             lh
         );
     }
