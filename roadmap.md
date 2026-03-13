@@ -141,6 +141,10 @@ Binary-identical output requires:
 - **VSkip anti-pattern:** VSkip-only lines use their `line_height = amount` for vertical advance in the PDF backend. This is the WRONG model: pdflatex integrates spacing into the baseline skip calculation for neighboring lines, not as separate VSkip lines. Adding VSkip before/after lists adds spacing that ISN'T in pdflatex's model (at those exact positions relative to our layout), causing cascading mismatches.
 - **LESSON: Do NOT add VSkip around itemize lists** — confirmed regresses. Add this to the same rule as section heading VSkip.
 - **LESSON: Do NOT use KP forced_j sentinel that rejects `ratio < -1.0`** — M74-fix confirmed: when no valid break fits in hsize (e.g., word longer than hsize), the KP optimizer has no feasible path and produces overflow mega-lines. The original `pen * pen` demerits behavior (accepting all forced-break endings) is safer because at minimum one breakpoint (at the forced break itself) is always feasible.
+- **LESSON: Do NOT add AlignmentMarker{Justify} per paragraph/section** — M76 confirmed: this approach REGRESSES 97.31% → 96.82%. Each paragraph gets its own KP run producing different line breaks than pdflatex's continuous-flow model. The 97.31% baseline is achieved with paragraphs flowing together. This is now confirmed as a pattern: ANY paragraph/section separation (Penalty, VSkip, AlignmentMarker) regresses.
+- **RULE: The 6 confirmed regression anti-patterns are**: (1) VSkip around section headings, (2) VSkip around itemize lists, (3) Paragraph-end Penalty{-10000}, (4) Section/subsection Penalty{-10000}, (5) KP forced_j sentinel (reject ratio<-1.0), (6) AlignmentMarker per paragraph/section. Do NOT try any of these again.
+- **M76 kern fix (correct)**: `compute_kern_pair_total` was adding raw AFM units to `line_nat_width` without dividing by 1000/font_size. At 10pt, divide by 100 (=1000/10). Fix: add `/100.0`. This is a correct fix but its effect is masked by M76 regression.
+- **M76 parfillskip fix (correct)**: `is_last_line_like` threshold=10 prevents over-stretching word spaces on short last lines (emulating `\parfillskip=0pt plus 1fil`). Correct fix, keep.
 - **Cycle (M67):** M67 completed (a14a9a7). Reverted M66 VSkip regression, fixed display math 10pt (natural:12→10, stretch:3→2, shrink:9→5), fixed subsection line_height 14.0→14.5. 720 engine tests pass. Expected similarity ≥ 97.24% + small improvement from display math fix.
 - **Cycle (M68):** M68 completed (b51eddd). Section line_height 18→21pt (absorbing afterskip effect). Pixel similarity = **97.31%** (+0.07% from 97.24%). CI green, 720+ engine tests pass.
 - **Cycle (M69):** M69 implemented by Leo (47cdf9f). Two fixes: display math post-processing (+10pt to Center-aligned 10pt lines and preceding lines) + subsection line_height 14.5→17.0. CI result: **97.30% — essentially unchanged from 97.31%**. Both fixes had ~zero net impact. Possible explanations: subsection 17.0 overshot creating regression that cancelled display math gain; or display math post-processing isn't triggered or doesn't affect the actual mismatch pixels. Diana analyzing root cause for M70 planning.
@@ -1141,49 +1145,38 @@ Revert the two regressions from M74-fix while keeping the Bold section width fix
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 7053c28)
 - **Status:** ✅ Complete — CI confirmed **97.31%** similarity (slight improvement over target), 792 tests pass
 
-### M76: Paragraph Separation via AlignmentMarker (Critical Line-Breaking Fix)
-Fix the root cause of the mega-line problem by adding `AlignmentMarker{Justify}` at the start of each paragraph and section heading translation.
+### M76: Paragraph Separation via AlignmentMarker ⚠️ DEADLINE MISSED (6/6 cycles, REGRESSION)
+Added `AlignmentMarker{Justify}` at the start of each paragraph and section heading.
 
-**Root cause (Athena direct analysis):**
-- Section headings emit ONLY `BoxNode::Text{bold, 14.4pt}` — no AlignmentMarker
-- All paragraphs and section headings are in ONE continuous Justify segment for KP
-- KP's `pen * pen = 10^8` forced break demerits cause it to always choose the longest possible line
-- Result: ~7 mega-lines extending 300-1300pt past hsize=345pt (should be ~20 properly-broken lines)
-- This is WHY pixel similarity is stuck at ~97% — most text is at wrong y-positions
+**Result: REGRESSION — 96.82%** (down from M75's 97.31%, -0.49%).
+- Multiple commits: Leo (46990d2, AlignmentMarker), Ares fixes (bcc7437, 21c255b, f928a1c), Leo fixes (360adb7, b3ee789)
+- Best score achieved: 96.86% (M76-fix 23054615585) — still worse than M75
 
-**Why AlignmentMarker approach is safe (unlike Penalty{-10000} approach):**
-- `AlignmentMarker` splits into segments BEFORE KP runs — no KP forced_j issue
-- M71 used `Penalty{-10000}` with chunk splitting → caused KP regression
-- This approach: each paragraph gets its own KP run with no Penalty nodes
-- Standard TeX behavior: paragraphs ARE broken independently (this matches pdflatex)
-- No VSkip involved → cannot trigger the VSkip anti-pattern
+**Root cause of regression:**
+- Adding AlignmentMarker per paragraph creates MORE segment splits
+- Each paragraph gets its own KP run — but this causes DIFFERENT line breaks than pdflatex's continuous-flow model
+- pdflatex doesn't break paragraphs completely independently either; the way paragraphs end and begin has inter-paragraph glue
+- The 97.31% M75 baseline is achieved with text flowing as-is (no artificial separation)
 
-**Changes (crates/rustlatex-engine/src/lib.rs):**
+**Two good fixes extracted from M76 (kept):**
+1. Kern pair scaling fix: `/100.0` in `compute_kern_pair_total` usage (360adb7)
+2. Parfillskip simulation: `is_last_line_like` threshold=10 (b3ee789)
 
-1. **Node::Paragraph handler** (~line 2313): Add `AlignmentMarker{Justify}` at the START of each paragraph's result:
-   ```rust
-   Node::Paragraph(nodes) => {
-       let mut result: Vec<BoxNode> = Vec::new();
-       // Start a new segment for each paragraph (separates from previous content)
-       result.push(BoxNode::AlignmentMarker { alignment: Alignment::Justify });
-       // ... rest of paragraph logic unchanged
-   ```
+**CRITICAL LESSON: AlignmentMarker per paragraph/section REGRESSES (added to DO NOT list)**
 
-2. **Section/subsection/subsubsection handler** (both code paths, ~lines 1546 and 2430): Add `AlignmentMarker{Justify}` at the START of the section heading result:
-   ```rust
-   let mut result = vec![
-       BoxNode::AlignmentMarker { alignment: Alignment::Justify },
-       BoxNode::Text { text: numbered_title, ... }
-   ];
-   ```
+- **Cycles budget:** 6 | **Cycles actual:** 6
+- **Status:** ⚠️ DEADLINE MISSED — 96.82% regression. M77 will recover to 97.31%+.
 
-3. **Update tests**: Many tests check paragraph output starts with `Kern{15.0}` at index 0. With `AlignmentMarker{Justify}` prepended, index 0 = AlignmentMarker, index 1 = Kern. Update affected tests and add 15+ new tests covering:
-   - Paragraph starts with AlignmentMarker{Justify}
-   - Section starts with AlignmentMarker{Justify}
-   - Two paragraphs produce TWO separate alignment markers
-   - break_items_with_alignment splits at paragraph AlignmentMarkers
+### M77: Recover M75 Baseline (Revert AlignmentMarker, Keep PDF Fixes)
+Revert M76's AlignmentMarker additions from the engine while keeping the two good PDF fixes.
 
-**Expected impact**: 97.31% → 99%+ (proper line breaking produces ~20 y-levels instead of ~7)
+**Goal:** Return to ≥97.31% by reverting AlignmentMarker additions from `crates/rustlatex-engine/src/lib.rs`.
+
+**Approach:** Revert engine code (`translate_node_with_metrics`, `translate_node_with_context`, section handlers) to M75 state (commit 7053c28), while keeping the PDF backend changes from M76:
+1. Kern pair scaling fix (`/100.0` in `line_nat_width` computation)
+2. Parfillskip simulation (`is_last_line_like` threshold=10)
+
+**Expected:** ≥97.31% (recovery) + potentially small improvement from kern and parfillskip fixes.
 
 - **Cycles budget:** 2 | **Status:** 🚧 Planned
 
