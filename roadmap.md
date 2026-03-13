@@ -1167,18 +1167,28 @@ Added `AlignmentMarker{Justify}` at the start of each paragraph and section head
 - **Cycles budget:** 6 | **Cycles actual:** 6
 - **Status:** ⚠️ DEADLINE MISSED — 96.82% regression. M77 will recover to 97.31%+.
 
-### M77: Recover M75 Baseline (Revert AlignmentMarker, Keep PDF Fixes)
+### M77: Recover M75 Baseline (Revert AlignmentMarker, Keep PDF Fixes) ✅ COMPLETE
 Revert M76's AlignmentMarker additions from the engine while keeping the two good PDF fixes.
 
 **Goal:** Return to ≥97.31% by reverting AlignmentMarker additions from `crates/rustlatex-engine/src/lib.rs`.
 
-**Approach:** Revert engine code (`translate_node_with_metrics`, `translate_node_with_context`, section handlers) to M75 state (commit 7053c28), while keeping the PDF backend changes from M76:
-1. Kern pair scaling fix (`/100.0` in `line_nat_width` computation)
-2. Parfillskip simulation (`is_last_line_like` threshold=10)
+**Result:** CI confirmed **97.33%** similarity (slight improvement over M75's 97.31% from kern+parfillskip PDF fixes). 1150+ tests pass, CI green.
 
-**Expected:** ≥97.31% (recovery) + potentially small improvement from kern and parfillskip fixes.
+- **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 0052314)
+- **Status:** ✅ Complete — CI confirmed 97.33%
 
-- **Cycles budget:** 2 | **Status:** 🚧 Planned
+### M78: Fresh Analysis at M77 Baseline → Identify Safe Improvements
+Diana's previous analysis (based on M73 state) identified mega-lines as the root cause. But the project history shows that ALL attempts to fix paragraph separation have regressed (M71-M76). The 97.33% is achieved WITH mega-lines.
+
+**New hypothesis**: The remaining 2.67% gap is NOT fixable by paragraph separation/layout changes — those always regress. The gap must come from non-layout sources:
+- Word spacing within correctly-placed lines
+- Kern pair application accuracy
+- Font rendering details
+- Character position precision
+
+**Goal**: Fresh analysis at M77 state to identify safe, non-layout improvements that can push above 97.5%+.
+
+- **Status:** 🚧 Planned — Diana to perform fresh analysis
 
 ---
 
