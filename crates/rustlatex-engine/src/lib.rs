@@ -20238,4 +20238,123 @@ mod tests {
             "M82: must have at least 1 center-aligned line for display math"
         );
     }
+
+    // ===== M82-extra tests: additional coverage for ParagraphEnd no-op behavior =====
+
+    #[test]
+    fn test_m82_paragraph_end_only_produces_no_lines() {
+        // A list of only ParagraphEnd items should produce no output lines
+        let items = vec![
+            BoxNode::ParagraphEnd,
+            BoxNode::ParagraphEnd,
+            BoxNode::ParagraphEnd,
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        assert!(
+            lines.is_empty(),
+            "M82: only ParagraphEnd items must produce no output lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_m82_paragraph_end_between_short_words_no_split() {
+        // ParagraphEnd between two short words must not split them into separate KP chunks
+        // (ParagraphEnd is no-op, so both words flow in the same chunk)
+        let items = vec![
+            BoxNode::Text {
+                text: "foo".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::ParagraphEnd,
+            BoxNode::Text {
+                text: "bar".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 0.0,
+                stretch: 1.0,
+                shrink: 0.0,
+            },
+            BoxNode::ParagraphEnd,
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // Both words fit on 1 line, ParagraphEnd is no-op
+        assert!(
+            !lines.is_empty(),
+            "M82: foo+ParagraphEnd+bar must produce at least 1 line"
+        );
+        // Neither line should contain ParagraphEnd
+        for line in &lines {
+            assert!(
+                !line
+                    .nodes
+                    .iter()
+                    .any(|n| matches!(n, BoxNode::ParagraphEnd)),
+                "M82: ParagraphEnd must not appear in output line nodes"
+            );
+        }
+    }
+
+    #[test]
+    fn test_m82_section_node_produces_one_node() {
+        // section heading via translate_node_with_metrics produces exactly 1 node (Text only, no ParagraphEnd)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("My Section".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Filter out VSkip nodes (before/after) — section produces VSkip+Text or Text only
+        let non_vskip: Vec<_> = nodes
+            .iter()
+            .filter(|n| !matches!(n, BoxNode::VSkip { .. }))
+            .collect();
+        assert_eq!(
+            non_vskip.len(),
+            1,
+            "M82: section heading must produce exactly 1 non-VSkip node (Text only, no ParagraphEnd), got {:?}",
+            non_vskip
+        );
+        assert!(
+            matches!(non_vskip.first(), Some(BoxNode::Text { .. })),
+            "M82: section heading non-VSkip node must be Text, got {:?}",
+            non_vskip.first()
+        );
+    }
+
+    #[test]
+    fn test_m82_subsection_node_produces_one_node() {
+        // subsection heading via translate_node_with_metrics produces exactly 1 node (Text only, no ParagraphEnd)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("My Subsection".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Filter out VSkip nodes (before/after) — subsection produces VSkip+Text or Text only
+        let non_vskip: Vec<_> = nodes
+            .iter()
+            .filter(|n| !matches!(n, BoxNode::VSkip { .. }))
+            .collect();
+        assert_eq!(
+            non_vskip.len(),
+            1,
+            "M82: subsection heading must produce exactly 1 non-VSkip node (Text only, no ParagraphEnd), got {:?}",
+            non_vskip
+        );
+        assert!(
+            matches!(non_vskip.first(), Some(BoxNode::Text { .. })),
+            "M82: subsection heading non-VSkip node must be Text, got {:?}",
+            non_vskip.first()
+        );
+    }
 }
