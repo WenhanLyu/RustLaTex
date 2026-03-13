@@ -4317,6 +4317,8 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
 /// Check whether a chunk has any visible box content (Text, Bullet, HBox).
 /// Chunks that only contain Kern/Glue/Penalty nodes have no visible content
 /// and should not be passed to the line-breaker (they produce erroneous empty lines).
+/// Currently unused (per-paragraph splitting deferred), retained for future use.
+#[allow(dead_code)]
 fn chunk_has_visible_content(items: &[BoxNode]) -> bool {
     items.iter().any(|n| {
         matches!(
@@ -4751,22 +4753,13 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
                 // VSkip gets its own dedicated line
                 pre_lines.push(vec![item.clone()]);
             } else if matches!(item, BoxNode::ParagraphEnd) {
-                // Paragraph boundary: flush current chunk so each paragraph
-                // gets its own independent KP call. ParagraphEnd is consumed
-                // (not emitted to any chunk or pre_lines).
-                // Only flush chunks that have visible box content (Text/Bullet/HBox).
-                // Chunks with only Kern/Glue produce erroneous empty lines.
-                if chunk_has_visible_content(&current_chunk) {
-                    pre_lines.push(std::mem::take(&mut current_chunk));
-                } else {
-                    current_chunk.clear();
-                }
+                // ParagraphEnd is consumed (not emitted to any chunk).
+                // Content continues into the same KP chunk for optimal global breaking.
             } else {
                 current_chunk.push(item.clone());
             }
         }
-        // Flush final chunk (same visibility check)
-        if chunk_has_visible_content(&current_chunk) {
+        if !current_chunk.is_empty() {
             pre_lines.push(current_chunk);
         }
 
@@ -20069,12 +20062,23 @@ mod tests {
         items.push(BoxNode::ParagraphEnd);
 
         let lines = break_items_with_alignment(&items, hsize);
-        // Each paragraph should produce 2+ lines (they exceed hsize)
+        // With global KP (ParagraphEnd is no-op for splitting), the two paragraphs
+        // are broken together. Verify we get at least 2 lines (content exceeds hsize).
         assert!(
-            lines.len() >= 4,
-            "M82: two long paragraphs should produce at least 4 lines, got {}",
+            lines.len() >= 2,
+            "M82: combined paragraphs should produce at least 2 lines, got {}",
             lines.len()
         );
+        // ParagraphEnd must be consumed — not present in any output line
+        for line in &lines {
+            assert!(
+                !line
+                    .nodes
+                    .iter()
+                    .any(|n| matches!(n, BoxNode::ParagraphEnd)),
+                "M82: ParagraphEnd should be consumed, not emitted in output"
+            );
+        }
     }
 
     #[test]
