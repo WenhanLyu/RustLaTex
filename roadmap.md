@@ -155,6 +155,8 @@ Binary-identical output requires:
 - **Cycle (M73):** M73 (commit 4a18bf3) removed section/subsection Penalty{-10000} nodes AND the Penalty{≤-10000} forced-break else-if block from break_items_with_alignment. CI confirmed: **97.30% similarity** restored. This is the M70 baseline behavior. 777 engine tests pass, CI green.
 - **M77 + M78 analysis:** Confirmed 97.33% (best so far) is achieved WITH mega-lines. Diana's M78 forensic analysis found only 7 y-positions in output. ~90% of remaining gap is from layout (can't fix). Two small non-layout bugs found: (1) kern x-position tracking misses kern pair contribution at line 2224 of rustlatex-pdf; (2) kern scaling in line_nat_width uses hardcoded /100.0 (assumes 10pt) instead of font_size/1000. These are the last known fixable bugs before needing a fundamentally different paragraph-separation approach.
 - **Strategic assessment at M78:** The project is in a local maximum. We can squeeze ~0.1% more from non-layout fixes (M79). Breaking through 98%+ requires solving the mega-line problem — but every attempt to add paragraph separation regresses because our KP line-breaking produces different breakpoints than pdflatex's. True binary identity requires matching pdflatex's exact typesetting algorithm, which is a much larger undertaking.
+- **Cycle (M79):** M79 completed (f633fd8). Leo fixed BUG #1 (kern x-position tracking at line 2224 of rustlatex-pdf) and BUG #2 (kern scaling /100.0 → font_size/1000 at line 2093). 9 new tests. CI confirmed similarity = **97.34%** (+0.01% from 97.33%). ~1184 total tests pass, CI green.
+- **M80 approach (new hypothesis):** Deep analysis of mega-line root cause: The KP's `forced_j` path accepts ANY line width before a Penalty{-10000} with constant 10^8 demerits. This means mega-lines before forced breaks ALWAYS win (0 extra demerits vs positive demerits for extra breaks). Fix requires: (1) Section heading Penalty{-10000} after heading text, (2) Paragraph-end Penalty{-10000} after each paragraph, (3) forced_j width check (reject ratio<-1.0, accept underfull with 0 cost). KEY INSIGHT: Compare.tex paragraphs are all SHORT (< 345pt) so para-by-para KP produces same result as pdflatex (1 line per para). Word metrics now match pdflatex exactly (from M43/M49), so line breaks should also match. Previous M71/M74-fix regressions had different root causes: M71 kept tolerance=10000 (allowing mega-lines within paragraphs), M74-fix kept forced_j but had subsection 18.5pt regression.
 
 ## Milestones
 
@@ -1234,7 +1236,70 @@ Then change line 2093:
 **Expected impact:** ~0.05-0.14% pixel similarity improvement (97.33% → ~97.40-97.47%)
 
 - **Cycles budget:** 2
-- **Status:** 🚧 Planned
+- **Status:** ✅ Complete — Leo implemented (commit f633fd8). CI confirmed similarity = **97.34%** (+0.01% from M78's 97.33%). ~1184 total tests pass, CI green.
+
+### M80: Fix Mega-Line Problem via Paragraph Separation + forced_j Width Check
+Attempt to solve the fundamental mega-line problem using a new combination of fixes.
+
+**Root cause of mega-lines (Athena's deep analysis):**
+The KP's `forced_j` path accepts ANY line width before `Penalty{-10000}` with constant 10^8 demerits. Mega-lines before forced breaks always win: 10^8 + 0 < 10^8 + (any_intermediate_demerits). This causes ALL content before each forced break to be placed on ONE mega-line.
+
+**Hypothesis (new approach):**
+Compare.tex's paragraphs are all SHORT (< 345pt). If we:
+1. Add paragraph-end `Penalty{-10000}` (each paragraph = own KP segment)
+2. Add section heading `Penalty{-10000}` after heading (section heading = own line)
+3. Fix forced_j to reject overfull (only accept underfull/perfect with 0 cost)
+...then the KP would place each short paragraph on its own 1-line segment, which matches pdflatex's output. Our word metrics now match pdflatex exactly, so breaks should match too.
+
+**Changes (crates/rustlatex-engine/src/lib.rs):**
+
+**Fix 1 — Add Penalty after paragraph end** (~line 2338):
+```rust
+result.push(BoxNode::Glue { natural: 0.0, stretch: 1.0, shrink: 0.0 });
+result.push(BoxNode::Penalty { value: -10000 });  // ADD THIS
+```
+
+**Fix 2 — Add Penalty after section heading** (~line 2519):
+```rust
+let result = vec![
+    BoxNode::Text { text: numbered_title, width, font_size, ... },
+    BoxNode::Penalty { value: -10000 },  // ADD THIS
+];
+```
+
+**Fix 3 — Fix forced_j in KP to reject overfull** (~line 4603):
+```rust
+} else if forced_j {
+    // Forced break: reject overfull, accept underfull with 0 demerits
+    let ratio = adjustment_ratio(nat_w, stretch, shrink, hsize);
+    match ratio {
+        None => continue,                // overfull with no shrink → infeasible
+        Some(r) if r < -1.0 => continue, // over-shrunk → infeasible
+        _ => 0.0,                        // underfull or perfect → 0 demerits
+    }
+}
+```
+
+**Important**: The `contains_forced_break` check in the KP (which prevents bridging over Penalty{-10000}) must REMAIN. This is the mechanism that FORCES breaks at the penalty positions.
+
+**Tests (12+ new):**
+- Test paragraph end now emits Penalty{-10000}
+- Test section heading now emits Penalty{-10000} after Text
+- Test KP forced_j rejects overfull lines
+- Test KP forced_j accepts underfull lines
+- Test KP places section heading on its own 1-line output
+- Test KP places short paragraph on its own 1-line output
+- All existing tests must still pass (update any tests that check paragraph output without Penalty)
+
+**Key risks:**
+- Tests that assert paragraph output does NOT have Penalty must be updated
+- Tests that assert section heading emits exactly 1 node must be updated
+- If any paragraph is > 345pt wide, KP falls back to greedy (should still work)
+- Itemize topsep Glue{8,2,4} creates slight vertical offset vs pdflatex (acceptable)
+
+**Expected impact:** If paragraphs break correctly: 97.34% → 98%+ (speculative)
+**Cycles budget:** 2
+**Status:** 🚧 Planned
 
 ---
 
