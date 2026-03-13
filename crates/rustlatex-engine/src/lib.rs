@@ -1578,17 +1578,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         String::new()
                     };
                     let width = metrics.string_width(&title);
-                    vec![
-                        BoxNode::Text {
-                            text: title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::VSkip { amount: 0.0 },
-                    ]
+                    vec![BoxNode::Text {
+                        text: title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }]
                 }
                 "hspace" => {
                     let dim = if let Some(arg) = args.first() {
@@ -2513,17 +2510,14 @@ pub fn translate_node_with_context(
                         metrics.string_width_for_style(&numbered_title, ctx.current_font_style);
                     // VSkip suppressed — do not emit before/after VSkip around section headings.
                     // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![
-                        BoxNode::Text {
-                            text: numbered_title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::VSkip { amount: 0.0 },
-                    ];
+                    let result = vec![BoxNode::Text {
+                        text: numbered_title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -6565,7 +6559,7 @@ mod tests {
 
     #[test]
     fn test_section_has_vertical_vskip_after() {
-        // M63: VSkip{0.0} added as chunk separator — last node is VSkip
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6573,8 +6567,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node should be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node should be Text, got {:?}",
             nodes.last()
         );
     }
@@ -6652,7 +6646,7 @@ mod tests {
 
     #[test]
     fn test_section_produces_three_nodes() {
-        // M63: section produces 2 nodes (Text + VSkip{0.0})
+        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6661,8 +6655,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: Section should produce exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: Section should produce exactly 1 node (Text only)"
         );
     }
 
@@ -13012,7 +13006,7 @@ mod tests {
 
     #[test]
     fn test_section_vskip_after_is_zero() {
-        // M63: section emits Text + VSkip{0.0} — last node is VSkip
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13020,8 +13014,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13044,7 +13038,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_after_is_zero() {
-        // M63: subsection emits Text + VSkip{0.0} — last node is VSkip
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13052,8 +13046,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13076,7 +13070,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_vskip_after_is_zero() {
-        // M63: subsubsection emits Text + VSkip{0.0} — last node is VSkip
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13084,8 +13078,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsubsection last node must be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13116,7 +13110,7 @@ mod tests {
 
     #[test]
     fn test_section_and_subsection_after_vskips_both_zero() {
-        // M63: section and subsection both emit Text + VSkip{0.0}
+        // M65: VSkip{0.0} removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -13129,12 +13123,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
     }
 
@@ -13155,7 +13149,7 @@ mod tests {
 
     #[test]
     fn test_section_vskip_after_context_zero() {
-        // M63: section at top emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
@@ -13166,8 +13160,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: section at top should emit 1 VSkip{{0.0}} node, got {}",
+            vskip_count, 0,
+            "M65: section at top should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
@@ -13201,7 +13195,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_after_context_zero() {
-        // M63: section + subsection emit 2 VSkip{0.0} nodes (one per heading)
+        // M65: VSkip{0.0} removed — section + subsection emit 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -13218,15 +13212,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 2,
-            "M63: section + subsection should emit 2 VSkip{{0.0}} nodes, got {}",
+            vskip_count, 0,
+            "M65: section + subsection should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_subsection_produces_three_nodes() {
-        // M63: subsection produces 2 nodes (Text + VSkip{0.0})
+        // M65: subsection produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13235,14 +13229,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsection should produce exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsection should produce exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_subsubsection_produces_three_nodes() {
-        // M63: subsubsection produces 2 nodes (Text + VSkip{0.0})
+        // M65: subsubsection produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13251,21 +13245,21 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsubsection should produce exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsubsection should produce exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // M63: section produces 2 nodes (Text + VSkip{0.0})
+        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: section should produce 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: section should produce 1 node");
         assert!(
             matches!(
                 &nodes[0],
@@ -13274,20 +13268,20 @@ mod tests {
                     ..
                 }
             ),
-            "M61: section first node should be bold Text"
+            "M65: section first node should be bold Text"
         );
     }
 
     #[test]
     fn test_subsection_spacing_exact_values() {
-        // M63: subsection produces 2 nodes (Text + VSkip{0.0})
+        // M65: subsection produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: subsection should produce 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: subsection should produce 1 node");
         assert!(
             matches!(
                 &nodes[0],
@@ -13296,20 +13290,20 @@ mod tests {
                     ..
                 }
             ),
-            "M61: subsection first node should be bold Text"
+            "M65: subsection first node should be bold Text"
         );
     }
 
     #[test]
     fn test_subsubsection_spacing_exact_values() {
-        // M63: subsubsection produces 2 nodes (Text + VSkip{0.0})
+        // M65: subsubsection produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: subsubsection should produce 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: subsubsection should produce 1 node");
         assert!(
             matches!(
                 &nodes[0],
@@ -13318,7 +13312,7 @@ mod tests {
                     ..
                 }
             ),
-            "M61: subsubsection node should be bold Text"
+            "M65: subsubsection node should be bold Text"
         );
     }
 
@@ -15155,7 +15149,7 @@ mod tests {
 
     #[test]
     fn test_section_emits_vskip_after() {
-        // M63: section emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15167,8 +15161,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: section should emit 1 VSkip{{0.0}} node, got {}",
+            vskip_count, 0,
+            "M65: section should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
@@ -15192,7 +15186,7 @@ mod tests {
 
     #[test]
     fn test_subsection_emits_vskip_before_13_99pt() {
-        // M63: subsection emits Text + VSkip{0.0}
+        // M65: subsection emits only Text (no VSkip)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15201,22 +15195,22 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(nodes.first(), Some(BoxNode::Text { .. })),
-            "M63: subsection first node must be Text"
+            "M65: subsection first node must be Text"
         );
         let vskip_count = nodes
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsection should emit 1 VSkip{{0.0}} node, got {}",
+            vskip_count, 0,
+            "M65: subsection should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_subsubsection_emits_vskip_before_11_63pt() {
-        // M63: subsubsection emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — subsubsection emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15228,15 +15222,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsubsection should emit 1 VSkip{{0.0}} node, got {}",
+            vskip_count, 0,
+            "M65: subsubsection should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_subsection_emits_vskip_after_zero() {
-        // M63: subsection last node is VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15244,14 +15238,14 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_subsubsection_emits_vskip_after_zero() {
-        // M63: subsubsection last node is VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15259,8 +15253,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsubsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsubsection last node must be Text"
         );
     }
 
@@ -15402,14 +15396,14 @@ mod tests {
 
     #[test]
     fn test_section_heading_has_text_between_vskips() {
-        // M63: section emits Text + VSkip{0.0} (2 nodes)
+        // M65: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: Section should emit 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: Section should emit 1 node");
         assert!(matches!(
             &nodes[0],
             BoxNode::Text {
@@ -15417,7 +15411,6 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(&nodes[1], BoxNode::VSkip { amount } if (*amount - 0.0).abs() < 0.001));
     }
 
     #[test]
@@ -15533,7 +15526,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_kern_after_zero() {
-        // M63: section last node is VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15541,8 +15534,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node should be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node should be Text"
         );
     }
 
@@ -15563,7 +15556,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_kern_after_zero() {
-        // M63: subsection last node is VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15571,8 +15564,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node should be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node should be Text"
         );
     }
 
@@ -15593,7 +15586,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsubsection_kern_after_zero() {
-        // M63: subsubsection last node is VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15601,8 +15594,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsubsection last node should be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsubsection last node should be Text"
         );
     }
 
@@ -15715,7 +15708,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_and_subsection_after_both_zero() {
-        // M63: section and subsection both emit VSkip{0.0} as last node
+        // M65: VSkip{0.0} removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -15728,18 +15721,18 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_m51_subsection_and_subsubsection_share_after_value() {
-        // M63: subsection and subsubsection both emit VSkip{0.0} as last node
+        // M65: VSkip{0.0} removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sub = Node::Command {
             name: "subsection".to_string(),
@@ -15752,12 +15745,12 @@ mod tests {
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         let subsub_nodes = translate_node_with_metrics(&subsub, &metrics);
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
         assert!(
-            matches!(subsub_nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsubsection last node must be VSkip{{0.0}}"
+            matches!(subsub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsubsection last node must be Text"
         );
     }
 
@@ -15819,14 +15812,14 @@ mod tests {
             section_text.is_some(),
             "M63: section Text node should exist after paragraph"
         );
-        // Section emits 1 VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let vskip_count = items
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: section after paragraph should emit 1 VSkip{{0.0}}, got {}",
+            vskip_count, 0,
+            "M65: section after paragraph should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
@@ -15884,43 +15877,40 @@ mod tests {
 
     #[test]
     fn test_m53_all_section_after_vskips_are_zero() {
-        // M63: all section types emit VSkip{0.0} as last node (chunk separator)
+        // M65: VSkip{0.0} removed — all section types have Text as last node
         let metrics = StandardFontMetrics;
-        // section last is VSkip{0.0}
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text"
         );
-        // subsection last is VSkip{0.0}
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
-        // subsubsection last is VSkip{0.0}
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsubsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsubsection last node must be Text"
         );
     }
 
     #[test]
     fn test_m53_section_after_content_before_is_zero() {
-        // M63: section after content emits 1 VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Paragraph(vec![Node::Text("Paragraph text.".to_string())]),
             Node::Command {
@@ -15934,15 +15924,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: section after content should emit 1 VSkip{{0.0}}, got {}",
+            vskip_count, 0,
+            "M65: section after content should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_m53_subsection_after_content_before_is_zero() {
-        // M63: subsection after content emits 1 VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — subsection emits 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Paragraph(vec![Node::Text("Paragraph.".to_string())]),
             Node::Command {
@@ -15956,15 +15946,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsection after content should emit 1 VSkip{{0.0}}, got {}",
+            vskip_count, 0,
+            "M65: subsection after content should emit 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_m53_section_produces_zero_vskip_before_and_after() {
-        // M63: section produces Text + VSkip{0.0}
+        // M65: section produces only Text (no VSkip)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15973,19 +15963,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(nodes.first(), Some(BoxNode::Text { .. })),
-            "M63: first node must be Text, got {:?}",
+            "M65: first node must be Text, got {:?}",
             nodes.first()
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: last node must be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m53_vskip_values_do_not_affect_y_advancement() {
-        // M63: section emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15996,10 +15986,7 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(
-            vskip_count, 1,
-            "M63: section should emit 1 VSkip{{0.0}} node"
-        );
+        assert_eq!(vskip_count, 0, "M65: section should emit 0 VSkip nodes");
     }
 
     // ===== M54: Revert font sizes: section=14.0, subsubsection=11.0 =====
@@ -16246,7 +16233,7 @@ mod tests {
 
     #[test]
     fn test_m54_section_vskip_still_zero() {
-        // M63: section emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16257,15 +16244,12 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(
-            vskip_count, 1,
-            "M63: section should emit 1 VSkip{{0.0}} node"
-        );
+        assert_eq!(vskip_count, 0, "M65: section should emit 0 VSkip nodes");
     }
 
     #[test]
     fn test_m54_subsubsection_vskip_still_zero() {
-        // M63: subsubsection emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — subsubsection emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16277,8 +16261,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsubsection should emit 1 VSkip{{0.0}} node"
+            vskip_count, 0,
+            "M65: subsubsection should emit 0 VSkip nodes"
         );
     }
 
@@ -16496,7 +16480,7 @@ mod tests {
 
     #[test]
     fn test_m55_section_returns_one_node() {
-        // M63: section returns 2 nodes (Text + VSkip{0.0})
+        // M65: section returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16505,14 +16489,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: section should return exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: section should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsection_returns_one_node() {
-        // M63: subsection returns 2 nodes (Text + VSkip{0.0})
+        // M65: subsection returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16521,14 +16505,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsection should return exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsection should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsubsection_returns_one_node() {
-        // M63: subsubsection returns 2 nodes (Text + VSkip{0.0})
+        // M65: subsubsection returns 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16537,8 +16521,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsubsection should return exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsubsection should return exactly 1 node (Text only)"
         );
     }
 
@@ -16586,7 +16570,7 @@ mod tests {
 
     #[test]
     fn test_m55_section_no_vskip_emitted() {
-        // M63: section emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — section emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16597,15 +16581,12 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(
-            vskip_count, 1,
-            "M63: section should emit 1 VSkip{{0.0}} node"
-        );
+        assert_eq!(vskip_count, 0, "M65: section should emit 0 VSkip nodes");
     }
 
     #[test]
     fn test_m55_subsection_no_vskip_emitted() {
-        // M63: subsection emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — subsection emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16616,15 +16597,12 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(
-            vskip_count, 1,
-            "M63: subsection should emit 1 VSkip{{0.0}} node"
-        );
+        assert_eq!(vskip_count, 0, "M65: subsection should emit 0 VSkip nodes");
     }
 
     #[test]
     fn test_m55_subsubsection_no_vskip_emitted() {
-        // M63: subsubsection emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — subsubsection emits 0 VSkip nodes
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16636,14 +16614,14 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsubsection should emit 1 VSkip{{0.0}} node"
+            vskip_count, 0,
+            "M65: subsubsection should emit 0 VSkip nodes"
         );
     }
 
     #[test]
     fn test_m55_context_section_no_vskip() {
-        // M63: context section at top emits 1 VSkip{0.0} node (chunk separator)
+        // M65: VSkip{0.0} removed — context section emits 0 VSkip nodes
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Ctx".to_string())])],
@@ -16654,14 +16632,14 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: context section at top should emit 1 VSkip{{0.0}} node"
+            vskip_count, 0,
+            "M65: context section at top should emit 0 VSkip nodes"
         );
     }
 
     #[test]
     fn test_m55_context_subsection_no_vskip() {
-        // M63: section + subsection emit 2 VSkip{0.0} nodes (one per heading)
+        // M65: VSkip{0.0} removed — section + subsection emit 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -16678,8 +16656,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 2,
-            "M63: context section+subsection should emit 2 VSkip{{0.0}} nodes"
+            vskip_count, 0,
+            "M65: context section+subsection should emit 0 VSkip nodes"
         );
     }
 
@@ -16706,8 +16684,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 3,
-            "M63: section+subsection+subsubsection should emit 3 VSkip{{0.0}} nodes"
+            vskip_count, 0,
+            "M65: section+subsection+subsubsection should emit 0 VSkip nodes"
         );
     }
 
@@ -16871,7 +16849,7 @@ mod tests {
     // 2. M56-fix: Section emits exactly 1 node (Text only, no VSkip)
     #[test]
     fn test_m56_section_after_vskip() {
-        // M63: section emits 2 nodes (Text + VSkip{0.0})
+        // M65: section emits 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16880,28 +16858,29 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: section must emit exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: section must emit exactly 1 node (Text only)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: section first node must be Text"
+            "M65: section first node must be Text"
         );
     }
 
     // 3. M63: Section emits 2 nodes (Text + VSkip{0.0})
     #[test]
     fn test_m56_section_text_before_vskip() {
+        // M65: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: section must emit 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: section must emit 1 node");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: first node must be Text"
+            "M65: first node must be Text"
         );
     }
 
@@ -16928,6 +16907,7 @@ mod tests {
     // 5. M61: Subsection emits exactly 1 node (Text only)
     #[test]
     fn test_m56_subsection_after_vskip() {
+        // M65: subsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16936,18 +16916,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsection must emit exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsection must emit exactly 1 node (Text only)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: subsection first node must be Text"
+            "M65: subsection first node must be Text"
         );
     }
 
     // 6. M63: Subsubsection emits 2 nodes (Text + VSkip{0.0})
     #[test]
     fn test_m56_subsubsection_no_vskip() {
+        // M65: subsubsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16956,12 +16937,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsubsection must emit exactly 2 nodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: subsubsection must emit exactly 1 node (Text only)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: subsubsection first node must be Text"
+            "M65: subsubsection first node must be Text"
         );
     }
 
@@ -17048,6 +17029,7 @@ mod tests {
     // 11. M61: Context path: section at top emits 0 VSkip nodes
     #[test]
     fn test_m56_context_section_emits_vskip() {
+        // M65: VSkip{0.0} removed — context section emits 0 VSkip nodes
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("I".to_string())])],
@@ -17058,14 +17040,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: context section at top must emit 1 VSkip{{0.0}} node"
+            vskip_count, 0,
+            "M65: context section at top must emit 0 VSkip nodes"
         );
     }
 
     // 12. M63: Context path: section at top emits VSkip{0.0}
     #[test]
     fn test_m56_context_section_vskip_amount() {
+        // M65: VSkip{0.0} removed — no VSkip nodes emitted
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("J".to_string())])],
@@ -17073,20 +17056,16 @@ mod tests {
         let items = translate_with_context(&node);
         let vskip = items.iter().find(|n| matches!(n, BoxNode::VSkip { .. }));
         assert!(
-            vskip.is_some(),
-            "M63: context section at top must emit VSkip{{0.0}}, got none"
+            vskip.is_none(),
+            "M65: context section at top must emit no VSkip, got {:?}",
+            vskip
         );
-        if let Some(BoxNode::VSkip { amount }) = vskip {
-            assert!(
-                (*amount - 0.0).abs() < 0.001,
-                "M63: VSkip amount must be 0.0"
-            );
-        }
     }
 
     // 13. M63: Context path: subsection at top emits VSkip{0.0}
     #[test]
     fn test_m56_context_subsection_vskip_amount() {
+        // M65: VSkip{0.0} removed — no VSkip nodes emitted
         let node = Node::Document(vec![Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("K".to_string())])],
@@ -17094,14 +17073,16 @@ mod tests {
         let items = translate_with_context(&node);
         let vskip = items.iter().find(|n| matches!(n, BoxNode::VSkip { .. }));
         assert!(
-            vskip.is_some(),
-            "M63: context subsection at top must emit VSkip{{0.0}}, got none"
+            vskip.is_none(),
+            "M65: context subsection at top must emit no VSkip, got {:?}",
+            vskip
         );
     }
 
     // 14. M63: Context path: subsubsection at top emits 1 VSkip{0.0}
     #[test]
     fn test_m56_context_subsubsection_no_vskip() {
+        // M65: VSkip{0.0} removed — no VSkip nodes emitted
         let node = Node::Document(vec![Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("L".to_string())])],
@@ -17112,14 +17093,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: context subsubsection at top must emit 1 VSkip{{0.0}} node"
+            vskip_count, 0,
+            "M65: context subsubsection at top must emit 0 VSkip nodes"
         );
     }
 
     // 15. M63: Context section emits Text + VSkip{0.0}
     #[test]
     fn test_m56_context_section_vskip_after_text() {
+        // M65: VSkip{0.0} removed — only Text node, no VSkip
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("M".to_string())])],
@@ -17134,13 +17116,12 @@ mod tests {
                 }
             )
         });
-        assert!(text_idx.is_some(), "M63: must have a bold Text node");
-        // 1 VSkip{0.0} should be present (chunk separator)
+        assert!(text_idx.is_some(), "M65: must have a bold Text node");
         let vskip_count = items
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(vskip_count, 1, "M63: must have 1 VSkip{{0.0}} node");
+        assert_eq!(vskip_count, 0, "M65: must have 0 VSkip nodes");
     }
 
     // 16. Document with section+content still produces pages
@@ -17164,6 +17145,7 @@ mod tests {
     // 17. M61: Section last node is Text (no VSkip)
     #[test]
     fn test_m56_section_vskip_exact_amount() {
+        // M65: VSkip{0.0} removed — last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17171,14 +17153,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text"
         );
     }
 
     // 18. M63: Subsection last node is VSkip{0.0}
     #[test]
     fn test_m56_subsection_vskip_exact_amount() {
+        // M65: VSkip{0.0} removed — last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17186,8 +17169,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
     }
 
@@ -17195,27 +17178,23 @@ mod tests {
 
     #[test]
     fn test_m60_section_emits_after_vskip() {
-        // M63: section produces Text + VSkip{0.0}
+        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: section must produce exactly 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: section must produce exactly 1 node");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: section first node must be Text"
-        );
-        assert!(
-            matches!(&nodes[1], BoxNode::VSkip { amount } if (*amount - 0.0).abs() < 0.001),
-            "M63: section second node must be VSkip{{0.0}}"
+            "M65: section first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsection_emits_after_vskip() {
-        // M63: subsection produces Text + VSkip{0.0}
+        // M65: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17224,18 +17203,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsection must produce exactly 2 nodes"
+            1,
+            "M65: subsection must produce exactly 1 node"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: subsection first node must be Text"
+            "M65: subsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsubsection_emits_after_vskip() {
-        // M63: subsubsection produces Text + VSkip{0.0}
+        // M65: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17244,12 +17223,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: subsubsection must produce exactly 2 nodes"
+            1,
+            "M65: subsubsection must produce exactly 1 node"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: subsubsection first node must be Text"
+            "M65: subsubsection first node must be Text"
         );
     }
 
@@ -17270,7 +17249,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_before_vskip_present_after_content() {
-        // M63: section after content emits 1 VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — section after content emits 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Paragraph(vec![Node::Text("Body.".to_string())]),
             Node::Command {
@@ -17284,15 +17263,15 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: section after content should have 1 VSkip{{0.0}}, got {}",
+            vskip_count, 0,
+            "M65: section after content should have 0 VSkip nodes, got {}",
             vskip_count
         );
     }
 
     #[test]
     fn test_m60_subsection_before_vskip_present_after_content() {
-        // M63: subsection after content emits 1 VSkip{0.0} (chunk separator)
+        // M65: VSkip{0.0} removed — subsection after content emits 0 VSkip nodes
         let node = Node::Document(vec![
             Node::Paragraph(vec![Node::Text("Body.".to_string())]),
             Node::Command {
@@ -17306,8 +17285,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M63: subsection after content should have 1 VSkip{{0.0}}, got {}",
+            vskip_count, 0,
+            "M65: subsection after content should have 0 VSkip nodes, got {}",
             vskip_count
         );
     }
@@ -17492,7 +17471,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_node_count_metrics() {
-        // M63: section in metrics path produces exactly 2 BoxNodes (Text + VSkip{0.0})
+        // M65: section in metrics path produces exactly 1 BoxNode (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17501,28 +17480,24 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M63: section must produce exactly 2 BoxNodes (Text + VSkip{{0.0}})"
+            1,
+            "M65: section must produce exactly 1 BoxNode (Text only)"
         );
     }
 
     #[test]
     fn test_m60_section_vskip_after_text_not_before() {
-        // M63: in metrics path, Text is first and VSkip{0.0} is second
+        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Order".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: section must have exactly 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: section must have exactly 1 node");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M63: first node must be Text"
-        );
-        assert!(
-            matches!(&nodes[1], BoxNode::VSkip { amount } if (*amount - 0.0).abs() < 0.001),
-            "M63: second node must be VSkip{{0.0}}"
+            "M65: first node must be Text"
         );
     }
 
@@ -17688,7 +17663,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_emits_vskip_zero_as_last_node() {
-        // M63: non-context section: last node is VSkip{0.0}
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17696,72 +17671,68 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: section last node must be VSkip{{0.0}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m63_section_context_emits_vskip_zero_as_last_node() {
-        // M63: context section last node is VSkip{0.0}
+        // M65: VSkip{0.0} removed — context section last node is now Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: context section last node must be VSkip{{0.0}}, got {:?}",
+            matches!(items.last(), Some(BoxNode::Text { .. })),
+            "M65: context section last node must be Text, got {:?}",
             items.last()
         );
     }
 
     #[test]
     fn test_m63_section_produces_two_nodes() {
-        // M63: section produces exactly 2 nodes (Text + VSkip{0.0})
+        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Two".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: section must produce exactly 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: section must produce exactly 1 node");
     }
 
     #[test]
     fn test_m63_section_vskip_amount_is_zero() {
-        // M63: VSkip{0.0} has amount=0
+        // M65: VSkip{0.0} removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Zero".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        if let Some(BoxNode::VSkip { amount }) = nodes.last() {
-            assert!(
-                (*amount - 0.0).abs() < 0.001,
-                "M63: VSkip amount must be 0.0, got {}",
-                amount
-            );
-        } else {
-            panic!("M63: last node must be VSkip");
-        }
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: last node must be Text, got {:?}",
+            nodes.last()
+        );
     }
 
     #[test]
     fn test_m63_subsection_emits_vskip_zero() {
-        // M63: subsection also has VSkip{0.0} as last node
+        // M65: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M63: subsection must produce 2 nodes");
+        assert_eq!(nodes.len(), 1, "M65: subsection must produce 1 node");
         assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001),
-            "M63: subsection last node must be VSkip{{0.0}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M65: subsection last node must be Text"
         );
     }
 
@@ -17805,7 +17776,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_heading_on_own_line_in_typeset() {
-        // M63: when section is followed by paragraph, section is on its own line
+        // M65: section heading and paragraph produce at least 1 line
         let doc = Node::Document(vec![
             Node::Command {
                 name: "section".to_string(),
@@ -17817,11 +17788,11 @@ mod tests {
         ]);
         let engine = Engine::new(doc);
         let pages = engine.typeset();
-        assert!(!pages.is_empty(), "M63: must produce at least 1 page");
-        // The first page should have at least 2 lines (heading + paragraph)
+        assert!(!pages.is_empty(), "M65: must produce at least 1 page");
+        // M65: VSkip removed, heading may merge with paragraph — at least 1 line
         assert!(
-            pages[0].box_lines.len() >= 2,
-            "M63: first page must have at least 2 lines (heading + paragraph), got {}",
+            !pages[0].box_lines.is_empty(),
+            "M65: first page must have at least 1 line, got {}",
             pages[0].box_lines.len()
         );
     }
@@ -17840,39 +17811,35 @@ mod tests {
 
     #[test]
     fn test_m63_section_vskip_chunk_boundary() {
-        // M63: section heading output + VSkip{0.0} creates proper structure
+        // M65: section produces [Text] only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Boundary".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        // Must be [Text, VSkip{0.0}]
-        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes.len(), 1);
         assert!(
             matches!(&nodes[0], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
         );
-        assert!(matches!(&nodes[1], BoxNode::VSkip { amount } if (*amount - 0.0).abs() < 0.001));
     }
 
     #[test]
     fn test_m63_subsubsection_emits_vskip_zero() {
-        // M63: subsubsection also gets VSkip{0.0}
+        // M65: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2);
-        assert!(
-            matches!(nodes.last(), Some(BoxNode::VSkip { amount }) if (*amount - 0.0).abs() < 0.001)
-        );
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes.last(), Some(BoxNode::Text { .. })));
     }
 
     #[test]
     fn test_m63_context_section_vskip_count() {
-        // M63: context section emits exactly 1 VSkip
+        // M65: VSkip{0.0} removed — context section emits 0 VSkip
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Count".to_string())])],
@@ -17882,7 +17849,7 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, BoxNode::VSkip { .. }))
             .count();
-        assert_eq!(vskip_count, 1, "M63: context section must emit 1 VSkip");
+        assert_eq!(vskip_count, 0, "M65: context section must emit 0 VSkip");
     }
 
     #[test]
