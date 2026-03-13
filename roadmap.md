@@ -140,6 +140,7 @@ Binary-identical output requires:
 - **M66 REGRESSION (97.24%→97.06%):** Itemize VSkip conversion REGRESSED. VSkip-based spacing consistently regresses for both section headings AND itemize environments. This is now confirmed as a pattern: do NOT add VSkip for list spacing. The underlying model of "add VSkip to match pdflatex spacing" is fundamentally broken in our engine. Future fixes must focus on NON-SPACING sources of difference.
 - **VSkip anti-pattern:** VSkip-only lines use their `line_height = amount` for vertical advance in the PDF backend. This is the WRONG model: pdflatex integrates spacing into the baseline skip calculation for neighboring lines, not as separate VSkip lines. Adding VSkip before/after lists adds spacing that ISN'T in pdflatex's model (at those exact positions relative to our layout), causing cascading mismatches.
 - **LESSON: Do NOT add VSkip around itemize lists** — confirmed regresses. Add this to the same rule as section heading VSkip.
+- **Cycle (M67):** M67 completed (a14a9a7). Reverted M66 VSkip regression, fixed display math 10pt (natural:12→10, stretch:3→2, shrink:9→5), fixed subsection line_height 14.0→14.5. 720 engine tests pass. Expected similarity ≥ 97.24% + small improvement from display math fix.
 
 ## Milestones
 
@@ -991,6 +992,11 @@ Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection transla
 **Lesson learned**: Itemize VSkip regresses. Same pattern as section heading VSkip. Add to "never do" list.
 - Commit: 3317070
 - Cycles actual: 1
+
+### M68: Section Heading Line Height + Targeted Non-VSkip Improvements
+Try adjusting section heading line_height from 18.0 to ~21.0pt to account for pdflatex's afterskip within the heading line itself (NOT via VSkip). Also add diagnostic tests.
+
+- **Cycles budget:** 2
 
 ### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
 Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
