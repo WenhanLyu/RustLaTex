@@ -4210,10 +4210,11 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
 
     for item in items {
         match item {
-            BoxNode::Glue { .. } => {
-                // Glue marks a potential break point but doesn't count toward width
+            BoxNode::Glue { natural, .. } => {
+                // Glue marks a potential break point and contributes natural width
                 last_glue_index = Some(current_line.len());
                 current_line.push(item.clone());
+                current_width += natural;
             }
             BoxNode::Text { width, .. } => {
                 if current_width + width > hsize && last_glue_index.is_some() {
@@ -4237,6 +4238,7 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
                         .map(|n| match n {
                             BoxNode::Text { width, .. } => *width,
                             BoxNode::Kern { amount } => *amount,
+                            BoxNode::Glue { natural, .. } => *natural,
                             _ => 0.0,
                         })
                         .sum();
@@ -4264,6 +4266,7 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
                         .map(|n| match n {
                             BoxNode::Text { width, .. } => *width,
                             BoxNode::Kern { amount } => *amount,
+                            BoxNode::Glue { natural, .. } => *natural,
                             _ => 0.0,
                         })
                         .sum();
@@ -4271,6 +4274,15 @@ pub fn break_into_lines(items: &[BoxNode], hsize: f64) -> Vec<Vec<BoxNode>> {
                 }
                 current_width += amount;
                 current_line.push(item.clone());
+            }
+            BoxNode::Penalty { value } if *value <= -10000 => {
+                // Forced break: flush current line
+                let finished_line = strip_glue(std::mem::take(&mut current_line));
+                if !finished_line.is_empty() {
+                    lines.push(finished_line);
+                }
+                current_width = 0.0;
+                last_glue_index = None;
             }
             BoxNode::Penalty { .. }
             | BoxNode::HBox { .. }
@@ -4349,17 +4361,17 @@ impl LineBreaker for GreedyLineBreaker {
 /// penalty items can force or prevent breaks.
 ///
 /// Parameters:
-/// - `tolerance`: Maximum badness (default 200). Lines with badness > tolerance
+/// - `tolerance`: Maximum badness (default 10000). Lines with badness > tolerance
 ///   are rejected unless no other option exists.
 pub struct KnuthPlassLineBreaker {
-    /// Maximum allowed badness for a line (default 200).
+    /// Maximum allowed badness for a line (default 10000).
     pub tolerance: i32,
 }
 
 impl KnuthPlassLineBreaker {
-    /// Create a new `KnuthPlassLineBreaker` with default tolerance of 200.
+    /// Create a new `KnuthPlassLineBreaker` with default tolerance of 10000.
     pub fn new() -> Self {
-        KnuthPlassLineBreaker { tolerance: 200 }
+        KnuthPlassLineBreaker { tolerance: 10000 }
     }
 }
 
@@ -5577,9 +5589,9 @@ mod tests {
                 vertical_offset: 0.0,
             },
         ];
-        // hsize=100, 50 + 50 = 100, fits exactly
+        // hsize=100, 50 + 3.33 (glue) + 50 = 103.33, exceeds 100 → 2 lines
         let lines = break_into_lines(&items, 100.0);
-        assert_eq!(lines.len(), 1);
+        assert_eq!(lines.len(), 2);
     }
 
     // ===== Integration tests =====
@@ -18824,6 +18836,299 @@ mod tests {
             (sl.line_height - 21.0).abs() < 0.01,
             "M69: center section (14.4pt) should be 21.0, not +10; got {}",
             sl.line_height
+        );
+    }
+
+    // ===== M70: break_into_lines glue width, forced break, KP tolerance tests =====
+
+    #[test]
+    fn test_break_into_lines_counts_glue_width() {
+        // Bug 1: Glue natural width must be counted. Total = 100+5+100+5+100 = 310 > 150
+        let items = vec![
+            make_text(100.0),
+            make_glue(),
+            make_text(100.0),
+            make_glue(),
+            make_text(100.0),
+        ];
+        let lines = break_into_lines(&items, 150.0);
+        assert!(
+            lines.len() > 1,
+            "M70: glue natural width should cause multiple lines, got {} line(s)",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_many_words_multiple_lines() {
+        // 10 words of w=30, separated by glue(nat=5). Total = 10*30 + 9*5 = 345 > 100
+        let mut items = Vec::new();
+        for i in 0..10 {
+            if i > 0 {
+                items.push(make_glue());
+            }
+            items.push(make_text(30.0));
+        }
+        let lines = break_into_lines(&items, 100.0);
+        assert!(
+            lines.len() >= 3,
+            "M70: 10 words w=30 with glue in hsize=100 should give 3+ lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_forced_break_penalty() {
+        // Bug 2: Penalty(-10000) forces a break even when text fits
+        let items = vec![
+            make_text(50.0),
+            BoxNode::Penalty { value: -10000 },
+            make_text(50.0),
+        ];
+        let lines = break_into_lines(&items, 300.0);
+        assert_eq!(
+            lines.len(),
+            2,
+            "M70: forced break (-10000 penalty) should produce 2 lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_nonforced_penalty_no_break() {
+        // Non-forced penalty (positive value) should not cause a break
+        let items = vec![
+            make_text(50.0),
+            BoxNode::Penalty { value: 50 },
+            make_text(50.0),
+        ];
+        let lines = break_into_lines(&items, 300.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: non-forced penalty should not break; got {} line(s)",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_kp_tolerance_is_10000() {
+        // Bug 3: KP tolerance should be 10000
+        let kp = KnuthPlassLineBreaker::new();
+        assert_eq!(
+            kp.tolerance, 10000,
+            "M70: KP default tolerance should be 10000"
+        );
+    }
+
+    #[test]
+    fn test_kp_breaks_paragraph_correctly() {
+        // KP should produce multiple lines for paragraph that doesn't fit in one
+        let kp = KnuthPlassLineBreaker::new();
+        let mut items = Vec::new();
+        for i in 0..10 {
+            if i > 0 {
+                items.push(make_glue());
+            }
+            items.push(make_text(30.0));
+        }
+        let lines = kp.break_lines(&items, 100.0);
+        assert!(
+            lines.len() > 1,
+            "M70: KP should produce multiple lines for 10 words, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_glue_width_in_recalculation() {
+        // After a break, recalculated width must include glue natural widths.
+        // 6 words w=40 + glue(nat=5): first break around w=40+5+40=85 (< 90), then 40+5+40=85 (< 90), etc
+        let mut items = Vec::new();
+        for i in 0..6 {
+            if i > 0 {
+                items.push(make_glue());
+            }
+            items.push(make_text(40.0));
+        }
+        // Total = 6*40 + 5*5 = 265. hsize=90 fits 40+5+40=85. Should get 3 lines.
+        let lines = break_into_lines(&items, 90.0);
+        assert!(
+            lines.len() >= 3,
+            "M70: cascading breaks with glue recalc should give 3+ lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_single_item_no_break() {
+        // Single text item should stay as one line
+        let items = vec![make_text(50.0)];
+        let lines = break_into_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: single item should be 1 line, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_all_glue_returns_empty() {
+        // All glue items → strip_glue removes them → no lines
+        let items = vec![make_glue(), make_glue(), make_glue()];
+        let lines = break_into_lines(&items, 100.0);
+        assert!(
+            lines.is_empty(),
+            "M70: all-glue items should produce 0 lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_exact_fit_no_break() {
+        // Two texts + glue exactly equals hsize → should NOT break
+        // 47.5 + 5.0 + 47.5 = 100.0
+        let items = vec![make_text(47.5), make_glue(), make_text(47.5)];
+        let lines = break_into_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: exact fit should not break, got {} line(s)",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_multiple_forced_breaks() {
+        // Multiple forced breaks produce multiple lines
+        let items = vec![
+            make_text(30.0),
+            BoxNode::Penalty { value: -10000 },
+            make_text(30.0),
+            BoxNode::Penalty { value: -10000 },
+            make_text(30.0),
+        ];
+        let lines = break_into_lines(&items, 500.0);
+        assert_eq!(
+            lines.len(),
+            3,
+            "M70: two forced breaks should produce 3 lines, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_forced_break_at_start() {
+        // Forced break at start should be handled gracefully (empty first chunk is skipped)
+        let items = vec![BoxNode::Penalty { value: -10000 }, make_text(50.0)];
+        let lines = break_into_lines(&items, 300.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: forced break at start with nothing before should give 1 line, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_kp_tolerance_accepts_moderate_ratio() {
+        // With tolerance=10000, KP should accept lines with moderate adjustment ratios
+        // (r up to ~4.6 gives badness = 100*4.6^3 ≈ 9700 < 10000)
+        let kp = KnuthPlassLineBreaker::new();
+        // Two items widely spaced: text 20 + glue(nat=5,stretch=20,shrink=1) + text 20 = 45 natural
+        // hsize=100 → diff=55, stretch=20 → r=2.75, badness=100*2.75^3 ≈ 2082 < 10000
+        let items = vec![
+            BoxNode::Text {
+                text: "a".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 5.0,
+                stretch: 20.0,
+                shrink: 1.0,
+            },
+            BoxNode::Text {
+                text: "b".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lines = kp.break_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: KP with tolerance 10000 should accept moderate-ratio line, got {} line(s)",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_glue_only_no_valid_lines() {
+        // Glue-only sequences between texts should not produce spurious lines
+        let items = vec![
+            make_glue(),
+            make_glue(),
+            make_text(50.0),
+            make_glue(),
+            make_glue(),
+        ];
+        let lines = break_into_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "M70: glue padding around single text should give 1 line, got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_width_recalc_sums_text_kern_glue() {
+        // After a break, recalculated width should correctly sum text+kern+glue
+        let items = vec![
+            make_text(80.0),
+            make_glue(), // nat=5
+            make_text(20.0),
+            BoxNode::Kern { amount: 3.0 },
+            make_glue(), // nat=5
+            make_text(20.0),
+        ];
+        // Total natural = 80+5+20+3+5+20 = 133. hsize=90.
+        // First: 80+5=85, then +20 = 105 > 90 → break at glue.
+        // Remainder: 20+3+5+20=48 → fits in one line.
+        let lines = break_into_lines(&items, 90.0);
+        assert_eq!(
+            lines.len(),
+            2,
+            "M70: recalc should correctly sum text+kern+glue; got {} line(s)",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn test_break_into_lines_forced_break_resets_width() {
+        // After forced break, width should reset so subsequent items fit correctly
+        let items = vec![
+            make_text(80.0),
+            BoxNode::Penalty { value: -10000 },
+            make_text(80.0),
+            make_glue(),
+            make_text(15.0),
+        ];
+        // After forced break: 80 on line 1. Then 80+5+15=100 on line 2. hsize=100 → fits.
+        let lines = break_into_lines(&items, 100.0);
+        assert_eq!(
+            lines.len(),
+            2,
+            "M70: forced break should reset width; got {} line(s)",
+            lines.len()
         );
     }
 }
