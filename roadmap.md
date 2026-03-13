@@ -122,7 +122,7 @@ Binary-identical output requires:
 - **Cycle (M54+M55):** M54 reverted font sizes (984 tests, 94.47% — still not enough). M55 removed all VSkip nodes from section headings entirely (returning to M49-style layout). Result: 1003 tests pass, pixel similarity = 95.68%, CI green (commit 57d328f). VSkip infrastructure kept for \vspace.
 - **M56 scope:** Investigate and fix the remaining 4.32% pixel similarity gap. Diana's research needed to identify top improvements. Key candidates: (1) Section spacing before/after without causing cascading layout shifts; (2) Line-breaking accuracy improvements; (3) Other rendering details. Target: 97%+ similarity, 1015+ tests.
 - **Cycle (M56 — MISSED):** M56 failed — 3/3 cycles used, similarity stuck at 95.69%. Section VSkip (12.24pt after section) regressed to 94.44%; reverting VSkip but keeping font_size=14.4 recovered to 95.69%. Net: font_size 14.4 in place (correct per pdflatex spec), but no similarity gain. KEY LESSON: Do NOT add VSkip around section headings. The gap must be diagnosed via a different approach — need to identify which specific pixels differ. Current state: 1000 tests, 95.69% similarity, font_size=14.4 for sections.
-- **M57 approach:** Have Diana do a forensic analysis of what specifically differs at 72 DPI between our PPM and pdflatex PPM. Focus on: text position drift, margin accuracy, page number rendering differences. Then implement the single most impactful fix.
+- **M57 approach:** Diana's forensic analysis confirmed: `margin_left=72.27pt` is WRONG (should be 126.25pt for a4paper article symmetric layout). Also `margin_top=109pt` may be off by ~15pt. These margin errors explain the remaining 4.31% gap. M57 corrects both margins. KEY LESSON: margin_left changes do NOT affect line-breaking (only PDF rendering position), making this a zero-risk line-breaking change. The only risk is if the margin calculation is wrong (would drop similarity to ~89%).
 
 ## Milestones
 
@@ -902,14 +902,24 @@ Investigated and attempted section heading font size (14.0→14.4) + after-VSkip
 - **Cycles budget:** 3 | **Cycles actual:** 3
 - **Status:** ⚠️ Deadline missed — escalated back to Athena for replanning
 
-### M57: Forensic Diagnosis + Targeted Fix (Next)
-Diagnose the exact cause of the 4.31% pixel gap and apply a targeted fix.
+### M57: Correct PDF Margins to Match pdflatex article class (Next)
+Fix the margin mismatch between our output and pdflatex's article class defaults.
 
-**Scope:** Diana will analyze what specific areas differ, then Leo will implement the most impactful single fix.
-- Target: 96.5%+ similarity (modest but achievable gain), 1015+ tests
+**Root cause (Diana's forensic analysis):** 
+- Our `margin_left = 72.27pt` (1 inch). pdflatex article a4paper uses symmetric centering: `(595pt - 345pt) / 2 = 126.25pt`. We are 53.98pt too far LEFT.
+- Our `margin_top = 109pt`. pdflatex article first-baseline position ≈ 124pt from top. We are ~15pt too HIGH.
+- Combined: our text is 53.98pt too far left AND 15pt too high vs pdflatex. This explains ~4% of the 4.31% gap.
+
+**Changes:**
+1. `margin_left`: 72.27 → 126.25pt in `rustlatex-pdf/src/lib.rs:2046`
+2. `margin_top`: 109.0 → 124.0pt in `rustlatex-pdf/src/lib.rs:2047`
+3. Update 3 self-referential tests (margin_left, margin_top, start_y assertions)
+4. Add diagnostic test: `test_ppm_text_bounding_box` — finds first/last non-white column+row in both PPMs and reports the offset
+
+**Expected impact:** ~96.5%→99%+ similarity if margin analysis is correct. If regression occurs, Athena reverts and uses diagnostic data to find alternative fix.
 
 - **Cycles budget:** 3
-- **Status:** 🔄 Planning
+- **Status:** 🔄 In Progress
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
