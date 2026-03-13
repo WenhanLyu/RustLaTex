@@ -1822,11 +1822,11 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     }
 
                     let mut result = Vec::new();
-                    // Before list: paragraph glue
+                    // Before list: paragraph glue (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
                     result.push(BoxNode::Glue {
-                        natural: 6.0,
+                        natural: 8.0,
                         stretch: 2.0,
-                        shrink: 0.0,
+                        shrink: 4.0,
                     });
 
                     for (i, item_nodes) in items.iter().enumerate() {
@@ -1863,11 +1863,11 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
-                    // After list: paragraph glue
+                    // After list: paragraph glue (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
                     result.push(BoxNode::Glue {
-                        natural: 6.0,
+                        natural: 8.0,
                         stretch: 2.0,
-                        shrink: 0.0,
+                        shrink: 4.0,
                     });
 
                     result
@@ -3375,10 +3375,11 @@ pub fn translate_node_with_context(
                     }
 
                     let mut result = Vec::new();
+                    // Before list: pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo
                     result.push(BoxNode::Glue {
-                        natural: 6.0,
+                        natural: 8.0,
                         stretch: 2.0,
-                        shrink: 0.0,
+                        shrink: 4.0,
                     });
 
                     for (i, item_nodes) in items.iter().enumerate() {
@@ -3411,10 +3412,11 @@ pub fn translate_node_with_context(
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
+                    // After list: pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo
                     result.push(BoxNode::Glue {
-                        natural: 6.0,
+                        natural: 8.0,
                         stretch: 2.0,
-                        shrink: 0.0,
+                        shrink: 4.0,
                     });
 
                     result
@@ -7138,16 +7140,168 @@ mod tests {
     fn test_list_surrounded_by_paragraph_glue() {
         let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
-        // First element should be Glue{natural:6.0}
+        // First element should be Glue{natural:8.0, shrink:4.0} (pdflatex \topsep)
         assert!(
-            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 6.0).abs() < f64::EPSILON),
-            "Expected Glue(6.0) at start of list"
+            matches!(items.first(), Some(BoxNode::Glue { natural, shrink, .. }) if (*natural - 8.0).abs() < f64::EPSILON && (*shrink - 4.0).abs() < f64::EPSILON),
+            "Expected Glue(8.0, shrink=4.0) at start of list"
         );
-        // Last element should be Glue{natural:6.0}
+        // Last element should be Glue{natural:8.0, shrink:4.0}
         assert!(
-            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 6.0).abs() < f64::EPSILON),
-            "Expected Glue(6.0) at end of list"
+            matches!(items.last(), Some(BoxNode::Glue { natural, shrink, .. }) if (*natural - 8.0).abs() < f64::EPSILON && (*shrink - 4.0).abs() < f64::EPSILON),
+            "Expected Glue(8.0, shrink=4.0) at end of list"
         );
+    }
+
+    #[test]
+    fn test_itemize_before_glue_natural_8pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.first() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "before_list natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at start, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_before_glue_stretch_2pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.first() {
+            Some(BoxNode::Glue { stretch, .. }) => {
+                assert!(
+                    (*stretch - 2.0).abs() < f64::EPSILON,
+                    "before_list stretch should be 2.0, got {}",
+                    stretch
+                );
+            }
+            other => panic!("Expected Glue at start, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_before_glue_shrink_4pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.first() {
+            Some(BoxNode::Glue { shrink, .. }) => {
+                assert!(
+                    (*shrink - 4.0).abs() < f64::EPSILON,
+                    "before_list shrink should be 4.0, got {}",
+                    shrink
+                );
+            }
+            other => panic!("Expected Glue at start, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_after_glue_natural_8pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.last() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "after_list natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at end, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_after_glue_stretch_2pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.last() {
+            Some(BoxNode::Glue { stretch, .. }) => {
+                assert!(
+                    (*stretch - 2.0).abs() < f64::EPSILON,
+                    "after_list stretch should be 2.0, got {}",
+                    stretch
+                );
+            }
+            other => panic!("Expected Glue at end, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_after_glue_shrink_4pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.last() {
+            Some(BoxNode::Glue { shrink, .. }) => {
+                assert!(
+                    (*shrink - 4.0).abs() < f64::EPSILON,
+                    "after_list shrink should be 4.0, got {}",
+                    shrink
+                );
+            }
+            other => panic!("Expected Glue at end, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_enumerate_before_glue_topsep() {
+        let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
+        let items = translate_node(&node);
+        match items.first() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "enumerate before_list natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at start of enumerate, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_enumerate_after_glue_topsep() {
+        let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
+        let items = translate_node(&node);
+        match items.last() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "enumerate after_list natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at end of enumerate, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_topsep_not_6pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+            assert!(
+                (*natural - 6.0).abs() > f64::EPSILON,
+                "itemize before_list should NOT be 6.0 (old value)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_enumerate_topsep_not_6pt() {
+        let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+            assert!(
+                (*natural - 6.0).abs() > f64::EPSILON,
+                "enumerate before_list should NOT be 6.0 (old value)"
+            );
+        }
     }
 
     #[test]
