@@ -135,6 +135,8 @@ Binary-identical output requires:
 - **Cycle (M62):** M62 completed (bb67ce5). line_height 17→18 for 14.4pt section, margin_top 124.0→123.27. Pixel similarity = **97.24% (UNCHANGED from M61)**. M62 changes were structurally correct but had no measurable similarity impact.
 - **M63 REGRESSION:** M63 changed compute_line_height values: 14.4pt→9.9 (WRONG, should be 18.0), 12.0pt→6.46 (WRONG, should be 14.0). Ares's team misunderstood: afterskip (9.9/6.46) ≠ baselineskip (18/14). These values are used as y-advance amounts for section heading lines. Using 9.9 instead of 18 causes section headings to only advance 9.9pt vertically, placing text too close together. Pixel similarity **dropped from 97.24% → 96.78%** (regression -0.46%). M64 must revert these values.
 - **M63 VSkip{0.0} chunk separator:** M63 also added VSkip{0.0} after section headings as "chunk separators". This is harmless (VSkip with 0.0 does nothing), but didn't improve similarity.
+- **Cycle (M65):** M65 completed (d7f888c). Removed VSkip{0.0} from section headings. Pixel similarity = **97.24%** (recovered). CI green. 
+- **M66 hypothesis (Athena direct):** Remaining 2.76% gap (13,834 pixels) likely caused by missing itemize vertical spacing. Itemize uses Glue nodes for topsep (8pt) and itemsep (4pt) which are HORIZONTAL glue → stripped by strip_glue → NO vertical effect. pdflatex has 24pt total vertical spacing around itemize for compare.tex. Fix: convert to VSkip nodes. Diana assigned to verify via issue #63.
 
 ## Milestones
 
@@ -974,10 +976,31 @@ Reverted compute_line_height (9.9→18.0, 6.46→14.0) but did NOT remove the VS
 
 - **Status:** ⚠️ PARTIAL — similarity dropped FURTHER to 96.63% (M62 was 97.24%). VSkip{0.0} is somehow causing regression despite being "harmless". Full revert needed in M65.
 
-### M65: Fully Revert M63 VSkip{0.0} + Restore M62 State
-Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection translation. M64 fixed compute_line_height but left VSkip{0.0} nodes in place. These are causing 96.63% vs expected 97.24%.
+### M65: Fully Revert M63 VSkip{0.0} + Restore M62 State ✅ COMPLETE
+Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection translation.
 
-- **Cycles budget:** 1
+- **Status:** ✅ Complete — Leo implemented (commit d7f888c), 97.24% similarity confirmed in CI.
+- **Cycles budget:** 1 | **Cycles actual:** 1
+
+### M66: Fix Itemize Vertical Spacing (topsep/itemsep as VSkip)
+
+**Hypothesis**: The remaining 2.76% gap (13,834 pixels) is primarily caused by missing vertical spacing in itemize environments. Currently:
+- Itemize topsep (`Glue{8,2,4}` before/after list) is a HORIZONTAL glue → stripped by strip_glue → NO vertical effect
+- Itemize itemsep (`Glue{4,...}` between items) is a HORIZONTAL glue → stripped → NO vertical effect
+- pdflatex adds 8pt topsep before list, 4pt itemsep between items, 8pt topsep after list = 24pt total vertical spacing
+
+**Fix**: Convert itemize topsep/itemsep from `BoxNode::Glue` to `BoxNode::VSkip`:
+1. Before list: `VSkip{amount: 8.0}` instead of `Glue{8,2,4}`
+2. Between items: `VSkip{amount: 4.0}` instead of `Glue{4,0.5,0.5}`
+3. After list: `VSkip{amount: 8.0}` instead of `Glue{8,2,4}`
+
+VSkip nodes already work correctly — they create actual vertical movement in PDF output and proper line heights in the engine.
+
+**Secondary fix**: For wrapped itemize lines — continuation lines need a 25pt left indent to match pdflatex's \leftmargini. Diana to propose approach in issue #63.
+
+**Expected impact**: ~24pt vertical correction → most of the remaining 13,834 pixels. Target: 98%+ similarity.
+
+- **Cycles budget:** 2
 
 ---
 
