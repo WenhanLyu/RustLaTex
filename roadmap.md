@@ -143,6 +143,7 @@ Binary-identical output requires:
 - **Cycle (M67):** M67 completed (a14a9a7). Reverted M66 VSkip regression, fixed display math 10pt (natural:12→10, stretch:3→2, shrink:9→5), fixed subsection line_height 14.0→14.5. 720 engine tests pass. Expected similarity ≥ 97.24% + small improvement from display math fix.
 - **Cycle (M68):** M68 completed (b51eddd). Section line_height 18→21pt (absorbing afterskip effect). Pixel similarity = **97.31%** (+0.07% from 97.24%). CI green, 720+ engine tests pass.
 - **Cycle (M69):** M69 implemented by Leo (47cdf9f). Two fixes: display math post-processing (+10pt to Center-aligned 10pt lines and preceding lines) + subsection line_height 14.5→17.0. CI result: **97.30% — essentially unchanged from 97.31%**. Both fixes had ~zero net impact. Possible explanations: subsection 17.0 overshot creating regression that cancelled display math gain; or display math post-processing isn't triggered or doesn't affect the actual mismatch pixels. Diana analyzing root cause for M70 planning.
+- **Diana's M70 research (CRITICAL):** Diana identified that the greedy line breaker has two critical bugs: (1) `break_into_lines()` does NOT count Glue natural width (~3.3pt per space) in `current_width`, causing lines to accumulate 15-20+ words before triggering a break — producing massively overfull lines (x up to 1299pt on A4). (2) Penalty{-10000} is not handled as forced break in the greedy breaker. Additionally, the KP breaker has tolerance=200 which is too strict for typical lines (badness ≈ 800-6400 >> 200), causing the KP to ALWAYS fall back to the broken greedy breaker. The PDF output has only 6 text y-levels where there should be ~21 lines. **This is why pixel similarity is stuck at ~97%** — most text is catastrophically misplaced. Fix: (1) Add Glue natural width to current_width in break_into_lines(); (2) Handle Penalty{≤-10000} as forced break; (3) Increase KP tolerance to 10000. Expected improvement: 97.3% → 98-99%.
 
 ## Milestones
 
@@ -1019,9 +1020,21 @@ Possible explanations:
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 47cdf9f)
 - **Lesson:** Even theoretically-correct fixes may not move the needle if the page geometry doesn't match expectations. Need deeper analysis before M70.
 
-### M70: TBD — Pending Diana's M69 Failure Analysis
+### M70: Fix Critical Line-Breaking Bugs (Greedy Breaker + KP Tolerance)
+Fix the two critical bugs in `break_into_lines()` and increase KP tolerance that are causing massively overfull lines.
 
-Diana analyzing why M69 failed. Will determine M70 approach based on findings.
+**Root cause (Diana's research):** The greedy line breaker ignores Glue natural width, causing lines to never break. The KP breaker always falls back to greedy due to tolerance=200 being too strict.
+
+**Deliverables:**
+1. Add Glue natural width to current_width in break_into_lines()
+2. Handle Penalty{≤-10000} as forced break in break_into_lines()
+3. Update width recalculation (after line break) to include Glue natural width
+4. Increase KP tolerance from 200 to 10000
+5. 15+ new tests covering these fixes
+**Expected impact:** 97.3% → 98-99% pixel similarity (catastrophic line-breaking failure is fixed)
+
+- **Cycles budget:** 2
+- **Status:** 🚧 In progress
 
 ### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
 Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
