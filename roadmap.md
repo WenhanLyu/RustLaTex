@@ -132,6 +132,9 @@ Binary-identical output requires:
 - **M61 scope:** Revert M60's VSkip additions around section headings. Keep compute_line_height precision (14.4→17.0, 12.0→14.0) and display math shrink (3.0→9.0). Expected: recover to 97.25%+ similarity. Scheduled Diana (#59) to analyze remaining gap for M62+.
 - **Cycle (M61):** M61 completed (a3f94d0). VSkip reverted from section headings. Pixel similarity = **97.24%** (recovered from M60 regression). CI green. Tests pass.
 - **M62 analysis (Athena):** Key remaining hypothesis: (1) section line_height 17pt vs pdflatex 18pt (article.cls uses fontsize 14.4pt/18pt baselineskip); (2) start_y = 718.0pt vs pdflatex 718.73pt (0.73pt too low); (3) potential hyphenation differences in line-breaking. Diana assigned to verify these hypotheses (#59 updated).
+- **Cycle (M62):** M62 completed (bb67ce5). line_height 17→18 for 14.4pt section, margin_top 124.0→123.27. Pixel similarity = **97.24% (UNCHANGED from M61)**. M62 changes were structurally correct but had no measurable similarity impact.
+- **M63 REGRESSION:** M63 changed compute_line_height values: 14.4pt→9.9 (WRONG, should be 18.0), 12.0pt→6.46 (WRONG, should be 14.0). Ares's team misunderstood: afterskip (9.9/6.46) ≠ baselineskip (18/14). These values are used as y-advance amounts for section heading lines. Using 9.9 instead of 18 causes section headings to only advance 9.9pt vertically, placing text too close together. Pixel similarity **dropped from 97.24% → 96.78%** (regression -0.46%). M64 must revert these values.
+- **M63 VSkip{0.0} chunk separator:** M63 also added VSkip{0.0} after section headings as "chunk separators". This is harmless (VSkip with 0.0 does nothing), but didn't improve similarity.
 
 ## Milestones
 
@@ -952,6 +955,32 @@ Improve text rendering accuracy and typographic quality.
 
 - **Cycles budget:** 2 | **Cycles actual:** 1
 - **Status:** ✅ Complete — Leo implemented (commit 2fe0af2), 812 tests pass, CI green. Pixel similarity = 95.77%.
+
+### M62: Section Line Height + Margin Precision ✅ COMPLETE
+Fix section heading line_height (17→18pt for 14.4pt font) and margin_top precision (124.0→123.27).
+
+- **Cycles budget:** 2 | **Cycles actual:** 1
+- **Status:** ✅ Complete — Leo implemented (bb67ce5), 1064 tests pass, CI green. Pixel similarity = **97.24% (unchanged)**. Changes structurally correct but had no measurable similarity impact.
+
+### M63: Section Heading Chunk Separation ⚠️ REGRESSION
+Added VSkip{0.0} after section headings + changed compute_line_height values.
+
+- **Status:** ⚠️ REGRESSION — commit 1e4e978 caused similarity to drop from 97.24% → 96.78% (-0.46%)
+- **Root cause:** compute_line_height changed to 9.9 (should be 18.0) and 6.46 (should be 14.0)
+- **M64 will fix this regression**
+
+### M64: Revert M63 compute_line_height Regression
+Revert the wrong compute_line_height values from M63.
+
+**Changes:**
+1. In compute_line_height: change 9.9 → 18.0 for 14.4pt font
+2. In compute_line_height: change 6.46 → 14.0 for 12.0pt font
+3. Update ALL failing tests (many expect 9.9/6.46, need to change back to 18.0/14.0)
+4. Optionally remove VSkip{0.0} nodes from section headings (keep or remove, doesn't affect similarity)
+
+**Expected result:** Recover to 97.24% similarity, restore correct line spacing.
+
+- **Cycles budget:** 2
 
 ---
 
