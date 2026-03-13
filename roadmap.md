@@ -993,12 +993,17 @@ Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection transla
 - Commit: 3317070
 - Cycles actual: 1
 
-### M68: Section Heading Line Height Experiment (Non-VSkip Approach)
-Adjust section heading effective line_height from 18.0 to 21.0pt in compute_line_height. Theory: pdflatex's \\section afterskip=9.9pt means first para baseline is ~21pt below section heading baseline (18pt baselineskip + 3pt from afterskip's effective contribution). Changing line_height from 18→21 shifts first para 3pt down, matching pdflatex better WITHOUT adding any VSkip nodes.
+### M68: Section Heading Line Height Experiment (Non-VSkip Approach) ✅ COMPLETE
+Adjust section heading effective line_height from 18.0 to 21.0pt in compute_line_height.
 
-Key: this is different from all previous VSkip attempts because we change the HEADING LINE'S OWN line_height, not add separate VSkip lines. VSkip added 9.9pt on top of 18pt (too much). This approach sets total advance to 21pt (exactly what pdflatex gives).
+- **Result:** Pixel similarity = **97.31%** (+0.07% from 97.24%). Small but positive improvement confirmed.
+- **Cycles budget:** 2 | **Cycles actual:** 1 (Ares implemented commit b51eddd)
+- **Status:** ✅ Complete — CI green, 720+ engine tests pass
 
-- **Cycles budget:** 2
+### M69: Pending — See Diana's analysis (issue #65)
+Diana is researching the remaining 2.69% gap. Candidates: subsection line_height adjustment (same approach as M68 section), display math VSkip (if safe), line-breaking accuracy.
+
+- **Cycles budget:** 3
 
 ### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
 Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
