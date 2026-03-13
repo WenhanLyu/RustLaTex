@@ -1000,10 +1000,17 @@ Adjust section heading effective line_height from 18.0 to 21.0pt in compute_line
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Ares implemented commit b51eddd)
 - **Status:** ✅ Complete — CI green, 720+ engine tests pass
 
-### M69: Pending — See Diana's analysis (issue #65)
-Diana is researching the remaining 2.69% gap. Candidates: subsection line_height adjustment (same approach as M68 section), display math VSkip (if safe), line-breaking accuracy.
+### M69: Display Math line_height Post-Processing + Subsection line_height Adjustment
 
-- **Cycles budget:** 3
+Diana's research (see diana/note.md) confirms two clean non-VSkip fixes for the remaining 2.69% gap:
+
+1. **Display math post-processing**: Both `Glue(10pt)` above/below display math are stripped by `strip_glue`. Fix: after `break_items_with_alignment` builds lines, scan for `Center`-aligned lines (display math) and add 10pt to the preceding line's `line_height` (abovedisplayskip) and 10pt to the math line's own `line_height` (belowdisplayskip). This matches pdflatex's `\abovedisplayskip = 10pt` and `\belowdisplayskip = 10pt`.
+
+2. **Subsection line_height 14.5→17.0**: By the same M68 ratio (afterskip effect on heading line_height), subsection line_height should increase from 14.5 to ~17.0. pdflatex afterskip for \subsection = 6.46pt.
+
+**Expected improvement:** +0.8-1.5% pixel similarity (from 97.31% → ~98.1-98.8%)
+
+- **Cycles budget:** 2 | **Cycles actual:** 1 (Ares, see commit)
 
 ### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
 Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
