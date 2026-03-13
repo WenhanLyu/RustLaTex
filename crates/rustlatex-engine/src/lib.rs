@@ -214,7 +214,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     } else if (max_font_size - 14.4).abs() < 0.01 {
         18.0 // pdflatex \Large baselineskip = 18pt
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        14.0 // pdflatex \large baselineskip = 14pt
+        14.5 // pdflatex \large baselineskip = 14.5pt
     } else {
         max_font_size * 1.2
     }
@@ -1826,13 +1826,21 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     }
 
                     let mut result = Vec::new();
-                    // Before list: topsep (pdflatex \topsep=8pt from lsize10.clo)
-                    result.push(BoxNode::VSkip { amount: 8.0 });
+                    // Before list: topsep (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
+                    result.push(BoxNode::Glue {
+                        natural: 8.0,
+                        stretch: 2.0,
+                        shrink: 4.0,
+                    });
 
                     for (i, item_nodes) in items.iter().enumerate() {
-                        // Inter-item VSkip (not before first item)
+                        // Inter-item glue (not before first item)
                         if i > 0 {
-                            result.push(BoxNode::VSkip { amount: 4.0 });
+                            result.push(BoxNode::Glue {
+                                natural: 4.0,
+                                stretch: 0.5,
+                                shrink: 0.5,
+                            });
                         }
                         // Indentation kern
                         result.push(BoxNode::Kern { amount: 20.0 });
@@ -1859,8 +1867,12 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
-                    // After list: topsep (pdflatex \topsep=8pt from lsize10.clo)
-                    result.push(BoxNode::VSkip { amount: 8.0 });
+                    // After list: topsep (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
+                    result.push(BoxNode::Glue {
+                        natural: 8.0,
+                        stretch: 2.0,
+                        shrink: 4.0,
+                    });
 
                     result
                 }
@@ -2094,9 +2106,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             .collect(),
         Node::DisplayMath(nodes) => {
             let mut result = vec![BoxNode::Glue {
-                natural: 12.0,
-                stretch: 3.0,
-                shrink: 9.0,
+                natural: 10.0,
+                stretch: 2.0,
+                shrink: 5.0,
             }];
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::AlignmentMarker {
@@ -2108,9 +2120,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             });
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
-                natural: 12.0,
-                stretch: 3.0,
-                shrink: 9.0,
+                natural: 10.0,
+                stretch: 2.0,
+                shrink: 5.0,
             });
             result
         }
@@ -3367,12 +3379,20 @@ pub fn translate_node_with_context(
                     }
 
                     let mut result = Vec::new();
-                    // Before list: topsep (pdflatex \topsep=8pt from lsize10.clo)
-                    result.push(BoxNode::VSkip { amount: 8.0 });
+                    // Before list: topsep (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
+                    result.push(BoxNode::Glue {
+                        natural: 8.0,
+                        stretch: 2.0,
+                        shrink: 4.0,
+                    });
 
                     for (i, item_nodes) in items.iter().enumerate() {
                         if i > 0 {
-                            result.push(BoxNode::VSkip { amount: 4.0 });
+                            result.push(BoxNode::Glue {
+                                natural: 4.0,
+                                stretch: 0.5,
+                                shrink: 0.5,
+                            });
                         }
                         result.push(BoxNode::Kern { amount: 20.0 });
                         if is_enumerate {
@@ -3396,8 +3416,12 @@ pub fn translate_node_with_context(
                         result.push(BoxNode::Penalty { value: -10000 });
                     }
 
-                    // After list: topsep (pdflatex \topsep=8pt from lsize10.clo)
-                    result.push(BoxNode::VSkip { amount: 8.0 });
+                    // After list: topsep (pdflatex \topsep=8pt plus 2pt minus 4pt from lsize10.clo)
+                    result.push(BoxNode::Glue {
+                        natural: 8.0,
+                        stretch: 2.0,
+                        shrink: 4.0,
+                    });
 
                     result
                 }
@@ -3898,9 +3922,9 @@ pub fn translate_node_with_context(
             .collect(),
         Node::DisplayMath(nodes) => {
             let mut result = vec![BoxNode::Glue {
-                natural: 12.0,
-                stretch: 3.0,
-                shrink: 9.0,
+                natural: 10.0,
+                stretch: 2.0,
+                shrink: 5.0,
             }];
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::AlignmentMarker {
@@ -3912,9 +3936,9 @@ pub fn translate_node_with_context(
             });
             result.push(BoxNode::Penalty { value: -10000 });
             result.push(BoxNode::Glue {
-                natural: 12.0,
-                stretch: 3.0,
-                shrink: 9.0,
+                natural: 10.0,
+                stretch: 2.0,
+                shrink: 5.0,
             });
             result
         }
@@ -5227,11 +5251,11 @@ mod tests {
     fn test_translate_display_math() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        // DisplayMath produces: Glue(12pt), Penalty, AlignCenter, Text, AlignJustify, Penalty, Glue(12pt) (7 items)
+        // DisplayMath produces: Glue(10pt), Penalty, AlignCenter, Text, AlignJustify, Penalty, Glue(10pt) (7 items)
         assert_eq!(items.len(), 7);
         assert!(
-            matches!(items[0], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
-            "Expected 12pt above-display glue"
+            matches!(items[0], BoxNode::Glue { natural, .. } if (natural - 10.0).abs() < f64::EPSILON),
+            "Expected 10pt above-display glue"
         );
         assert!(matches!(items[1], BoxNode::Penalty { value: -10000 }));
         assert!(
@@ -5259,8 +5283,8 @@ mod tests {
         );
         assert!(matches!(items[5], BoxNode::Penalty { value: -10000 }));
         assert!(
-            matches!(items[6], BoxNode::Glue { natural, .. } if (natural - 12.0).abs() < f64::EPSILON),
-            "Expected 12pt below-display glue"
+            matches!(items[6], BoxNode::Glue { natural, .. } if (natural - 10.0).abs() < f64::EPSILON),
+            "Expected 10pt below-display glue"
         );
     }
 
@@ -7117,128 +7141,146 @@ mod tests {
     }
 
     #[test]
-    fn test_list_surrounded_by_vskip() {
+    fn test_list_surrounded_by_glue() {
         let node = make_itemize(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
-        // First element should be VSkip{amount:8.0} (pdflatex \topsep)
+        // First element should be Glue{natural:8.0, stretch:2.0, shrink:4.0} (pdflatex \topsep)
         assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "Expected VSkip(8.0) at start of list"
-        );
-        // Last element should be VSkip{amount:8.0}
-        assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "Expected VSkip(8.0) at end of list"
-        );
-    }
-
-    #[test]
-    fn test_itemize_before_vskip_amount_8pt() {
-        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
-        let items = translate_node(&node);
-        match items.first() {
-            Some(BoxNode::VSkip { amount }) => {
-                assert!(
-                    (*amount - 8.0).abs() < f64::EPSILON,
-                    "before_list VSkip amount should be 8.0, got {}",
-                    amount
-                );
-            }
-            other => panic!("Expected VSkip at start, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_itemize_before_is_vskip_not_glue() {
-        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
-        let items = translate_node(&node);
-        assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { .. })),
-            "before_list should be VSkip, not Glue, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "Expected Glue(8.0) at start of list, got {:?}",
             items.first()
         );
-    }
-
-    #[test]
-    fn test_itemize_before_no_stretch_shrink() {
-        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
-        let items = translate_node(&node);
-        // VSkip has no stretch/shrink fields — just verify it's a VSkip
+        // Last element should be Glue{natural:8.0, ...}
         assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { .. })),
-            "before_list should be VSkip (no stretch/shrink), got {:?}",
-            items.first()
-        );
-    }
-
-    #[test]
-    fn test_itemize_after_vskip_amount_8pt() {
-        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
-        let items = translate_node(&node);
-        match items.last() {
-            Some(BoxNode::VSkip { amount }) => {
-                assert!(
-                    (*amount - 8.0).abs() < f64::EPSILON,
-                    "after_list VSkip amount should be 8.0, got {}",
-                    amount
-                );
-            }
-            other => panic!("Expected VSkip at end, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_itemize_after_is_vskip_not_glue() {
-        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
-        let items = translate_node(&node);
-        assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { .. })),
-            "after_list should be VSkip, not Glue, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "Expected Glue(8.0) at end of list, got {:?}",
             items.last()
         );
     }
 
     #[test]
-    fn test_itemize_after_no_stretch_shrink() {
+    fn test_itemize_before_glue_amount_8pt() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        // VSkip has no stretch/shrink fields — just verify it's a VSkip
+        match items.first() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "before_list Glue natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at start, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_before_is_glue_with_stretch_shrink() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.first() {
+            Some(BoxNode::Glue {
+                natural,
+                stretch,
+                shrink,
+            }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "natural should be 8.0"
+                );
+                assert!(
+                    (*stretch - 2.0).abs() < f64::EPSILON,
+                    "stretch should be 2.0"
+                );
+                assert!((*shrink - 4.0).abs() < f64::EPSILON, "shrink should be 4.0");
+            }
+            other => panic!(
+                "before_list should be Glue with stretch/shrink, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn test_itemize_before_glue_has_stretch_2() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        // Glue has stretch field of 2.0
         assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { .. })),
-            "after_list should be VSkip (no stretch/shrink), got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { stretch, .. }) if (*stretch - 2.0).abs() < f64::EPSILON),
+            "before_list Glue stretch should be 2.0, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_itemize_after_glue_amount_8pt() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        match items.last() {
+            Some(BoxNode::Glue { natural, .. }) => {
+                assert!(
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "after_list Glue natural should be 8.0, got {}",
+                    natural
+                );
+            }
+            other => panic!("Expected Glue at end, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_itemize_after_is_glue_not_vskip() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        assert!(
+            matches!(items.last(), Some(BoxNode::Glue { .. })),
+            "after_list should be Glue, not VSkip, got {:?}",
             items.last()
         );
     }
 
     #[test]
-    fn test_enumerate_before_vskip_topsep() {
+    fn test_itemize_after_glue_has_shrink_4() {
+        let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
+        let items = translate_node(&node);
+        // Glue has shrink field of 4.0
+        assert!(
+            matches!(items.last(), Some(BoxNode::Glue { shrink, .. }) if (*shrink - 4.0).abs() < f64::EPSILON),
+            "after_list Glue shrink should be 4.0, got {:?}",
+            items.last()
+        );
+    }
+
+    #[test]
+    fn test_enumerate_before_glue_topsep() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
         match items.first() {
-            Some(BoxNode::VSkip { amount }) => {
+            Some(BoxNode::Glue { natural, .. }) => {
                 assert!(
-                    (*amount - 8.0).abs() < f64::EPSILON,
-                    "enumerate before_list VSkip amount should be 8.0, got {}",
-                    amount
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "enumerate before_list Glue natural should be 8.0, got {}",
+                    natural
                 );
             }
-            other => panic!("Expected VSkip at start of enumerate, got {:?}", other),
+            other => panic!("Expected Glue at start of enumerate, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_enumerate_after_vskip_topsep() {
+    fn test_enumerate_after_glue_topsep() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
         match items.last() {
-            Some(BoxNode::VSkip { amount }) => {
+            Some(BoxNode::Glue { natural, .. }) => {
                 assert!(
-                    (*amount - 8.0).abs() < f64::EPSILON,
-                    "enumerate after_list VSkip amount should be 8.0, got {}",
-                    amount
+                    (*natural - 8.0).abs() < f64::EPSILON,
+                    "enumerate after_list Glue natural should be 8.0, got {}",
+                    natural
                 );
             }
-            other => panic!("Expected VSkip at end of enumerate, got {:?}", other),
+            other => panic!("Expected Glue at end of enumerate, got {:?}", other),
         }
     }
 
@@ -7246,9 +7288,9 @@ mod tests {
     fn test_itemize_topsep_not_6pt() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::VSkip { amount }) = items.first() {
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
             assert!(
-                (*amount - 6.0).abs() > f64::EPSILON,
+                (*natural - 6.0).abs() > f64::EPSILON,
                 "itemize before_list should NOT be 6.0 (old value)"
             );
         }
@@ -7258,34 +7300,34 @@ mod tests {
     fn test_enumerate_topsep_not_6pt() {
         let node = make_enumerate(vec![vec![Node::Text("a".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::VSkip { amount }) = items.first() {
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
             assert!(
-                (*amount - 6.0).abs() > f64::EPSILON,
+                (*natural - 6.0).abs() > f64::EPSILON,
                 "enumerate before_list should NOT be 6.0 (old value)"
             );
         }
     }
 
-    // ===== M66 new tests: VSkip behavior verification =====
+    // ===== M67 tests: Glue behavior verification (reverted from M66 VSkip) =====
 
     #[test]
-    fn test_itemize_topsep_before_is_vskip() {
+    fn test_itemize_topsep_before_is_glue() {
         let node = make_itemize(vec![vec![Node::Text("hello".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "M66: first node must be VSkip{{amount:8.0}}, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "M67: first node must be Glue{{natural:8.0}}, got {:?}",
             items.first()
         );
     }
 
     #[test]
-    fn test_itemize_topsep_after_is_vskip() {
+    fn test_itemize_topsep_after_is_glue() {
         let node = make_itemize(vec![vec![Node::Text("hello".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "M66: last node must be VSkip{{amount:8.0}}, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "M67: last node must be Glue{{natural:8.0}}, got {:?}",
             items.last()
         );
     }
@@ -7294,14 +7336,14 @@ mod tests {
     fn test_itemize_topsep_before_amount_8pt() {
         let node = make_itemize(vec![vec![Node::Text("world".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::VSkip { amount }) = items.first() {
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
             assert!(
-                (*amount - 8.0).abs() < f64::EPSILON,
-                "M66: topsep before amount must be 8.0, got {}",
-                amount
+                (*natural - 8.0).abs() < f64::EPSILON,
+                "M67: topsep before natural must be 8.0, got {}",
+                natural
             );
         } else {
-            panic!("M66: first node must be VSkip, got {:?}", items.first());
+            panic!("M67: first node must be Glue, got {:?}", items.first());
         }
     }
 
@@ -7309,30 +7351,30 @@ mod tests {
     fn test_itemize_topsep_after_amount_8pt() {
         let node = make_itemize(vec![vec![Node::Text("world".to_string())]]);
         let items = translate_node(&node);
-        if let Some(BoxNode::VSkip { amount }) = items.last() {
+        if let Some(BoxNode::Glue { natural, .. }) = items.last() {
             assert!(
-                (*amount - 8.0).abs() < f64::EPSILON,
-                "M66: topsep after amount must be 8.0, got {}",
-                amount
+                (*natural - 8.0).abs() < f64::EPSILON,
+                "M67: topsep after natural must be 8.0, got {}",
+                natural
             );
         } else {
-            panic!("M66: last node must be VSkip, got {:?}", items.last());
+            panic!("M67: last node must be Glue, got {:?}", items.last());
         }
     }
 
     #[test]
-    fn test_itemize_itemsep_is_vskip() {
+    fn test_itemize_itemsep_is_glue() {
         let node = make_itemize(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_4 = items.iter().any(
-            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        let glue_4 = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
         );
         assert!(
-            vskip_4,
-            "M66: inter-item spacing must be VSkip{{amount:4.0}}"
+            glue_4,
+            "M67: inter-item spacing must be Glue{{natural:4.0}}"
         );
     }
 
@@ -7343,187 +7385,187 @@ mod tests {
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_amounts: Vec<f64> = items
+        let glue_naturals: Vec<f64> = items
             .iter()
             .filter_map(|n| {
-                if let BoxNode::VSkip { amount } = n {
-                    Some(*amount)
+                if let BoxNode::Glue { natural, .. } = n {
+                    Some(*natural)
                 } else {
                     None
                 }
             })
             .collect();
         assert!(
-            vskip_amounts.contains(&4.0),
-            "M66: inter-item VSkip amount must be 4.0, vskips found: {:?}",
-            vskip_amounts
+            glue_naturals.contains(&4.0),
+            "M67: inter-item Glue natural must be 4.0, glue naturals found: {:?}",
+            glue_naturals
         );
     }
 
     #[test]
-    fn test_enumerate_topsep_before_is_vskip() {
+    fn test_enumerate_topsep_before_is_glue() {
         let node = make_enumerate(vec![vec![Node::Text("item1".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "M66: enumerate first node must be VSkip{{amount:8.0}}, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "M67: enumerate first node must be Glue{{natural:8.0}}, got {:?}",
             items.first()
         );
     }
 
     #[test]
-    fn test_enumerate_topsep_after_is_vskip() {
+    fn test_enumerate_topsep_after_is_glue() {
         let node = make_enumerate(vec![vec![Node::Text("item1".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::VSkip { amount }) if (*amount - 8.0).abs() < f64::EPSILON),
-            "M66: enumerate last node must be VSkip{{amount:8.0}}, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 8.0).abs() < f64::EPSILON),
+            "M67: enumerate last node must be Glue{{natural:8.0}}, got {:?}",
             items.last()
         );
     }
 
     #[test]
-    fn test_enumerate_itemsep_is_vskip() {
+    fn test_enumerate_itemsep_is_glue() {
         let node = make_enumerate(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_4 = items.iter().any(
-            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        let glue_4 = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
         );
         assert!(
-            vskip_4,
-            "M66: enumerate inter-item spacing must be VSkip{{amount:4.0}}"
+            glue_4,
+            "M67: enumerate inter-item spacing must be Glue{{natural:4.0}}"
         );
     }
 
     #[test]
-    fn test_itemize_no_glue_at_list_boundary() {
+    fn test_itemize_glue_at_list_boundary() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            !matches!(items.first(), Some(BoxNode::Glue { .. })),
-            "M66: first node must NOT be Glue, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { .. })),
+            "M67: first node must be Glue, got {:?}",
             items.first()
         );
         assert!(
-            !matches!(items.last(), Some(BoxNode::Glue { .. })),
-            "M66: last node must NOT be Glue, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { .. })),
+            "M67: last node must be Glue, got {:?}",
             items.last()
         );
     }
 
     #[test]
-    fn test_enumerate_no_glue_at_list_boundary() {
+    fn test_enumerate_glue_at_list_boundary() {
         let node = make_enumerate(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            !matches!(items.first(), Some(BoxNode::Glue { .. })),
-            "M66: enumerate first node must NOT be Glue, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { .. })),
+            "M67: enumerate first node must be Glue, got {:?}",
             items.first()
         );
         assert!(
-            !matches!(items.last(), Some(BoxNode::Glue { .. })),
-            "M66: enumerate last node must NOT be Glue, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { .. })),
+            "M67: enumerate last node must be Glue, got {:?}",
             items.last()
         );
     }
 
     #[test]
-    fn test_itemize_two_items_has_vskip_between() {
+    fn test_itemize_two_items_has_glue_between() {
         let node = make_itemize(vec![
             vec![Node::Text("first".to_string())],
             vec![Node::Text("second".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_count = items
+        let glue_count = items
             .iter()
             .filter(
-                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+                |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
             )
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M66: 2-item list should have exactly 1 inter-item VSkip(4.0), got {}",
-            vskip_count
+            glue_count, 1,
+            "M67: 2-item list should have exactly 1 inter-item Glue(4.0), got {}",
+            glue_count
         );
     }
 
     #[test]
-    fn test_enumerate_two_items_has_vskip_between() {
+    fn test_enumerate_two_items_has_glue_between() {
         let node = make_enumerate(vec![
             vec![Node::Text("first".to_string())],
             vec![Node::Text("second".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_count = items
+        let glue_count = items
             .iter()
             .filter(
-                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+                |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
             )
             .count();
         assert_eq!(
-            vskip_count, 1,
-            "M66: 2-item enumerate should have exactly 1 inter-item VSkip(4.0), got {}",
-            vskip_count
+            glue_count, 1,
+            "M67: 2-item enumerate should have exactly 1 inter-item Glue(4.0), got {}",
+            glue_count
         );
     }
 
     #[test]
-    fn test_itemize_three_items_has_two_vskips() {
+    fn test_itemize_three_items_has_two_inter_glues() {
         let node = make_itemize(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
             vec![Node::Text("c".to_string())],
         ]);
         let items = translate_node(&node);
-        let vskip_4_count = items
+        let glue_4_count = items
             .iter()
             .filter(
-                |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+                |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
             )
             .count();
         assert_eq!(
-            vskip_4_count, 2,
-            "M66: 3-item list should have exactly 2 inter-item VSkip(4.0), got {}",
-            vskip_4_count
+            glue_4_count, 2,
+            "M67: 3-item list should have exactly 2 inter-item Glue(4.0), got {}",
+            glue_4_count
         );
     }
 
     #[test]
-    fn test_itemize_topsep_not_glue_type() {
+    fn test_itemize_topsep_is_glue_not_vskip() {
         let node = make_itemize(vec![vec![Node::Text("x".to_string())]]);
         let items = translate_node(&node);
         assert!(
-            !matches!(items.first(), Some(BoxNode::Glue { .. })),
-            "M66: first node must be VSkip not Glue"
+            !matches!(items.first(), Some(BoxNode::VSkip { .. })),
+            "M67: first node must be Glue not VSkip"
         );
     }
 
     #[test]
-    fn test_itemize_vskip_total_spacing_24pt() {
-        // 3-item list: topsep(8) + itemsep(4) + itemsep(4) + topsep(8) = 24pt
+    fn test_itemize_glue_total_natural_spacing_24pt() {
+        // 3-item list: topsep(8) + itemsep(4) + itemsep(4) + topsep(8) = 24pt natural
         let node = make_itemize(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
             vec![Node::Text("c".to_string())],
         ]);
         let items = translate_node(&node);
-        let total_vskip: f64 = items
+        let total_glue: f64 = items
             .iter()
             .filter_map(|n| {
-                if let BoxNode::VSkip { amount } = n {
-                    Some(*amount)
+                if let BoxNode::Glue { natural, .. } = n {
+                    Some(*natural)
                 } else {
                     None
                 }
             })
             .sum();
         assert!(
-            (total_vskip - 24.0).abs() < f64::EPSILON,
-            "M66: 3-item list total VSkip should be 24.0 (8+4+4+8), got {}",
-            total_vskip
+            (total_glue - 24.0).abs() < f64::EPSILON,
+            "M67: 3-item list total Glue natural should be 24.0 (8+4+4+8), got {}",
+            total_glue
         );
     }
 
@@ -7548,33 +7590,30 @@ mod tests {
     }
 
     #[test]
-    fn test_itemize_inter_item_vskip() {
+    fn test_itemize_inter_item_glue() {
         let node = make_itemize(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        // Between items there should be a VSkip{amount:4.0}
-        let has_inter_vskip = items.iter().any(
-            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        // Between items there should be a Glue{natural:4.0, ...}
+        let has_inter_glue = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
         );
-        assert!(has_inter_vskip, "Expected inter-item VSkip(4.0) in itemize");
+        assert!(has_inter_glue, "Expected inter-item Glue(4.0) in itemize");
     }
 
     #[test]
-    fn test_enumerate_inter_item_vskip() {
+    fn test_enumerate_inter_item_glue() {
         let node = make_enumerate(vec![
             vec![Node::Text("a".to_string())],
             vec![Node::Text("b".to_string())],
         ]);
         let items = translate_node(&node);
-        let has_inter_vskip = items.iter().any(
-            |n| matches!(n, BoxNode::VSkip { amount } if (*amount - 4.0).abs() < f64::EPSILON),
+        let has_inter_glue = items.iter().any(
+            |n| matches!(n, BoxNode::Glue { natural, .. } if (*natural - 4.0).abs() < f64::EPSILON),
         );
-        assert!(
-            has_inter_vskip,
-            "Expected inter-item VSkip(4.0) in enumerate"
-        );
+        assert!(has_inter_glue, "Expected inter-item Glue(4.0) in enumerate");
     }
 
     #[test]
@@ -7957,8 +7996,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.0).abs() < 0.001,
-            "M64: 12pt text should give 14.0, got {}",
+            (lh - 14.5).abs() < 0.001,
+            "M67: 12pt text should give 14.5, got {}",
             lh
         );
     }
@@ -14007,17 +14046,17 @@ mod tests {
             exponent: Box::new(Node::Text("2".to_string())),
         }]);
         let items = translate_node(&node);
-        // Should start with Glue(12pt) + Penalty and end with Penalty + Glue(12pt)
+        // Should start with Glue(10pt) + Penalty and end with Penalty + Glue(10pt)
         assert!(items.len() >= 5);
         assert!(
-            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON)
+            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 10.0).abs() < f64::EPSILON)
         );
         assert!(matches!(&items[1], BoxNode::Penalty { value: -10000 }));
         // Last two should be Penalty and Glue
         let n = items.len();
         assert!(matches!(&items[n - 2], BoxNode::Penalty { value: -10000 }));
         assert!(
-            matches!(&items[n - 1], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON)
+            matches!(&items[n - 1], BoxNode::Glue { natural, .. } if (*natural - 10.0).abs() < f64::EPSILON)
         );
     }
 
@@ -14360,32 +14399,32 @@ mod tests {
     }
 
     #[test]
-    fn test_m36_display_math_above_skip_is_12pt() {
+    fn test_m36_display_math_above_skip_is_10pt() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        // First item should be Glue with natural=12pt
+        // First item should be Glue with natural=10pt (pdflatex \abovedisplayskip=10pt)
         assert!(
-            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 12.0).abs() < f64::EPSILON),
-            "Display math abovedisplayskip should be 12pt, got {:?}",
+            matches!(items.first(), Some(BoxNode::Glue { natural, .. }) if (*natural - 10.0).abs() < f64::EPSILON),
+            "Display math abovedisplayskip should be 10pt, got {:?}",
             items.first()
         );
     }
 
     #[test]
-    fn test_m36_display_math_below_skip_is_12pt() {
+    fn test_m36_display_math_below_skip_is_10pt() {
         let node = Node::DisplayMath(vec![Node::Text("E=mc^2".to_string())]);
         let items = translate_node(&node);
-        // Last item should be Glue with natural=12pt
+        // Last item should be Glue with natural=10pt (pdflatex \belowdisplayskip=10pt)
         assert!(
-            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 12.0).abs() < f64::EPSILON),
-            "Display math belowdisplayskip should be 12pt, got {:?}",
+            matches!(items.last(), Some(BoxNode::Glue { natural, .. }) if (*natural - 10.0).abs() < f64::EPSILON),
+            "Display math belowdisplayskip should be 10pt, got {:?}",
             items.last()
         );
     }
 
     #[test]
     fn test_m36_display_math_structure() {
-        // DisplayMath should produce: Glue(12), Penalty(-10000), Text, Penalty(-10000), Glue(12)
+        // DisplayMath should produce: Glue(10), Penalty(-10000), Text, Penalty(-10000), Glue(10)
         let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
         let items = translate_node(&node);
         assert!(
@@ -14393,12 +14432,158 @@ mod tests {
             "DisplayMath should produce at least 5 items"
         );
         assert!(
-            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 12.0).abs() < f64::EPSILON),
-            "First item should be Glue(12pt)"
+            matches!(&items[0], BoxNode::Glue { natural, .. } if (*natural - 10.0).abs() < f64::EPSILON),
+            "First item should be Glue(10pt)"
         );
         assert!(
             matches!(&items[1], BoxNode::Penalty { value: -10000 }),
             "Second item should be Penalty(-10000)"
+        );
+    }
+
+    // ===== M67 Part 2: New display math spacing tests =====
+
+    #[test]
+    fn test_m67_display_math_above_skip_natural_10() {
+        // pdflatex \abovedisplayskip = 10pt plus 2pt minus 5pt
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+            assert!(
+                (*natural - 10.0).abs() < 0.01,
+                "M67: abovedisplayskip natural must be 10.0, got {}",
+                natural
+            );
+        } else {
+            panic!("M67: first item must be Glue, got {:?}", items.first());
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_above_skip_stretch_2() {
+        // pdflatex \abovedisplayskip = 10pt plus 2pt minus 5pt
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { stretch, .. }) = items.first() {
+            assert!(
+                (*stretch - 2.0).abs() < 0.01,
+                "M67: abovedisplayskip stretch must be 2.0, got {}",
+                stretch
+            );
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_above_skip_shrink_5() {
+        // pdflatex \abovedisplayskip = 10pt plus 2pt minus 5pt
+        let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { shrink, .. }) = items.first() {
+            assert!(
+                (*shrink - 5.0).abs() < 0.01,
+                "M67: abovedisplayskip shrink must be 5.0, got {}",
+                shrink
+            );
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_below_skip_natural_10() {
+        // pdflatex \belowdisplayskip = 10pt plus 2pt minus 5pt
+        let node = Node::DisplayMath(vec![Node::Text("y".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { natural, .. }) = items.last() {
+            assert!(
+                (*natural - 10.0).abs() < 0.01,
+                "M67: belowdisplayskip natural must be 10.0, got {}",
+                natural
+            );
+        } else {
+            panic!("M67: last item must be Glue, got {:?}", items.last());
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_below_skip_shrink_5() {
+        // pdflatex \belowdisplayskip = 10pt plus 2pt minus 5pt
+        let node = Node::DisplayMath(vec![Node::Text("y".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { shrink, .. }) = items.last() {
+            assert!(
+                (*shrink - 5.0).abs() < 0.01,
+                "M67: belowdisplayskip shrink must be 5.0, got {}",
+                shrink
+            );
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_not_12pt() {
+        // Verify old 12pt value is gone
+        let node = Node::DisplayMath(vec![Node::Text("z".to_string())]);
+        let items = translate_node(&node);
+        if let Some(BoxNode::Glue { natural, .. }) = items.first() {
+            assert!(
+                (*natural - 12.0).abs() > 0.01,
+                "M67: abovedisplayskip must NOT be 12pt (old value)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_m67_display_math_context_above_natural_10() {
+        // Context path should also use 10pt
+        let node = Node::Document(vec![Node::DisplayMath(vec![Node::Text("e".to_string())])]);
+        let items = translate_with_context(&node);
+        let first_glue = items.iter().find(|n| matches!(n, BoxNode::Glue { .. }));
+        if let Some(BoxNode::Glue { natural, .. }) = first_glue {
+            assert!(
+                (*natural - 10.0).abs() < 0.01,
+                "M67: context abovedisplayskip natural must be 10.0, got {}",
+                natural
+            );
+        } else {
+            panic!("M67: no Glue found in context display math");
+        }
+    }
+
+    // ===== M67 Part 3: New subsection line_height tests =====
+
+    #[test]
+    fn test_m67_subsection_line_height_is_14_5() {
+        // M67: 12pt subsection font → line_height = 14.5
+        let nodes = vec![BoxNode::Text {
+            text: "Subsection".to_string(),
+            width: 60.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 14.5).abs() < 0.01,
+            "M67: 12pt subsection must give line_height=14.5, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m67_subsection_line_height_not_14() {
+        // M67: verify old 14.0 value is no longer returned
+        let nodes = vec![BoxNode::Text {
+            text: "Sub".to_string(),
+            width: 30.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 14.0).abs() > 0.01,
+            "M67: line_height must not be old 14.0 value, got {}",
+            lh
         );
     }
 
@@ -17552,7 +17737,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M64: compute_line_height for [Text{font_size:12.0}] → 14.0
+        // M67: compute_line_height for [Text{font_size:12.0}] → 14.5 (pdflatex \large baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17563,8 +17748,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.0).abs() < 0.01,
-            "M64: 12.0pt text should give line height 14.0, got {}",
+            (lh - 14.5).abs() < 0.01,
+            "M67: 12.0pt text should give line height 14.5, got {}",
             lh
         );
     }
@@ -17589,8 +17774,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m60_display_math_shrink_is_9_metrics() {
-        // DisplayMath in metrics path: first and last Glue have shrink=9.0
+    fn test_m60_display_math_shrink_is_5_metrics() {
+        // DisplayMath in metrics path: first and last Glue have shrink=5.0 (pdflatex value)
         let metrics = StandardFontMetrics;
         let node = Node::DisplayMath(vec![Node::Text("x".to_string())]);
         let nodes = translate_node_with_metrics(&node, &metrics);
@@ -17605,8 +17790,8 @@ mod tests {
         for g in &glues {
             if let BoxNode::Glue { shrink, .. } = g {
                 assert!(
-                    (*shrink - 9.0).abs() < 0.01,
-                    "M60: DisplayMath Glue shrink must be 9.0, got {}",
+                    (*shrink - 5.0).abs() < 0.01,
+                    "M67: DisplayMath Glue shrink must be 5.0, got {}",
                     shrink
                 );
             }
@@ -17614,8 +17799,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m60_display_math_shrink_is_9_context() {
-        // DisplayMath in context path: first and last Glue have shrink=9.0
+    fn test_m60_display_math_shrink_is_5_context() {
+        // DisplayMath in context path: first and last Glue have shrink=5.0 (pdflatex value)
         let node = Node::Document(vec![Node::DisplayMath(vec![Node::Text("y".to_string())])]);
         let items = translate_with_context(&node);
         let glues: Vec<&BoxNode> = items
@@ -17629,8 +17814,8 @@ mod tests {
         for g in &glues {
             if let BoxNode::Glue { shrink, .. } = g {
                 assert!(
-                    (*shrink - 9.0).abs() < 0.01,
-                    "M60: DisplayMath context Glue shrink must be 9.0, got {}",
+                    (*shrink - 5.0).abs() < 0.01,
+                    "M67: DisplayMath context Glue shrink must be 5.0, got {}",
                     shrink
                 );
             }
@@ -17638,8 +17823,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m60_display_math_natural_is_12() {
-        // DisplayMath glue natural=12.0
+    fn test_m60_display_math_natural_is_10() {
+        // DisplayMath glue natural=10.0 (pdflatex \abovedisplayskip=10pt plus 2pt minus 5pt)
         let metrics = StandardFontMetrics;
         let node = Node::DisplayMath(vec![Node::Text("z".to_string())]);
         let nodes = translate_node_with_metrics(&node, &metrics);
@@ -17650,8 +17835,8 @@ mod tests {
         for g in &glues {
             if let BoxNode::Glue { natural, .. } = g {
                 assert!(
-                    (*natural - 12.0).abs() < 0.01,
-                    "M60: DisplayMath Glue natural must be 12.0, got {}",
+                    (*natural - 10.0).abs() < 0.01,
+                    "M67: DisplayMath Glue natural must be 10.0, got {}",
                     natural
                 );
             }
@@ -17659,8 +17844,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m60_display_math_stretch_is_3() {
-        // DisplayMath glue stretch=3.0
+    fn test_m60_display_math_stretch_is_2() {
+        // DisplayMath glue stretch=2.0 (pdflatex value)
         let metrics = StandardFontMetrics;
         let node = Node::DisplayMath(vec![Node::Text("w".to_string())]);
         let nodes = translate_node_with_metrics(&node, &metrics);
@@ -17671,8 +17856,8 @@ mod tests {
         for g in &glues {
             if let BoxNode::Glue { stretch, .. } = g {
                 assert!(
-                    (*stretch - 3.0).abs() < 0.01,
-                    "M60: DisplayMath Glue stretch must be 3.0, got {}",
+                    (*stretch - 2.0).abs() < 0.01,
+                    "M67: DisplayMath Glue stretch must be 2.0, got {}",
                     stretch
                 );
             }
@@ -17752,8 +17937,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m62_line_height_12pt_unchanged() {
-        // M64: compute_line_height for 12pt text must return 14.0 (baselineskip)
+    fn test_m62_line_height_12pt_is_14_5() {
+        // M67: compute_line_height for 12pt text must return 14.5 (pdflatex \large baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -17764,8 +17949,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.0).abs() < 0.01,
-            "M64: 12pt text must give line_height=14.0, got {}",
+            (lh - 14.5).abs() < 0.01,
+            "M67: 12pt text must give line_height=14.5, got {}",
             lh
         );
     }
@@ -17966,8 +18151,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m64_compute_line_height_subsection_is_14() {
-        // M64: 12.0pt → 14.0
+    fn test_m64_compute_line_height_subsection_is_14_5() {
+        // M67: 12.0pt → 14.5 (pdflatex \large baselineskip = 14.5pt)
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17978,8 +18163,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.0).abs() < 0.01,
-            "M64: 12.0pt must give line_height=14.0, got {}",
+            (lh - 14.5).abs() < 0.01,
+            "M67: 12.0pt must give line_height=14.5, got {}",
             lh
         );
     }
