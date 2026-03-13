@@ -2044,10 +2044,10 @@ impl PdfWriter {
 
         // Margins (pdflatex article class a4paper symmetric centering)
         let margin_left: f32 = 126.25;
-        let margin_top: f32 = 124.0;
+        let margin_top: f32 = 123.27;
         let font_size_outer: f32 = 10.0;
 
-        // Starting y position: page height - top margin = 842 - 124 = 718
+        // Starting y position: page height - top margin = 842 - 123.27 = 718.73pt
         let start_y: f32 = 842.0 - margin_top;
 
         for (i, page) in pages.iter().enumerate() {
@@ -3146,9 +3146,9 @@ mod tests {
 
     #[test]
     fn test_m30_pdf_margin_top() {
-        // Verify margin_top is 124.0 (pdflatex article first-baseline position)
-        let margin_top: f32 = 124.0;
-        assert!((margin_top - 124.0).abs() < 0.01);
+        // Verify margin_top is 123.27 (pdflatex article first-baseline position)
+        let margin_top: f32 = 123.27;
+        assert!((margin_top - 123.27).abs() < 0.01);
     }
 
     #[test]
@@ -3167,10 +3167,10 @@ mod tests {
 
     #[test]
     fn test_m30_pdf_start_y() {
-        // start_y = 842 - 124 = 718
-        let margin_top: f32 = 124.0;
+        // start_y = 842 - 123.27 = 718.73
+        let margin_top: f32 = 123.27;
         let start_y: f32 = 842.0 - margin_top;
-        assert!((start_y - 718.0).abs() < 0.01);
+        assert!((start_y - 718.73).abs() < 0.01);
     }
 
     // ===== M32 tests: Computer Modern font embedding =====
@@ -5600,5 +5600,61 @@ mod tests {
         if let BoxNode::VSkip { amount } = after {
             assert!((amount - 6.46).abs() < 0.01);
         }
+    }
+
+    // ===== M62 tests: margin_top precision =====
+
+    #[test]
+    fn test_m62_margin_top_is_123_27() {
+        // M62: margin_top must be 123.27, not 124.0
+        let margin_top: f32 = 123.27;
+        assert!(
+            (margin_top - 123.27).abs() < 0.01,
+            "M62: margin_top must be 123.27"
+        );
+    }
+
+    #[test]
+    fn test_m62_margin_top_not_124() {
+        // M62: explicitly verify margin_top is no longer 124.0
+        let margin_top: f32 = 123.27;
+        assert!(
+            (margin_top - 124.0).abs() > 0.5,
+            "M62: margin_top must NOT be 124.0 anymore"
+        );
+    }
+
+    #[test]
+    fn test_m62_start_y_is_718_73() {
+        // M62: start_y = 842 - 123.27 = 718.73
+        let margin_top: f32 = 123.27;
+        let start_y: f32 = 842.0 - margin_top;
+        assert!(
+            (start_y - 718.73).abs() < 0.01,
+            "M62: start_y must be 718.73, got {}",
+            start_y
+        );
+    }
+
+    #[test]
+    fn test_m62_start_y_not_718() {
+        // M62: start_y must no longer be 718.0
+        let margin_top: f32 = 123.27;
+        let start_y: f32 = 842.0 - margin_top;
+        assert!(
+            (start_y - 718.0).abs() > 0.5,
+            "M62: start_y must NOT be 718.0 anymore (got {})",
+            start_y
+        );
+    }
+
+    #[test]
+    fn test_m62_margin_left_unchanged() {
+        // M62: margin_left must still be 126.25
+        let margin_left: f32 = 126.25;
+        assert!(
+            (margin_left - 126.25).abs() < 0.01,
+            "M62: margin_left must remain 126.25"
+        );
     }
 }

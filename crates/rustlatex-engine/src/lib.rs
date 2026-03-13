@@ -212,7 +212,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     if max_font_size == f64::NEG_INFINITY {
         12.0
     } else if (max_font_size - 14.4).abs() < 0.01 {
-        17.0 // pdflatex \Large = 14.4pt with baselineskip=17pt
+        18.0 // pdflatex \Large = 14.4pt with baselineskip=18pt
     } else if (max_font_size - 12.0).abs() < 0.01 {
         14.0 // pdflatex \large = 12pt with baselineskip=14pt
     } else {
@@ -17317,7 +17317,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_14pt_section() {
-        // compute_line_height for [Text{font_size:14.4}] → 17.0
+        // compute_line_height for [Text{font_size:14.4}] → 18.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17328,8 +17328,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M60: 14.4pt text should give line height 17.0, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M60: 14.4pt text should give line height 18.0, got {}",
             lh
         );
     }
@@ -17492,6 +17492,164 @@ mod tests {
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
             "M61: only node must be Text"
+        );
+    }
+
+    // ===== M62 tests: line_height 18.0 for 14.4pt, margin precision =====
+
+    #[test]
+    fn test_m62_line_height_14_4pt_is_18() {
+        // M62: compute_line_height for 14.4pt text must return 18.0
+        let nodes = vec![BoxNode::Text {
+            text: "Test".to_string(),
+            width: 40.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 18.0).abs() < 0.01,
+            "M62: 14.4pt text must give line_height=18.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_14_4pt_bold() {
+        // M62: compute_line_height for 14.4pt Bold text must return 18.0
+        let nodes = vec![BoxNode::Text {
+            text: "Section".to_string(),
+            width: 50.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 18.0).abs() < 0.01,
+            "M62: 14.4pt Bold text must give line_height=18.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_12pt_unchanged() {
+        // M62: compute_line_height for 12pt text must still return 14.0
+        let nodes = vec![BoxNode::Text {
+            text: "Normal".to_string(),
+            width: 40.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 14.0).abs() < 0.01,
+            "M62: 12pt text must give line_height=14.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_10pt_default() {
+        // M62: compute_line_height for 10pt text → 10 * 1.2 = 12.0
+        let nodes = vec![BoxNode::Text {
+            text: "Small".to_string(),
+            width: 30.0,
+            font_size: 10.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "M62: 10pt text must give line_height=12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_empty_nodes() {
+        // M62: compute_line_height with empty nodes should use default 12.0
+        let nodes: Vec<BoxNode> = vec![];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "M62: empty nodes must give default line_height=12.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_mixed_sizes_picks_max() {
+        // M62: with mixed font sizes, line_height based on max
+        let nodes = vec![
+            BoxNode::Text {
+                text: "Small".to_string(),
+                width: 30.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Text {
+                text: "Large".to_string(),
+                width: 50.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+        ];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 18.0).abs() < 0.01,
+            "M62: mixed sizes with max=14.4pt must give line_height=18.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_not_17() {
+        // M62: explicitly verify that 14.4pt does NOT return 17.0
+        let nodes = vec![BoxNode::Text {
+            text: "Check".to_string(),
+            width: 40.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 17.0).abs() > 0.5,
+            "M62: 14.4pt must NOT give line_height=17.0 anymore (got {})",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m62_line_height_14_4pt_ratio() {
+        // M62: 18.0 / 14.4 = 1.25, matching pdflatex baselineskip ratio
+        let nodes = vec![BoxNode::Text {
+            text: "Ratio".to_string(),
+            width: 40.0,
+            font_size: 14.4,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        let ratio = lh / 14.4;
+        assert!(
+            (ratio - 1.25).abs() < 0.01,
+            "M62: line_height/font_size ratio for 14.4pt must be ~1.25, got {}",
+            ratio
         );
     }
 }
