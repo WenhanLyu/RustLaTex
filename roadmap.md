@@ -993,8 +993,10 @@ Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection transla
 - Commit: 3317070
 - Cycles actual: 1
 
-### M68: Section Heading Line Height + Targeted Non-VSkip Improvements
-Try adjusting section heading line_height from 18.0 to ~21.0pt to account for pdflatex's afterskip within the heading line itself (NOT via VSkip). Also add diagnostic tests.
+### M68: Section Heading Line Height Experiment (Non-VSkip Approach)
+Adjust section heading effective line_height from 18.0 to 21.0pt in compute_line_height. Theory: pdflatex's \\section afterskip=9.9pt means first para baseline is ~21pt below section heading baseline (18pt baselineskip + 3pt from afterskip's effective contribution). Changing line_height from 18→21 shifts first para 3pt down, matching pdflatex better WITHOUT adding any VSkip nodes.
+
+Key: this is different from all previous VSkip attempts because we change the HEADING LINE'S OWN line_height, not add separate VSkip lines. VSkip added 9.9pt on top of 18pt (too much). This approach sets total advance to 21pt (exactly what pdflatex gives).
 
 - **Cycles budget:** 2
 
