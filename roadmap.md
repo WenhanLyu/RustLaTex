@@ -137,6 +137,9 @@ Binary-identical output requires:
 - **M63 VSkip{0.0} chunk separator:** M63 also added VSkip{0.0} after section headings as "chunk separators". This is harmless (VSkip with 0.0 does nothing), but didn't improve similarity.
 - **Cycle (M65):** M65 completed (d7f888c). Removed VSkip{0.0} from section headings. Pixel similarity = **97.24%** (recovered). CI green. 
 - **M66 hypothesis (Athena direct):** Remaining 2.76% gap (13,834 pixels) likely caused by missing itemize vertical spacing. Itemize uses Glue nodes for topsep (8pt) and itemsep (4pt) which are HORIZONTAL glue → stripped by strip_glue → NO vertical effect. pdflatex has 24pt total vertical spacing around itemize for compare.tex. Fix: convert to VSkip nodes. Diana assigned to verify via issue #63.
+- **M66 REGRESSION (97.24%→97.06%):** Itemize VSkip conversion REGRESSED. VSkip-based spacing consistently regresses for both section headings AND itemize environments. This is now confirmed as a pattern: do NOT add VSkip for list spacing. The underlying model of "add VSkip to match pdflatex spacing" is fundamentally broken in our engine. Future fixes must focus on NON-SPACING sources of difference.
+- **VSkip anti-pattern:** VSkip-only lines use their `line_height = amount` for vertical advance in the PDF backend. This is the WRONG model: pdflatex integrates spacing into the baseline skip calculation for neighboring lines, not as separate VSkip lines. Adding VSkip before/after lists adds spacing that ISN'T in pdflatex's model (at those exact positions relative to our layout), causing cascading mismatches.
+- **LESSON: Do NOT add VSkip around itemize lists** — confirmed regresses. Add this to the same rule as section heading VSkip.
 
 ## Milestones
 
@@ -982,23 +985,21 @@ Remove BoxNode::VSkip{amount: 0.0} from section/subsection/subsubsection transla
 - **Status:** ✅ Complete — Leo implemented (commit d7f888c), 97.24% similarity confirmed in CI.
 - **Cycles budget:** 1 | **Cycles actual:** 1
 
-### M66: Fix Itemize Vertical Spacing (topsep/itemsep as VSkip)
+### M66: Fix Itemize Vertical Spacing (topsep/itemsep as VSkip) ⚠️ REGRESSION
 
-**Hypothesis**: The remaining 2.76% gap (13,834 pixels) is primarily caused by missing vertical spacing in itemize environments. Currently:
-- Itemize topsep (`Glue{8,2,4}` before/after list) is a HORIZONTAL glue → stripped by strip_glue → NO vertical effect
-- Itemize itemsep (`Glue{4,...}` between items) is a HORIZONTAL glue → stripped → NO vertical effect
-- pdflatex adds 8pt topsep before list, 4pt itemsep between items, 8pt topsep after list = 24pt total vertical spacing
+**Result**: Converted itemize Glue → VSkip for topsep/itemsep. CI showed regression: 97.24% → 97.06% (-0.18%).
+**Lesson learned**: Itemize VSkip regresses. Same pattern as section heading VSkip. Add to "never do" list.
+- Commit: 3317070
+- Cycles actual: 1
 
-**Fix**: Convert itemize topsep/itemsep from `BoxNode::Glue` to `BoxNode::VSkip`:
-1. Before list: `VSkip{amount: 8.0}` instead of `Glue{8,2,4}`
-2. Between items: `VSkip{amount: 4.0}` instead of `Glue{4,0.5,0.5}`
-3. After list: `VSkip{amount: 8.0}` instead of `Glue{8,2,4}`
+### M67: Revert M66 VSkip Regression + Fix Display Math Spacing
+Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix display math vertical spacing.
 
-VSkip nodes already work correctly — they create actual vertical movement in PDF output and proper line heights in the engine.
+**Fix 1 (recovery)**: Revert itemize VSkip → Glue (back to d7f888c state for these nodes).
 
-**Secondary fix**: For wrapped itemize lines — continuation lines need a 25pt left indent to match pdflatex's \leftmargini. Diana to propose approach in issue #63.
+**Fix 2 (improvement)**: Display math spacing: change `natural: 12.0` → `natural: 10.0`, `stretch: 3.0` → `stretch: 2.0`, `shrink: 9.0` → `shrink: 5.0` for above/below display math Glue nodes. pdflatex uses `\abovedisplayskip = 10pt plus 2pt minus 5pt`. Four locations in engine.
 
-**Expected impact**: ~24pt vertical correction → most of the remaining 13,834 pixels. Target: 98%+ similarity.
+**Expected impact**: ~400-800 pixels improvement (0.08-0.16%). Also subsection line_height 14.0→14.5.
 
 - **Cycles budget:** 2
 
