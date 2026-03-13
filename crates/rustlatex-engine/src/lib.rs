@@ -212,9 +212,9 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     if max_font_size == f64::NEG_INFINITY {
         12.0
     } else if (max_font_size - 14.4).abs() < 0.01 {
-        9.9 // pdflatex \section afterskip: 2.3ex at \Large (14.4pt)
+        18.0 // pdflatex \Large baselineskip = 18pt
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        6.46 // pdflatex \subsection afterskip: 1.5ex at \large (12pt)
+        14.0 // pdflatex \large baselineskip = 14pt
     } else {
         max_font_size * 1.2
     }
@@ -7753,8 +7753,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 6.46).abs() < 0.001,
-            "M63: 12pt text should give 6.46, got {}",
+            (lh - 14.0).abs() < 0.001,
+            "M64: 12pt text should give 14.0, got {}",
             lh
         );
     }
@@ -17344,7 +17344,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_14pt_section() {
-        // M63: compute_line_height for [Text{font_size:14.4}] → 9.9
+        // M64: compute_line_height for [Text{font_size:14.4}] → 18.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17355,15 +17355,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 9.9).abs() < 0.01,
-            "M63: 14.4pt text should give line height 9.9, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M64: 14.4pt text should give line height 18.0, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M63: compute_line_height for [Text{font_size:12.0}] → 6.46
+        // M64: compute_line_height for [Text{font_size:12.0}] → 14.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17374,8 +17374,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 6.46).abs() < 0.01,
-            "M63: 12.0pt text should give line height 6.46, got {}",
+            (lh - 14.0).abs() < 0.01,
+            "M64: 12.0pt text should give line height 14.0, got {}",
             lh
         );
     }
@@ -17530,7 +17530,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_14_4pt_is_18() {
-        // M63: compute_line_height for 14.4pt text must return 9.9 (afterskip)
+        // M64: compute_line_height for 14.4pt text must return 18.0 (baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Test".to_string(),
             width: 40.0,
@@ -17541,15 +17541,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 9.9).abs() < 0.01,
-            "M63: 14.4pt text must give line_height=9.9, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M64: 14.4pt text must give line_height=18.0, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m62_line_height_14_4pt_bold() {
-        // M63: compute_line_height for 14.4pt Bold text must return 9.9
+        // M64: compute_line_height for 14.4pt Bold text must return 18.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17560,15 +17560,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 9.9).abs() < 0.01,
-            "M63: 14.4pt Bold text must give line_height=9.9, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M64: 14.4pt Bold text must give line_height=18.0, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m62_line_height_12pt_unchanged() {
-        // M63: compute_line_height for 12pt text must return 6.46 (afterskip)
+        // M64: compute_line_height for 12pt text must return 14.0 (baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -17579,8 +17579,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 6.46).abs() < 0.01,
-            "M63: 12pt text must give line_height=6.46, got {}",
+            (lh - 14.0).abs() < 0.01,
+            "M64: 12pt text must give line_height=14.0, got {}",
             lh
         );
     }
@@ -17618,7 +17618,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_mixed_sizes_picks_max() {
-        // M63: with mixed font sizes, line_height based on max (14.4pt → 9.9)
+        // M64: with mixed font sizes, line_height based on max (14.4pt → 18.0)
         let nodes = vec![
             BoxNode::Text {
                 text: "Small".to_string(),
@@ -17639,8 +17639,8 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 9.9).abs() < 0.01,
-            "M63: mixed sizes with max=14.4pt must give line_height=9.9, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M64: mixed sizes with max=14.4pt must give line_height=18.0, got {}",
             lh
         );
     }
@@ -17666,7 +17666,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_14_4pt_ratio() {
-        // M63: 9.9 / 14.4 ≈ 0.6875 (afterskip ratio)
+        // M64: 18.0 / 14.4 = 1.25 (baselineskip ratio)
         let nodes = vec![BoxNode::Text {
             text: "Ratio".to_string(),
             width: 40.0,
@@ -17678,8 +17678,8 @@ mod tests {
         let lh = compute_line_height(&nodes);
         let ratio = lh / 14.4;
         assert!(
-            (ratio - 0.6875).abs() < 0.01,
-            "M63: line_height/font_size ratio for 14.4pt must be ~0.6875, got {}",
+            (ratio - 1.25).abs() < 0.01,
+            "M64: line_height/font_size ratio for 14.4pt must be ~1.25, got {}",
             ratio
         );
     }
@@ -17766,8 +17766,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m63_compute_line_height_section_is_9_9() {
-        // M63: 14.4pt → 9.9
+    fn test_m64_compute_line_height_section_is_18() {
+        // M64: 14.4pt → 18.0
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -17778,15 +17778,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 9.9).abs() < 0.01,
-            "M63: 14.4pt must give line_height=9.9, got {}",
+            (lh - 18.0).abs() < 0.01,
+            "M64: 14.4pt must give line_height=18.0, got {}",
             lh
         );
     }
 
     #[test]
-    fn test_m63_compute_line_height_subsection_is_6_46() {
-        // M63: 12.0pt → 6.46
+    fn test_m64_compute_line_height_subsection_is_14() {
+        // M64: 12.0pt → 14.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17797,8 +17797,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 6.46).abs() < 0.01,
-            "M63: 12.0pt must give line_height=6.46, got {}",
+            (lh - 14.0).abs() < 0.01,
+            "M64: 12.0pt must give line_height=14.0, got {}",
             lh
         );
     }
