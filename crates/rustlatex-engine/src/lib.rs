@@ -214,7 +214,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     } else if (max_font_size - 14.4).abs() < 0.01 {
         21.0 // pdflatex effective section-to-paragraph baseline advance = 21pt (afterskip ~9.9pt + depth ~3.4pt + baselineskip)
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        14.5 // pdflatex \large baselineskip = 14.5pt
+        17.0 // subsection: 14.5pt baselineskip + afterskip effect
     } else {
         max_font_size * 1.2
     }
@@ -4757,6 +4757,31 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
         }
     }
 
+    // Post-process: adjust line_height for display math (Center-aligned) lines.
+    // The Glue(10pt) above/below display math gets stripped; compensate via line_height.
+    // Only apply to Center-aligned lines that contain math at ~10pt font size
+    // (not headings at 14.4pt or 12pt).
+    for i in 0..result.len() {
+        if result[i].alignment == Alignment::Center {
+            // Check this is a math line (contains Text at ~10pt, not heading font sizes)
+            let has_math_text = result[i].nodes.iter().any(|n| {
+                if let BoxNode::Text { font_size, .. } = n {
+                    (*font_size - 10.0).abs() < 0.5
+                } else {
+                    false
+                }
+            });
+            if has_math_text {
+                // Add belowdisplayskip (10pt) to the math line itself
+                result[i].line_height += 10.0;
+                // Add abovedisplayskip (10pt) to the preceding line
+                if i > 0 {
+                    result[i - 1].line_height += 10.0;
+                }
+            }
+        }
+    }
+
     result
 }
 
@@ -7996,8 +8021,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.5).abs() < 0.001,
-            "M67: 12pt text should give 14.5, got {}",
+            (lh - 17.0).abs() < 0.001,
+            "M67: 12pt text should give 17.0, got {}",
             lh
         );
     }
@@ -14551,7 +14576,7 @@ mod tests {
 
     #[test]
     fn test_m67_subsection_line_height_is_14_5() {
-        // M67: 12pt subsection font → line_height = 14.5
+        // M67: 12pt subsection font → line_height = 17.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 60.0,
@@ -14562,8 +14587,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.5).abs() < 0.01,
-            "M67: 12pt subsection must give line_height=14.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M67: 12pt subsection must give line_height=17.0, got {}",
             lh
         );
     }
@@ -17737,7 +17762,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M67: compute_line_height for [Text{font_size:12.0}] → 14.5 (pdflatex \large baselineskip)
+        // M67: compute_line_height for [Text{font_size:12.0}] → 17.0 (pdflatex \large baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17748,8 +17773,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.5).abs() < 0.01,
-            "M67: 12.0pt text should give line height 14.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M67: 12.0pt text should give line height 17.0, got {}",
             lh
         );
     }
@@ -17938,7 +17963,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_12pt_is_14_5() {
-        // M67: compute_line_height for 12pt text must return 14.5 (pdflatex \large baselineskip)
+        // M67: compute_line_height for 12pt text must return 17.0 (pdflatex \large baselineskip)
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -17949,8 +17974,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.5).abs() < 0.01,
-            "M67: 12pt text must give line_height=14.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M67: 12pt text must give line_height=17.0, got {}",
             lh
         );
     }
@@ -18151,7 +18176,7 @@ mod tests {
 
     #[test]
     fn test_m64_compute_line_height_subsection_is_14_5() {
-        // M67: 12.0pt → 14.5 (pdflatex \large baselineskip = 14.5pt)
+        // M67: 12.0pt → 17.0 (pdflatex \large baselineskip = 14.5pt)
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -18162,8 +18187,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 14.5).abs() < 0.01,
-            "M67: 12.0pt must give line_height=14.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M67: 12.0pt must give line_height=17.0, got {}",
             lh
         );
     }
@@ -18399,7 +18424,7 @@ mod tests {
 
     #[test]
     fn test_m68_section_line_height_exceeds_subsection() {
-        // M68: 14.4pt section (21.0) > 12pt subsection (14.5)
+        // M68: 14.4pt section (21.0) > 12pt subsection (17.0)
         let section_nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 60.0,
@@ -18429,8 +18454,8 @@ mod tests {
             "M68: section must be 21.0"
         );
         assert!(
-            (subsection_lh - 14.5).abs() < 0.01,
-            "M68: subsection must be 14.5"
+            (subsection_lh - 17.0).abs() < 0.01,
+            "M68: subsection must be 17.0"
         );
     }
 
@@ -18601,6 +18626,204 @@ mod tests {
             (lh - 12.0).abs() < 0.01,
             "M68: 10pt body text must still give 12.0, got {}",
             lh
+        );
+    }
+
+    // ===== M69 Tests =====
+
+    #[test]
+    fn test_m69_subsection_line_height_is_17() {
+        // M69: 12pt font (subsection) should give 17.0
+        let nodes = vec![BoxNode::Text {
+            text: "Subsection".to_string(),
+            width: 80.0,
+            font_size: 12.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 17.0).abs() < 0.01,
+            "M69: 12pt subsection must give line_height=17.0, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m69_display_math_line_gets_plus10() {
+        // M69: Center-aligned line with 10pt text (math) gets +10 line_height
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "x + y = z".to_string(),
+                width: 60.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Italic,
+                vertical_offset: 0.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // Find the Center-aligned line with 10pt text
+        let math_line = lines.iter().find(|l| {
+            l.alignment == Alignment::Center
+                && l.nodes.iter().any(|n| {
+                    if let BoxNode::Text { font_size, .. } = n {
+                        (*font_size - 10.0).abs() < 0.5
+                    } else {
+                        false
+                    }
+                })
+        });
+        assert!(math_line.is_some(), "M69: should have a Center math line");
+        let ml = math_line.unwrap();
+        // base line_height for 10pt = 12.0, +10 = 22.0
+        assert!(
+            (ml.line_height - 22.0).abs() < 0.01,
+            "M69: display math line_height should be 22.0 (12+10), got {}",
+            ml.line_height
+        );
+    }
+
+    #[test]
+    fn test_m69_preceding_line_gets_plus10() {
+        // M69: line before Center+10pt math gets +10 line_height
+        let items = vec![
+            BoxNode::Text {
+                text: "Some preceding text.".to_string(),
+                width: 120.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "x + y = z".to_string(),
+                width: 60.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Italic,
+                vertical_offset: 0.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        // Find the Center math line index
+        let math_idx = lines.iter().position(|l| {
+            l.alignment == Alignment::Center
+                && l.nodes.iter().any(|n| {
+                    if let BoxNode::Text { font_size, .. } = n {
+                        (*font_size - 10.0).abs() < 0.5
+                    } else {
+                        false
+                    }
+                })
+        });
+        assert!(math_idx.is_some(), "M69: should have a Center math line");
+        let mi = math_idx.unwrap();
+        assert!(mi > 0, "M69: math line should not be first");
+        // Preceding line gets +10: base 12.0 + 10.0 = 22.0
+        assert!(
+            (lines[mi - 1].line_height - 22.0).abs() < 0.01,
+            "M69: preceding line_height should be 22.0 (12+10), got {}",
+            lines[mi - 1].line_height
+        );
+    }
+
+    #[test]
+    fn test_m69_center_heading_not_affected() {
+        // M69: Center+12pt (subsection heading) does NOT get +10
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "Subsection Heading".to_string(),
+                width: 120.0,
+                font_size: 12.0,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        let heading_line = lines.iter().find(|l| {
+            l.alignment == Alignment::Center
+                && l.nodes.iter().any(|n| {
+                    if let BoxNode::Text { font_size, .. } = n {
+                        (*font_size - 12.0).abs() < 0.01
+                    } else {
+                        false
+                    }
+                })
+        });
+        assert!(
+            heading_line.is_some(),
+            "M69: should have Center heading line"
+        );
+        let hl = heading_line.unwrap();
+        // Should be 17.0 (subsection), NOT 17.0+10=27.0
+        assert!(
+            (hl.line_height - 17.0).abs() < 0.01,
+            "M69: center heading (12pt) should be 17.0, not +10; got {}",
+            hl.line_height
+        );
+    }
+
+    #[test]
+    fn test_m69_center_section_not_affected() {
+        // M69: Center+14.4pt (section heading) does NOT get +10
+        let items = vec![
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center,
+            },
+            BoxNode::Text {
+                text: "Section Heading".to_string(),
+                width: 120.0,
+                font_size: 14.4,
+                color: None,
+                font_style: FontStyle::Bold,
+                vertical_offset: 0.0,
+            },
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify,
+            },
+        ];
+        let lines = break_items_with_alignment(&items, 345.0);
+        let section_line = lines.iter().find(|l| {
+            l.alignment == Alignment::Center
+                && l.nodes.iter().any(|n| {
+                    if let BoxNode::Text { font_size, .. } = n {
+                        (*font_size - 14.4).abs() < 0.01
+                    } else {
+                        false
+                    }
+                })
+        });
+        assert!(
+            section_line.is_some(),
+            "M69: should have Center section line"
+        );
+        let sl = section_line.unwrap();
+        // Should be 21.0 (section), NOT 21.0+10=31.0
+        assert!(
+            (sl.line_height - 21.0).abs() < 0.01,
+            "M69: center section (14.4pt) should be 21.0, not +10; got {}",
+            sl.line_height
         );
     }
 }
