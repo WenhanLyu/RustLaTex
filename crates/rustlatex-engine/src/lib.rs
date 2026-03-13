@@ -1578,14 +1578,17 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         String::new()
                     };
                     let width = metrics.string_width(&title);
-                    vec![BoxNode::Text {
-                        text: title,
-                        width,
-                        font_size,
-                        color: None,
-                        font_style: FontStyle::Bold,
-                        vertical_offset: 0.0,
-                    }]
+                    vec![
+                        BoxNode::Text {
+                            text: title,
+                            width,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Penalty { value: -10000 }, // Force heading onto its own line
+                    ]
                 }
                 "hspace" => {
                     let dim = if let Some(arg) = args.first() {
@@ -2340,6 +2343,7 @@ pub fn translate_node_with_context(
                 stretch: 1.0,
                 shrink: 0.0,
             });
+            result.push(BoxNode::Penalty { value: -10000 }); // Force paragraph end
             result
         }
         Node::Command { name, args } => {
@@ -2510,14 +2514,17 @@ pub fn translate_node_with_context(
                         metrics.string_width_for_style(&numbered_title, ctx.current_font_style);
                     // VSkip suppressed — do not emit before/after VSkip around section headings.
                     // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![BoxNode::Text {
-                        text: numbered_title,
-                        width,
-                        font_size,
-                        color: None,
-                        font_style: FontStyle::Bold,
-                        vertical_offset: 0.0,
-                    }];
+                    let result = vec![
+                        BoxNode::Text {
+                            text: numbered_title,
+                            width,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Penalty { value: -10000 }, // Force heading onto its own line
+                    ];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -4719,7 +4726,8 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
     let mut result: Vec<OutputLine> = Vec::new();
 
     for (alignment, seg_items, has_page_break) in segments {
-        // Pre-process: split items at VSkip boundaries — each VSkip becomes its own line
+        // Pre-process: split items at VSkip and forced-break (Penalty{-10000}) boundaries.
+        // VSkip becomes its own dedicated line. Forced breaks flush the current chunk (consumed).
         let mut pre_lines: Vec<Vec<BoxNode>> = Vec::new();
         let mut current_chunk: Vec<BoxNode> = Vec::new();
         for item in &seg_items {
@@ -4730,6 +4738,11 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
                 }
                 // VSkip gets its own dedicated line
                 pre_lines.push(vec![item.clone()]);
+            } else if matches!(item, BoxNode::Penalty { value } if *value <= -10000) {
+                // Forced break: flush current chunk (Penalty itself is consumed, not rendered)
+                if !current_chunk.is_empty() {
+                    pre_lines.push(std::mem::take(&mut current_chunk));
+                }
             } else {
                 current_chunk.push(item.clone());
             }
@@ -6604,8 +6617,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node should be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node should be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -6683,7 +6696,7 @@ mod tests {
 
     #[test]
     fn test_section_produces_three_nodes() {
-        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
+        // M71: section produces 2 nodes (Text + Penalty{-10000})
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6692,8 +6705,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: Section should produce exactly 1 node (Text only)"
+            2,
+            "M71: Section should produce exactly 2 nodes (Text + Penalty)"
         );
     }
 
@@ -13300,8 +13313,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -13332,8 +13345,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -13364,8 +13377,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsubsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsubsection last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -13409,12 +13422,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text"
+            matches!(sec_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(sub_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
     }
 
@@ -13515,14 +13528,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsection should produce exactly 1 node (Text only)"
+            2,
+            "M71: subsection should produce exactly 2 nodes (Text + Penalty)"
         );
     }
 
     #[test]
     fn test_subsubsection_produces_three_nodes() {
-        // M65: subsubsection produces 1 node (Text only, VSkip{0.0} removed)
+        // M71: subsubsection produces 2 nodes (Text + Penalty{-10000})
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13531,21 +13544,25 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsubsection should produce exactly 1 node (Text only)"
+            2,
+            "M71: subsubsection should produce exactly 2 nodes (Text + Penalty)"
         );
     }
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
+        // M71: section produces 2 nodes (Text + Penalty{-10000})
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: section should produce 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section should produce 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(
                 &nodes[0],
@@ -13567,7 +13584,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: subsection should produce 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: subsection should produce 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(
                 &nodes[0],
@@ -13589,7 +13610,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: subsubsection should produce 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: subsubsection should produce 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(
                 &nodes[0],
@@ -15508,32 +15533,40 @@ mod tests {
 
     #[test]
     fn test_paragraph_end_glue_context_natural_zero() {
+        // M71: paragraph ends with Penalty{-10000}, and second-to-last is the end glue
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let last = nodes.last().unwrap();
+        // Last node is now Penalty{-10000}, second-to-last is the end glue with natural=0.0
         assert!(
-            matches!(last, BoxNode::Glue { natural, .. } if natural.abs() < f64::EPSILON),
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M71: Context paragraph last node must be Penalty{{-10000}}"
+        );
+        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        assert!(
+            matches!(second_last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
             "Context paragraph-end glue natural should be 0.0"
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_stretch_one() {
+        // M71: paragraph ends with Penalty{-10000}, second-to-last is end glue with stretch=1.0
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let last = nodes.last().unwrap();
+        let second_last = nodes.get(nodes.len().saturating_sub(2));
         assert!(
-            matches!(last, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
+            matches!(second_last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
             "Context paragraph-end glue stretch should be 1.0"
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_full_match() {
+        // M71: paragraph ends with Penalty{-10000}, second-to-last is Glue{0,1,0}
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -15541,7 +15574,12 @@ mod tests {
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M71: paragraph last node must be Penalty{{-10000}}"
+        );
+        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        assert!(
+            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
@@ -15670,8 +15708,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
     }
 
@@ -15685,8 +15723,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsubsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsubsection last node must be Penalty"
         );
     }
 
@@ -15835,7 +15873,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: Section should emit 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: Section should emit 2 nodes (Text + Penalty)"
+        );
         assert!(matches!(
             &nodes[0],
             BoxNode::Text {
@@ -15966,8 +16008,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node should be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node should be Penalty"
         );
     }
 
@@ -15996,8 +16038,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node should be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node should be Penalty"
         );
     }
 
@@ -16026,8 +16068,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsubsection last node should be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsubsection last node should be Penalty"
         );
     }
 
@@ -16153,12 +16195,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text"
+            matches!(sec_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(sub_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
     }
 
@@ -16177,12 +16219,12 @@ mod tests {
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         let subsub_nodes = translate_node_with_metrics(&subsub, &metrics);
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(sub_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
         assert!(
-            matches!(subsub_nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsubsection last node must be Text"
+            matches!(subsub_nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsubsection last node must be Penalty"
         );
     }
 
@@ -16317,8 +16359,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty"
         );
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16326,8 +16368,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16335,8 +16377,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsubsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsubsection last node must be Penalty"
         );
     }
 
@@ -16399,8 +16441,8 @@ mod tests {
             nodes.first()
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -16921,8 +16963,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: section should return exactly 1 node (Text only)"
+            2,
+            "M71: section should return exactly 2 nodes (Text + Penalty)"
         );
     }
 
@@ -16937,8 +16979,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsection should return exactly 1 node (Text only)"
+            2,
+            "M71: subsection should return exactly 2 nodes (Text + Penalty)"
         );
     }
 
@@ -16953,8 +16995,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsubsection should return exactly 1 node (Text only)"
+            2,
+            "M71: subsubsection should return exactly 2 nodes (Text + Penalty)"
         );
     }
 
@@ -17290,12 +17332,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: section must emit exactly 1 node (Text only)"
+            2,
+            "M71: section must emit exactly 2 nodes (Text + Penalty)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: section first node must be Text"
+            "M71: section first node must be Text"
         );
     }
 
@@ -17309,7 +17351,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: section must emit 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section must emit 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
             "M65: first node must be Text"
@@ -17348,12 +17394,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsection must emit exactly 1 node (Text only)"
+            2,
+            "M71: subsection must emit exactly 2 nodes (Text + Penalty)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: subsection first node must be Text"
+            "M71: subsection first node must be Text"
         );
     }
 
@@ -17369,12 +17415,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsubsection must emit exactly 1 node (Text only)"
+            2,
+            "M71: subsubsection must emit exactly 2 nodes (Text + Penalty)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: subsubsection first node must be Text"
+            "M71: subsubsection first node must be Text"
         );
     }
 
@@ -17585,8 +17631,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty"
         );
     }
 
@@ -17601,8 +17647,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
     }
 
@@ -17617,7 +17663,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: section must produce exactly 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section must produce exactly 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
             "M65: section first node must be Text"
@@ -17635,18 +17685,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsection must produce exactly 1 node"
+            2,
+            "M71: subsection must produce exactly 2 nodes (Text + Penalty)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: subsection first node must be Text"
+            "M71: subsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsubsection_emits_after_vskip() {
-        // M65: subsubsection produces 1 node (Text only)
+        // M71: subsubsection produces 2 nodes (Text + Penalty{-10000})
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17655,8 +17705,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: subsubsection must produce exactly 1 node"
+            2,
+            "M71: subsubsection must produce exactly 2 nodes (Text + Penalty)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17912,21 +17962,25 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            1,
-            "M65: section must produce exactly 1 BoxNode (Text only)"
+            2,
+            "M71: section must produce exactly 2 BoxNodes (Text + Penalty)"
         );
     }
 
     #[test]
     fn test_m60_section_vskip_after_text_not_before() {
-        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
+        // M71: section produces 2 nodes (Text + Penalty{-10000})
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Order".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: section must have exactly 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section must have exactly 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
             "M65: first node must be Text"
@@ -18102,8 +18156,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: section last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -18117,8 +18171,8 @@ mod tests {
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::Text { .. })),
-            "M65: context section last node must be Text, got {:?}",
+            matches!(items.last(), Some(BoxNode::Penalty { .. })),
+            "M71: context section last node must be Penalty, got {:?}",
             items.last()
         );
     }
@@ -18132,7 +18186,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Two".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: section must produce exactly 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section must produce exactly 2 nodes (Text + Penalty)"
+        );
     }
 
     #[test]
@@ -18145,8 +18203,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: last node must be Penalty, got {:?}",
             nodes.last()
         );
     }
@@ -18160,10 +18218,14 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1, "M65: subsection must produce 1 node");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: subsection must produce 2 nodes (Text + Penalty)"
+        );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Text { .. })),
-            "M65: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Penalty { .. })),
+            "M71: subsection last node must be Penalty"
         );
     }
 
@@ -18249,7 +18311,11 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Boundary".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1);
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: section must produce 2 nodes (Text + Penalty)"
+        );
         assert!(
             matches!(&nodes[0], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
         );
@@ -18264,8 +18330,12 @@ mod tests {
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 1);
-        assert!(matches!(nodes.last(), Some(BoxNode::Text { .. })));
+        assert_eq!(
+            nodes.len(),
+            2,
+            "M71: subsubsection must produce 2 nodes (Text + Penalty)"
+        );
+        assert!(matches!(nodes.last(), Some(BoxNode::Penalty { .. })));
     }
 
     #[test]
@@ -19129,6 +19199,187 @@ mod tests {
             2,
             "M70: forced break should reset width; got {} line(s)",
             lines.len()
+        );
+    }
+
+    // ===== M71 tests: Penalty{-10000} after section headings and paragraph ends =====
+
+    #[test]
+    fn test_m71_section_heading_returns_penalty_as_last_node() {
+        // M71: section heading translation returns vec with Penalty{-10000} at end
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 2, "section must produce 2 nodes");
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "section last node must be Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m71_subsection_heading_includes_forced_break() {
+        // M71: subsection heading translation includes forced break Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Methods".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 2, "subsection must produce 2 nodes");
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "subsection must end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m71_subsubsection_heading_includes_forced_break() {
+        // M71: subsubsection heading translation includes forced break Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsubsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 2, "subsubsection must produce 2 nodes");
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "subsubsection must end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m71_paragraph_translation_ends_with_penalty() {
+        // M71: paragraph translation ends with Penalty{-10000} (forced break)
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Hello world.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "paragraph must end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m71_section_plus_paragraph_produces_separate_lines() {
+        // M71: document with section + paragraph produces 2+ OutputLines (section on its own line)
+        let doc = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Heading".to_string())])],
+            },
+            Node::Paragraph(vec![Node::Text("Body text here.".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty(), "must produce at least 1 page");
+        let total_lines = pages[0].box_lines.len();
+        assert!(
+            total_lines >= 2,
+            "section + paragraph must produce at least 2 lines, got {}",
+            total_lines
+        );
+    }
+
+    #[test]
+    fn test_m71_two_paragraphs_each_on_own_line() {
+        // M71: 2 consecutive paragraphs: para1 ends on its own line before para2 starts
+        let doc = Node::Document(vec![
+            Node::Paragraph(vec![Node::Text("First paragraph text.".to_string())]),
+            Node::Paragraph(vec![Node::Text("Second paragraph text.".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty(), "must produce at least 1 page");
+        let total_lines = pages[0].box_lines.len();
+        assert!(
+            total_lines >= 2,
+            "2 paragraphs must produce at least 2 lines, got {}",
+            total_lines
+        );
+    }
+
+    #[test]
+    fn test_m71_section_not_on_same_line_as_paragraph() {
+        // M71: section heading does not appear on same line as following paragraph text
+        let doc = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+            },
+            Node::Paragraph(vec![Node::Text("This is the paragraph text.".to_string())]),
+        ]);
+        let engine = Engine::new(doc);
+        let pages = engine.typeset();
+        assert!(!pages.is_empty());
+        // Find the line containing the section heading
+        let heading_line = pages[0].box_lines.iter().find(|line| {
+            line.nodes
+                .iter()
+                .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("Introduction")))
+        });
+        assert!(
+            heading_line.is_some(),
+            "Section heading not found in output"
+        );
+        // The heading line should NOT also contain the paragraph text
+        let heading_has_para =
+            heading_line.unwrap().nodes.iter().any(
+                |n| matches!(n, BoxNode::Text { text, .. } if text.contains("paragraph text")),
+            );
+        assert!(
+            !heading_has_para,
+            "Section heading and paragraph text must be on separate lines"
+        );
+    }
+
+    #[test]
+    fn test_m71_section_heading_first_node_is_text() {
+        // M71: section heading first node is still Text (bold)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(
+                &nodes[0],
+                BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                }
+            ),
+            "M71: section first node must be bold Text, got {:?}",
+            &nodes[0]
+        );
+    }
+
+    #[test]
+    fn test_m71_paragraph_end_glue_before_penalty() {
+        // M71: paragraph has end glue (stretch:1.0) as second-to-last, then Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Some text here.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Second-to-last is the end glue
+        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        assert!(
+            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
+                if natural.abs() < f64::EPSILON
+                && (*stretch - 1.0).abs() < f64::EPSILON
+                && shrink.abs() < f64::EPSILON),
+            "M71: paragraph second-to-last node must be end Glue{{0,1,0}}, got {:?}",
+            second_last
         );
     }
 }
