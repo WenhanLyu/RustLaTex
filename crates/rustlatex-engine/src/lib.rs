@@ -1447,6 +1447,12 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
             });
 
+            // Check if paragraph starts with display math. Display math is block-level
+            // and should not be preceded by a paragraph indent kern.
+            let starts_with_display_math = nodes
+                .first()
+                .is_some_and(|n| matches!(n, Node::DisplayMath(_)));
+
             // Translate children first so we can check for visible content
             let children: Vec<BoxNode> = nodes
                 .iter()
@@ -1476,7 +1482,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             // - suppressed by \noindent
             // - paragraph starts with section command (would create phantom Kern segment
             //   between two consecutive AlignmentMarkers)
-            if !starts_with_noindent && !starts_with_section {
+            // - paragraph starts with display math (block-level, no indent)
+            if !starts_with_noindent && !starts_with_section && !starts_with_display_math {
                 result.push(BoxNode::Kern { amount: 15.0 });
             }
 
@@ -2362,6 +2369,12 @@ pub fn translate_node_with_context(
                     if matches!(name.as_str(), "section" | "subsection" | "subsubsection"))
             });
 
+            // Check if paragraph starts with display math. Display math is block-level
+            // and should not be preceded by a paragraph indent kern.
+            let starts_with_display_math = nodes
+                .first()
+                .is_some_and(|n| matches!(n, Node::DisplayMath(_)));
+
             // Save after_heading before resetting — used for indent suppression below.
             // We reset now so that child translation sees the correct state.
             let was_after_heading = ctx.after_heading;
@@ -2397,7 +2410,12 @@ pub fn translate_node_with_context(
             // - starts with \noindent
             // - starts with section command (would create phantom Kern segment
             //   between two consecutive AlignmentMarkers)
-            if !starts_with_noindent && !was_after_heading && !starts_with_section {
+            // - starts with display math (block-level, no indent)
+            if !starts_with_noindent
+                && !was_after_heading
+                && !starts_with_section
+                && !starts_with_display_math
+            {
                 result.push(BoxNode::Kern { amount: 15.0 });
             }
 
