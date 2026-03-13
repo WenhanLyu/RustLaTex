@@ -123,6 +123,8 @@ Binary-identical output requires:
 - **M56 scope:** Investigate and fix the remaining 4.32% pixel similarity gap. Diana's research needed to identify top improvements. Key candidates: (1) Section spacing before/after without causing cascading layout shifts; (2) Line-breaking accuracy improvements; (3) Other rendering details. Target: 97%+ similarity, 1015+ tests.
 - **Cycle (M56 — MISSED):** M56 failed — 3/3 cycles used, similarity stuck at 95.69%. Section VSkip (12.24pt after section) regressed to 94.44%; reverting VSkip but keeping font_size=14.4 recovered to 95.69%. Net: font_size 14.4 in place (correct per pdflatex spec), but no similarity gain. KEY LESSON: Do NOT add VSkip around section headings. The gap must be diagnosed via a different approach — need to identify which specific pixels differ. Current state: 1000 tests, 95.69% similarity, font_size=14.4 for sections.
 - **M57 approach:** Diana's forensic analysis confirmed: `margin_left=72.27pt` is WRONG (should be 126.25pt for a4paper article symmetric layout). Also `margin_top=109pt` may be off by ~15pt. These margin errors explain the remaining 4.31% gap. M57 corrects both margins. KEY LESSON: margin_left changes do NOT affect line-breaking (only PDF rendering position), making this a zero-risk line-breaking change. The only risk is if the margin calculation is wrong (would drop similarity to ~89%).
+- **M58 outcome (97.25%):** M57 margin fixes confirmed correct: similarity 95.69% → 97.25% (+1.56%). Remaining gap 2.75% = ~13,778 pixels. CI test bug was in PPM header parsing — GhostScript adds comment lines; both `parse_ppm` and `parse_ppm_header` needed updating.
+- **M59 planning:** At 97.25%, major position offsets are fixed. Remaining gap likely from: (1) page footer at y=25pt vs pdflatex's y≈68pt (footskip=30pt), (2) itemize list topsep (our 6pt vs pdflatex 8-10pt), (3) font rendering antialiasing. Footer fix is highest confidence. Diana analysis scheduled for issue #56.
 
 ## Milestones
 
@@ -920,20 +922,18 @@ Fix the margin mismatch between our output and pdflatex's article class defaults
 **CI issue:** `test_ppm_text_bounding_box` has a bug (uses `-o` flag that our CLI doesn't support) — fixing in M58.
 
 - **Cycles budget:** 3 | **Cycles actual:** 1 (Leo, commit 8e7b658)
-- **Status:** ⚠️ Implemented, CI failing due to test bug — fix in M58
+- **Status:** ✅ Complete — CI confirmed: similarity improved 95.69% → 97.25% (+1.56%)
 
-### M58: Fix CI Test Bug + Verify M57 Similarity Score (Next)
-Fix the broken `test_ppm_text_bounding_box` test, get CI green, and read the M57 pixel similarity score.
+### M58: Fix CI Test Bug + Verify M57 Similarity Score ✅ COMPLETE
+Fixed `test_ppm_text_bounding_box` (Leo: CLI args fix) + fixed `parse_ppm`/`parse_ppm_header` to handle GhostScript comment lines in PPM headers (Athena: comment line parsing).
 
-**Changes:**
-1. Fix line 875 in `crates/rustlatex-cli/tests/pdflatex_comparison_test.rs`: remove `-o` flag from CLI args
-2. Verify CI passes with 0 failures
-3. Read the pixel similarity score from CI logs
+**Result:** CI GREEN. Pixel similarity = **97.25%** (up from 95.69%, +1.56% from M57 margin corrections).
+- Our PPM size: 1,503,038 bytes = 501,012 pixels at 72 DPI (A4 @ 72 DPI)
+- pdflatex PPM size: 1,503,038 bytes (same)
+- Remaining gap: 2.75% = ~13,778 mismatched pixels
 
-**Expected outcome:** CI green, M57 similarity score visible.
-
-- **Cycles budget:** 1
-- **Status:** 🔄 In Progress
+- **Cycles budget:** 1 | **Cycles actual:** 2 (Leo + Athena)
+- **Status:** ✅ Complete — CI green, 1021 tests pass (commit daef942)
 
 ### M43: Justified Text Width Fix + cmbxti10 Kern Pairs ✅ COMPLETE
 Improve text rendering accuracy and typographic quality.
