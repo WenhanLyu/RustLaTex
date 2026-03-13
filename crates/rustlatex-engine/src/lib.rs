@@ -214,7 +214,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     } else if (max_font_size - 14.4).abs() < 0.01 {
         21.0 // pdflatex effective section-to-paragraph baseline advance = 21pt (afterskip ~9.9pt + depth ~3.4pt + baselineskip)
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        17.0 // subsection: 14.5pt baselineskip + afterskip effect
+        18.5 // subsection: pdflatex baselineskip 14.5pt + afterskip ~4pt
     } else {
         max_font_size * 1.2
     }
@@ -1578,17 +1578,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         String::new()
                     };
                     let width = metrics.string_width(&title);
-                    vec![
-                        BoxNode::Text {
-                            text: title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::Penalty { value: -10000 },
-                    ]
+                    vec![BoxNode::Text {
+                        text: title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }]
                 }
                 "hspace" => {
                     let dim = if let Some(arg) = args.first() {
@@ -2343,7 +2340,6 @@ pub fn translate_node_with_context(
                 stretch: 1.0,
                 shrink: 0.0,
             });
-            result.push(BoxNode::Penalty { value: -10000 });
             result
         }
         Node::Command { name, args } => {
@@ -2513,17 +2509,14 @@ pub fn translate_node_with_context(
                     let width = metrics.string_width_for_style(&numbered_title, FontStyle::Bold);
                     // VSkip suppressed — do not emit before/after VSkip around section headings.
                     // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![
-                        BoxNode::Text {
-                            text: numbered_title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::Penalty { value: -10000 },
-                    ];
+                    let result = vec![BoxNode::Text {
+                        text: numbered_title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -6614,8 +6607,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -6693,7 +6686,7 @@ mod tests {
 
     #[test]
     fn test_section_produces_three_nodes() {
-        // M74: section produces 2 nodes (Text + Penalty{-10000})
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6702,8 +6695,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: Section should produce exactly 2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: Section should produce exactly 1 node (Text)"
         );
     }
 
@@ -8043,8 +8036,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.001,
-            "M67: 12pt text should give 17.0, got {}",
+            (lh - 18.5).abs() < 0.001,
+            "M74-fix: 12pt text should give 18.5, got {}",
             lh
         );
     }
@@ -13310,8 +13303,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13342,8 +13335,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13374,8 +13367,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13406,7 +13399,7 @@ mod tests {
 
     #[test]
     fn test_section_and_subsection_after_vskips_both_zero() {
-        // M65: VSkip{0.0} removed — both last nodes are now Text
+        // M74-fix: VSkip/Penalty removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -13419,12 +13412,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
@@ -13516,7 +13509,7 @@ mod tests {
 
     #[test]
     fn test_subsection_produces_three_nodes() {
-        // M65: subsection produces 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13525,14 +13518,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection should produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_subsubsection_produces_three_nodes() {
-        // M71: subsubsection produces 2 nodes (Text + Penalty{-10000})
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13541,14 +13534,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection should produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // M71: section produces 2 nodes (Text + Penalty{-10000})
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13557,8 +13550,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section should produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section should produce 1 node (Text)"
         );
         assert!(
             matches!(
@@ -13574,7 +13567,7 @@ mod tests {
 
     #[test]
     fn test_subsection_spacing_exact_values() {
-        // M65: subsection produces 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13583,8 +13576,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection should produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection should produce 1 node (Text)"
         );
         assert!(
             matches!(
@@ -13600,7 +13593,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_spacing_exact_values() {
-        // M65: subsubsection produces 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13609,8 +13602,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection should produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection should produce 1 node (Text)"
         );
         assert!(
             matches!(
@@ -14610,7 +14603,7 @@ mod tests {
 
     #[test]
     fn test_m67_subsection_line_height_is_14_5() {
-        // M67: 12pt subsection font → line_height = 17.0
+        // M74-fix: 12pt subsection font → line_height = 18.5
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 60.0,
@@ -14621,8 +14614,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M67: 12pt subsection must give line_height=17.0, got {}",
+            (lh - 18.5).abs() < 0.01,
+            "M74-fix: 12pt subsection must give line_height=18.5, got {}",
             lh
         );
     }
@@ -15530,51 +15523,51 @@ mod tests {
 
     #[test]
     fn test_paragraph_end_glue_context_natural_zero() {
-        // M74: paragraph second-to-last is Glue{0,1,0} (last is Penalty{-10000})
+        // M74-fix: paragraph last node is Glue{0,1,0} (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
-            "M74: Context paragraph second-to-last must be Glue with natural=0.0, got {:?}",
-            second_last
+            matches!(last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
+            "M74-fix: Context paragraph last must be Glue with natural=0.0, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_stretch_one() {
-        // M74: paragraph second-to-last is Glue with stretch=1.0
+        // M74-fix: paragraph last node is Glue with stretch=1.0
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
-            "M74: Context paragraph second-to-last must be Glue with stretch=1.0, got {:?}",
-            second_last
+            matches!(last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
+            "M74-fix: Context paragraph last must be Glue with stretch=1.0, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_full_match() {
-        // M74: paragraph second-to-last is Glue{0,1,0}, last is Penalty{-10000}
+        // M74-fix: paragraph last node is Glue{0,1,0} (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
             "Multi word paragraph content here".to_string(),
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
+            matches!(last, Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "M74: Context paragraph second-to-last must be Glue{{0,1,0}}, got {:?}",
-            second_last
+            "M74-fix: Context paragraph last must be Glue{{0,1,0}}, got {:?}",
+            last
         );
     }
 
@@ -15691,7 +15684,7 @@ mod tests {
 
     #[test]
     fn test_subsection_emits_vskip_after_zero() {
-        // M65: VSkip{0.0} removed — last node is Text
+        // M74-fix: last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15699,14 +15692,14 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_subsubsection_emits_vskip_after_zero() {
-        // M65: VSkip{0.0} removed — last node is Text
+        // M74-fix: last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15714,8 +15707,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text"
         );
     }
 
@@ -15857,18 +15850,14 @@ mod tests {
 
     #[test]
     fn test_section_heading_has_text_between_vskips() {
-        // M65: section emits 1 node (Text only)
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M74: Section should emit  2 nodes (Text + Penalty)"
-        );
+        assert_eq!(nodes.len(), 1, "M74-fix: Section should emit 1 node (Text)");
         assert!(matches!(
             &nodes[0],
             BoxNode::Text {
@@ -15991,7 +15980,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_kern_after_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // M74-fix: Penalty removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -15999,8 +15988,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text"
         );
     }
 
@@ -16021,7 +16010,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_kern_after_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // M74-fix: Penalty removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16029,8 +16018,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
@@ -16051,7 +16040,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsubsection_kern_after_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // M74-fix: Penalty removed — last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16059,8 +16048,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text"
         );
     }
 
@@ -16173,7 +16162,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_and_subsection_after_both_zero() {
-        // M65: VSkip{0.0} removed — both last nodes are now Text
+        // M74-fix: Penalty removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -16186,18 +16175,18 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_m51_subsection_and_subsubsection_share_after_value() {
-        // M65: VSkip{0.0} removed — both last nodes are now Text
+        // M74-fix: Penalty removed — both last nodes are now Text
         let metrics = StandardFontMetrics;
         let sub = Node::Command {
             name: "subsection".to_string(),
@@ -16210,12 +16199,12 @@ mod tests {
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         let subsub_nodes = translate_node_with_metrics(&subsub, &metrics);
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
         assert!(
-            matches!(subsub_nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}"
+            matches!(subsub_nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text"
         );
     }
 
@@ -16342,7 +16331,7 @@ mod tests {
 
     #[test]
     fn test_m53_all_section_after_vskips_are_zero() {
-        // M65: VSkip{0.0} removed — all section types have Text as last node
+        // M74-fix: Penalty removed — all section types have Text as last node
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16350,8 +16339,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text"
         );
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16359,8 +16348,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16368,8 +16357,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text"
         );
     }
 
@@ -16432,8 +16421,8 @@ mod tests {
             nodes.first()
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -16954,8 +16943,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section should return exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section should return exactly 1 node (Text only)"
         );
     }
 
@@ -16970,8 +16959,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection should return exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection should return exactly 1 node (Text only)"
         );
     }
 
@@ -16986,8 +16975,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection should return exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection should return exactly 1 node (Text only)"
         );
     }
 
@@ -17314,7 +17303,7 @@ mod tests {
     // 2. M56-fix: Section emits exactly 1 node (Text only, no VSkip)
     #[test]
     fn test_m56_section_after_vskip() {
-        // M65: section emits 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17323,8 +17312,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must emit exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must emit exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17332,21 +17321,17 @@ mod tests {
         );
     }
 
-    // 3. M63: Section emits 2 nodes (Text + VSkip{0.0})
+    // 3. M74-fix: Section emits 1 node (Text only)
     #[test]
     fn test_m56_section_text_before_vskip() {
-        // M65: section emits 1 node (Text only)
+        // M74-fix: section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M74: section must emit 2 nodes (Text + Penalty)"
-        );
+        assert_eq!(nodes.len(), 1, "M74-fix: section must emit 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
             "M65: first node must be Text"
@@ -17376,7 +17361,7 @@ mod tests {
     // 5. M61: Subsection emits exactly 1 node (Text only)
     #[test]
     fn test_m56_subsection_after_vskip() {
-        // M65: subsection emits 1 node (Text only)
+        // M74-fix: subsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17385,8 +17370,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection must emit exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection must emit exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17394,10 +17379,10 @@ mod tests {
         );
     }
 
-    // 6. M63: Subsubsection emits 2 nodes (Text + VSkip{0.0})
+    // 6. M74-fix: Subsubsection emits 1 node (Text only)
     #[test]
     fn test_m56_subsubsection_no_vskip() {
-        // M65: subsubsection emits 1 node (Text only)
+        // M74-fix: subsubsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17406,8 +17391,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection must emit exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection must emit exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17614,7 +17599,7 @@ mod tests {
     // 17. M61: Section last node is Text (no VSkip)
     #[test]
     fn test_m56_section_vskip_exact_amount() {
-        // M65: VSkip{0.0} removed — last node is Text
+        // M74-fix: last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17622,15 +17607,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text"
         );
     }
 
-    // 18. M63: Subsection last node is VSkip{0.0}
+    // 18. M74-fix: Subsection last node is Text
     #[test]
     fn test_m56_subsection_vskip_exact_amount() {
-        // M65: VSkip{0.0} removed — last node is Text
+        // M74-fix: last node is Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17638,8 +17623,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
@@ -17647,7 +17632,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_emits_after_vskip() {
-        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17656,8 +17641,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must produce exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17667,7 +17652,7 @@ mod tests {
 
     #[test]
     fn test_m60_subsection_emits_after_vskip() {
-        // M65: subsection produces 1 node (Text only)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17676,8 +17661,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection must produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection must produce exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17687,7 +17672,7 @@ mod tests {
 
     #[test]
     fn test_m60_subsubsection_emits_after_vskip() {
-        // M71: subsubsection produces 2 nodes (Text + Penalty{-10000})
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17696,8 +17681,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection must produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection must produce exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17815,7 +17800,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M67: compute_line_height for [Text{font_size:12.0}] → 17.0 (pdflatex \large baselineskip)
+        // M74-fix: compute_line_height for [Text{font_size:12.0}] → 18.5
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17826,8 +17811,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M67: 12.0pt text should give line height 17.0, got {}",
+            (lh - 18.5).abs() < 0.01,
+            "M74-fix: 12.0pt text should give line height 18.5, got {}",
             lh
         );
     }
@@ -17944,7 +17929,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_node_count_metrics() {
-        // M65: section in metrics path produces exactly 1 BoxNode (Text only)
+        // M74-fix: section produces exactly 1 BoxNode (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17953,14 +17938,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce exactly 2 BoxNodes (Text + Penalty)"
+            1,
+            "M74-fix: section must produce exactly 1 BoxNode (Text)"
         );
     }
 
     #[test]
     fn test_m60_section_vskip_after_text_not_before() {
-        // M71: section produces 2 nodes (Text + Penalty{-10000})
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17969,8 +17954,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must have exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must have exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -18020,7 +18005,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_12pt_is_14_5() {
-        // M67: compute_line_height for 12pt text must return 17.0 (pdflatex \large baselineskip)
+        // M74-fix: compute_line_height for 12pt text must return 18.5
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -18031,8 +18016,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M67: 12pt text must give line_height=17.0, got {}",
+            (lh - 18.5).abs() < 0.01,
+            "M74-fix: 12pt text must give line_height=18.5, got {}",
             lh
         );
     }
@@ -18139,7 +18124,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_emits_vskip_zero_as_last_node() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // M74-fix: last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18147,30 +18132,30 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m63_section_context_emits_vskip_zero_as_last_node() {
-        // M65: VSkip{0.0} removed — context section last node is now Text
+        // M74-fix: context section last node is now Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: context section last node must be Penalty{{-10000}}, got {:?}",
+            matches!(items.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: context section last node must be Text, got {:?}",
             items.last()
         );
     }
 
     #[test]
     fn test_m63_section_produces_two_nodes() {
-        // M65: section produces 1 node (Text only, VSkip{0.0} removed)
+        // M74-fix: section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18179,14 +18164,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce exactly  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_m63_section_vskip_amount_is_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // M74-fix: last node is now Text
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18194,15 +18179,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m63_subsection_emits_vskip_zero() {
-        // M65: subsection produces 1 node (Text only)
+        // M74-fix: subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -18211,12 +18196,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection must produce 1 node (Text)"
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text"
         );
     }
 
@@ -18241,7 +18226,7 @@ mod tests {
 
     #[test]
     fn test_m64_compute_line_height_subsection_is_14_5() {
-        // M67: 12.0pt → 17.0 (pdflatex \large baselineskip = 14.5pt)
+        // M74-fix: 12.0pt → 18.5
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -18252,8 +18237,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M67: 12.0pt must give line_height=17.0, got {}",
+            (lh - 18.5).abs() < 0.01,
+            "M74-fix: 12.0pt must give line_height=18.5, got {}",
             lh
         );
     }
@@ -18295,7 +18280,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_vskip_chunk_boundary() {
-        // M65: section produces [Text] only
+        // M74-fix: section produces [Text] only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18304,8 +18289,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must produce 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
@@ -18314,7 +18299,7 @@ mod tests {
 
     #[test]
     fn test_m63_subsubsection_emits_vskip_zero() {
-        // M65: subsubsection produces 1 node (Text only)
+        // M74-fix: subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -18323,10 +18308,10 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection must produce 1 node (Text)"
         );
-        assert!(matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000));
+        assert!(matches!(nodes.last(), Some(BoxNode::Text { .. })));
     }
 
     #[test]
@@ -18497,7 +18482,7 @@ mod tests {
 
     #[test]
     fn test_m68_section_line_height_exceeds_subsection() {
-        // M68: 14.4pt section (21.0) > 12pt subsection (17.0)
+        // M68: 14.4pt section (21.0) > 12pt subsection (18.5)
         let section_nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 60.0,
@@ -18527,8 +18512,8 @@ mod tests {
             "M68: section must be 21.0"
         );
         assert!(
-            (subsection_lh - 17.0).abs() < 0.01,
-            "M68: subsection must be 17.0"
+            (subsection_lh - 18.5).abs() < 0.01,
+            "M68: subsection must be 18.5"
         );
     }
 
@@ -18706,7 +18691,7 @@ mod tests {
 
     #[test]
     fn test_m69_subsection_line_height_is_17() {
-        // M69: 12pt font (subsection) should give 17.0
+        // M74-fix: 12pt font (subsection) should give 18.5
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 80.0,
@@ -18717,8 +18702,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M69: 12pt subsection must give line_height=17.0, got {}",
+            (lh - 18.5).abs() < 0.01,
+            "M74-fix: 12pt subsection must give line_height=18.5, got {}",
             lh
         );
     }
@@ -18849,10 +18834,10 @@ mod tests {
             "M69: should have Center heading line"
         );
         let hl = heading_line.unwrap();
-        // Should be 17.0 (subsection), NOT 17.0+10=27.0
+        // Should be 18.5 (subsection), NOT 18.5+10=28.5
         assert!(
-            (hl.line_height - 17.0).abs() < 0.01,
-            "M69: center heading (12pt) should be 17.0, not +10; got {}",
+            (hl.line_height - 18.5).abs() < 0.01,
+            "M74-fix: center heading (12pt) should be 18.5, not +10; got {}",
             hl.line_height
         );
     }
@@ -19197,7 +19182,7 @@ mod tests {
 
     #[test]
     fn test_m71_section_heading_returns_penalty_as_last_node() {
-        // M73: section heading translation returns vec with Text only (no trailing Penalty)
+        // M74-fix: section produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19206,19 +19191,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: section must produce 1 node (Text)"
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsection_heading_includes_forced_break() {
-        // M73: subsection heading translation returns Text only (no trailing Penalty)
+        // M74-fix: subsection produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19227,19 +19212,19 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsection must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsection must produce 1 node (Text)"
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsubsection_heading_includes_forced_break() {
-        // M73: subsubsection heading translation returns Text only (no trailing Penalty)
+        // M74-fix: subsubsection produces 1 node (Text only, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -19248,26 +19233,26 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: subsubsection must produce  2 nodes (Text + Penalty)"
+            1,
+            "M74-fix: subsubsection must produce 1 node (Text)"
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection last node must be Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_paragraph_translation_ends_with_penalty() {
-        // M74: paragraph translation ends with Penalty{-10000}
+        // M74-fix: paragraph translation ends with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello world.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
@@ -19375,26 +19360,20 @@ mod tests {
 
     #[test]
     fn test_m71_paragraph_end_glue_before_penalty() {
-        // M74: paragraph ends with Penalty{-10000}, second-to-last is Glue{0,1,0}
+        // M74-fix: paragraph ends with Glue{0,1,0} (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Some text here.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        // Last node is Penalty
+        // Last node is Glue
+        let last = nodes.last();
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph last node must be Penalty{{-10000}}, got {:?}",
-            nodes.last()
-        );
-        // Second-to-last is end glue
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
-        assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
+            matches!(last, Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "M74: paragraph second-to-last must be Glue{{0,1,0}}, got {:?}",
-            second_last
+            "M74-fix: paragraph last must be Glue{{0,1,0}}, got {:?}",
+            last
         );
     }
 
@@ -19402,21 +19381,21 @@ mod tests {
 
     #[test]
     fn test_m72_paragraph_no_trailing_penalty_single_word() {
-        // M74: single-word paragraph must end with Penalty{-10000}
+        // M74-fix: single-word paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_paragraph_no_trailing_penalty_multi_word() {
-        // M74: multi-word paragraph must end with Penalty{-10000}
+        // M74-fix: multi-word paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -19424,29 +19403,29 @@ mod tests {
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_paragraph_ends_with_glue_not_penalty() {
-        // M74: paragraph ends with Penalty (M74), not Glue
+        // M74-fix: paragraph ends with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("End glue test paragraph.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_paragraph_with_bold_text_no_trailing_penalty() {
-        // M74: paragraph containing bold text must end with Penalty{-10000}
+        // M74-fix: paragraph containing bold text must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![
@@ -19459,48 +19438,48 @@ mod tests {
         ]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_empty_paragraph_no_trailing_penalty() {
-        // M74: empty paragraph must end with Penalty{-10000}
+        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: empty paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: empty paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_two_paragraphs_no_trailing_penalty_after_first() {
-        // M74: both paragraphs must end with Penalty{-10000}
+        // M74-fix: both paragraphs must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]);
         let nodes1 = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes1.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: first paragraph must end with Penalty{{-10000}}"
+            matches!(nodes1.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: first paragraph must end with Glue"
         );
         let node2 = Node::Paragraph(vec![Node::Text("Second paragraph.".to_string())]);
         let nodes2 = translate_node_with_context(&node2, &metrics, &mut ctx);
         assert!(
-            matches!(nodes2.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: second paragraph must end with Penalty{{-10000}}"
+            matches!(nodes2.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: second paragraph must end with Glue"
         );
     }
 
     #[test]
     fn test_m72_paragraph_penalty_count_is_zero() {
-        // M74: paragraph translation must produce exactly 1 Penalty{-10000} (the trailing one)
+        // M74-fix: paragraph translation must produce 0 Penalty{-10000} nodes (no trailing penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -19512,60 +19491,60 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000))
             .count();
         assert_eq!(
-            penalty_count, 1,
-            "M74: paragraph must produce 1 forced-break Penalty{{-10000}} node, got {}",
+            penalty_count, 0,
+            "M74-fix: paragraph must produce 0 forced-break Penalty{{-10000}} nodes, got {}",
             penalty_count
         );
     }
 
     #[test]
     fn test_m72_paragraph_end_glue_stretch_is_one() {
-        // M74: paragraph second-to-last must be Glue with stretch=1.0
+        // M74-fix: paragraph last must be Glue with stretch=1.0
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Stretch test.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
-            "M74: paragraph second-to-last must be Glue with stretch=1.0, got {:?}",
-            second_last
+            matches!(last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
+            "M74-fix: paragraph last must be Glue with stretch=1.0, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_m72_paragraph_end_glue_natural_is_zero() {
-        // M74: paragraph second-to-last must be Glue with natural=0.0
+        // M74-fix: paragraph last must be Glue with natural=0.0
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Natural zero test.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
-            "M74: paragraph second-to-last must be Glue with natural=0.0, got {:?}",
-            second_last
+            matches!(last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
+            "M74-fix: paragraph last must be Glue with natural=0.0, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_m72_paragraph_end_glue_shrink_is_zero() {
-        // M74: paragraph second-to-last must be Glue with shrink=0.0
+        // M74-fix: paragraph last must be Glue with shrink=0.0
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Shrink zero test.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        let last = nodes.last();
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { shrink, .. }) if shrink.abs() < f64::EPSILON),
-            "M74: paragraph second-to-last must be Glue with shrink=0.0, got {:?}",
-            second_last
+            matches!(last, Some(BoxNode::Glue { shrink, .. }) if shrink.abs() < f64::EPSILON),
+            "M74-fix: paragraph last must be Glue with shrink=0.0, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_m72_paragraph_long_text_no_trailing_penalty() {
-        // M74: long paragraph must end with Penalty{-10000}
+        // M74-fix: long paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -19576,15 +19555,15 @@ mod tests {
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: long paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: long paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_paragraph_with_inline_math_no_trailing_penalty() {
-        // M74: paragraph with inline math must end with Penalty{-10000}
+        // M74-fix: paragraph with inline math must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![
@@ -19594,15 +19573,15 @@ mod tests {
         ]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph with inline math must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph with inline math must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_section_heading_still_ends_with_penalty() {
-        // M74: section heading ends with Penalty{-10000}
+        // M74-fix: section heading ends with Text (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19610,15 +19589,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section heading must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section heading must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_subsection_heading_still_ends_with_penalty() {
-        // M74: subsection heading ends with Penalty{-10000}
+        // M74-fix: subsection heading ends with Text (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19626,8 +19605,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection heading must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection heading must end with Text, got {:?}",
             nodes.last()
         );
     }
@@ -19664,42 +19643,40 @@ mod tests {
 
     #[test]
     fn test_m74_paragraph_ends_with_penalty() {
-        // M74: paragraph translation must end with Penalty{-10000}
+        // M74-fix: paragraph translation must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello world.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_paragraph_glue_before_penalty() {
-        // M74: paragraph must have Glue{0,1,0} immediately before the trailing Penalty
+        // M74-fix: paragraph last node is Glue{0,1,0} (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Test paragraph.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let len = nodes.len();
-        assert!(len >= 2, "M74: paragraph must have at least 2 nodes");
-        let second_last = &nodes[len - 2];
+        let last = nodes.last();
         assert!(
-            matches!(second_last, BoxNode::Glue { natural, stretch, shrink }
+            matches!(last, Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON
             ),
-            "M74: second-to-last must be Glue{{0,1,0}}, got {:?}",
-            second_last
+            "M74-fix: last must be Glue{{0,1,0}}, got {:?}",
+            last
         );
     }
 
     #[test]
     fn test_m74_section_ends_with_penalty() {
-        // M74: section heading translation must end with Penalty{-10000}
+        // M74-fix: section heading translation must end with Text (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19707,15 +19684,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: section must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: section must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_subsection_ends_with_penalty() {
-        // M74: subsection heading must end with Penalty{-10000}
+        // M74-fix: subsection heading must end with Text (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19723,15 +19700,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsection must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsection must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_section_produces_two_nodes() {
-        // M74: section produces 2 nodes: Text + Penalty
+        // M74-fix: section produces 1 node: Text only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19740,17 +19717,13 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M74: section must produce 2 nodes, got {}",
+            1,
+            "M74-fix: section must produce 1 node, got {}",
             nodes.len()
         );
         assert!(
             matches!(nodes[0], BoxNode::Text { .. }),
-            "M74: first node must be Text"
-        );
-        assert!(
-            matches!(nodes[1], BoxNode::Penalty { value } if value == -10000),
-            "M74: second node must be Penalty{{-10000}}"
+            "M74-fix: first node must be Text"
         );
     }
 
@@ -19818,7 +19791,7 @@ mod tests {
 
     #[test]
     fn test_m74_two_paragraphs_produce_separate_chunks() {
-        // M74: Two paragraphs must produce content separated by the KP line breaker
+        // M74-fix: Two paragraphs must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node1 = Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]);
@@ -19826,18 +19799,18 @@ mod tests {
         let nodes1 = translate_node_with_context(&node1, &metrics, &mut ctx);
         let nodes2 = translate_node_with_context(&node2, &metrics, &mut ctx);
         assert!(
-            matches!(nodes1.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: first paragraph must end with Penalty{{-10000}}"
+            matches!(nodes1.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: first paragraph must end with Glue"
         );
         assert!(
-            matches!(nodes2.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: second paragraph must end with Penalty{{-10000}}"
+            matches!(nodes2.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: second paragraph must end with Glue"
         );
     }
 
     #[test]
     fn test_m74_paragraph_penalty_count_is_one() {
-        // M74: paragraph must produce exactly 1 Penalty{-10000} node (the trailing one)
+        // M74-fix: paragraph must produce 0 Penalty{-10000} nodes (no trailing penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -19849,8 +19822,8 @@ mod tests {
             .filter(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000))
             .count();
         assert_eq!(
-            penalty_count, 1,
-            "M74: paragraph must produce 1 forced-break Penalty{{-10000}} node, got {}",
+            penalty_count, 0,
+            "M74-fix: paragraph must produce 0 forced-break Penalty{{-10000}} nodes, got {}",
             penalty_count
         );
     }
@@ -19879,21 +19852,21 @@ mod tests {
 
     #[test]
     fn test_m74_empty_paragraph_ends_with_penalty() {
-        // M74: empty paragraph must end with Penalty{-10000}
+        // M74-fix: empty paragraph must end with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: empty paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: empty paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_paragraph_long_text_ends_with_penalty() {
-        // M74: long paragraph ends with Penalty{-10000}
+        // M74-fix: long paragraph ends with Glue (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -19903,15 +19876,15 @@ mod tests {
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: long paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M74-fix: long paragraph must end with Glue, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_subsubsection_ends_with_penalty() {
-        // M74: subsubsection heading must end with Penalty{-10000}
+        // M74-fix: subsubsection heading must end with Text (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -19919,8 +19892,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M74: subsubsection must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "M74-fix: subsubsection must end with Text, got {:?}",
             nodes.last()
         );
     }
