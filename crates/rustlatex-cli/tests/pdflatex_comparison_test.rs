@@ -872,7 +872,7 @@ fn test_ppm_text_bounding_box() {
         std::env::temp_dir().join(format!("rustlatex_bbox_ours_{}.pdf", std::process::id()));
     let _ = std::fs::remove_file(&our_pdf);
     let our_status = Command::new(env!("CARGO_BIN_EXE_rustlatex"))
-        .args([tex_path.to_str().unwrap(), "-o", our_pdf.to_str().unwrap()])
+        .args([tex_path.to_str().unwrap(), our_pdf.to_str().unwrap()])
         .output();
     let our_ok = our_status
         .as_ref()
