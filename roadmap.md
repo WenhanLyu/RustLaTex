@@ -1135,31 +1135,55 @@ Apollo required reverting paragraph and section Penalty{-10000} additions from M
 
 - **Status:** ⚠️ REGRESSION — 96.79%, KP sentinel and subsection 18.5 are the causes
 
-### M75: Recover 97.30% Baseline (Revert KP Sentinel + Subsection 18.5)
+### M75: Recover 97.30% Baseline (Revert KP Sentinel + Subsection 18.5) ✅ COMPLETE
 Revert the two regressions from M74-fix while keeping the Bold section width fix.
 
-**Required changes (all in crates/rustlatex-engine/src/lib.rs):**
+- **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 7053c28)
+- **Status:** ✅ Complete — CI confirmed **97.31%** similarity (slight improvement over target), 792 tests pass
 
-1. **Revert KP forced_j sentinel** (~line 4601-4610): Change back to original `pen * pen` behavior:
+### M76: Paragraph Separation via AlignmentMarker (Critical Line-Breaking Fix)
+Fix the root cause of the mega-line problem by adding `AlignmentMarker{Justify}` at the start of each paragraph and section heading translation.
+
+**Root cause (Athena direct analysis):**
+- Section headings emit ONLY `BoxNode::Text{bold, 14.4pt}` — no AlignmentMarker
+- All paragraphs and section headings are in ONE continuous Justify segment for KP
+- KP's `pen * pen = 10^8` forced break demerits cause it to always choose the longest possible line
+- Result: ~7 mega-lines extending 300-1300pt past hsize=345pt (should be ~20 properly-broken lines)
+- This is WHY pixel similarity is stuck at ~97% — most text is at wrong y-positions
+
+**Why AlignmentMarker approach is safe (unlike Penalty{-10000} approach):**
+- `AlignmentMarker` splits into segments BEFORE KP runs — no KP forced_j issue
+- M71 used `Penalty{-10000}` with chunk splitting → caused KP regression
+- This approach: each paragraph gets its own KP run with no Penalty nodes
+- Standard TeX behavior: paragraphs ARE broken independently (this matches pdflatex)
+- No VSkip involved → cannot trigger the VSkip anti-pattern
+
+**Changes (crates/rustlatex-engine/src/lib.rs):**
+
+1. **Node::Paragraph handler** (~line 2313): Add `AlignmentMarker{Justify}` at the START of each paragraph's result:
    ```rust
-   } else if forced_j {
-       // Forced break: accept regardless of width, but add penalty² cost
-       let pen = bp_pen_j.unwrap_or(0) as f64;
-       pen * pen
-   }
+   Node::Paragraph(nodes) => {
+       let mut result: Vec<BoxNode> = Vec::new();
+       // Start a new segment for each paragraph (separates from previous content)
+       result.push(BoxNode::AlignmentMarker { alignment: Alignment::Justify });
+       // ... rest of paragraph logic unchanged
    ```
 
-2. **Revert subsection line_height** (~line 217): Change `18.5` → `17.0`:
+2. **Section/subsection/subsubsection handler** (both code paths, ~lines 1546 and 2430): Add `AlignmentMarker{Justify}` at the START of the section heading result:
    ```rust
-   } else if (max_font_size - 12.0).abs() < 0.01 {
-       17.0 // subsection: 14.5pt baselineskip + afterskip effect
+   let mut result = vec![
+       BoxNode::AlignmentMarker { alignment: Alignment::Justify },
+       BoxNode::Text { text: numbered_title, ... }
+   ];
    ```
 
-3. **Keep** FontStyle::Bold section width fix (line ~2509-2510) — correct and harmless.
+3. **Update tests**: Many tests check paragraph output starts with `Kern{15.0}` at index 0. With `AlignmentMarker{Justify}` prepended, index 0 = AlignmentMarker, index 1 = Kern. Update affected tests and add 15+ new tests covering:
+   - Paragraph starts with AlignmentMarker{Justify}
+   - Section starts with AlignmentMarker{Justify}
+   - Two paragraphs produce TWO separate alignment markers
+   - break_items_with_alignment splits at paragraph AlignmentMarkers
 
-4. **Update tests**: Fix tests that assert 18.5 → 17.0 for 12pt line height.
-
-**Expected result:** Recover 97.30% similarity.
+**Expected impact**: 97.31% → 99%+ (proper line breaking produces ~20 y-levels instead of ~7)
 
 - **Cycles budget:** 2 | **Status:** 🚧 Planned
 
