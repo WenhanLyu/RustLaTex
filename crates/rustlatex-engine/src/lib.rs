@@ -2343,7 +2343,6 @@ pub fn translate_node_with_context(
                 stretch: 1.0,
                 shrink: 0.0,
             });
-            result.push(BoxNode::Penalty { value: -10000 }); // Force paragraph end
             result
         }
         Node::Command { name, args } => {
@@ -15533,40 +15532,36 @@ mod tests {
 
     #[test]
     fn test_paragraph_end_glue_context_natural_zero() {
-        // M71: paragraph ends with Penalty{-10000}, and second-to-last is the end glue
+        // M72: paragraph ends with Glue{0,1,0} (no trailing Penalty after paragraph)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        // Last node is now Penalty{-10000}, second-to-last is the end glue with natural=0.0
+        // Last node is the end glue with natural=0.0
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M71: Context paragraph last node must be Penalty{{-10000}}"
-        );
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
-        assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
-            "Context paragraph-end glue natural should be 0.0"
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
+            "M72: Context paragraph last node must be Glue with natural=0.0, got {:?}",
+            nodes.last()
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_stretch_one() {
-        // M71: paragraph ends with Penalty{-10000}, second-to-last is end glue with stretch=1.0
+        // M72: paragraph ends with Glue{0,1,0} (stretch=1.0, no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
-            "Context paragraph-end glue stretch should be 1.0"
+            matches!(nodes.last(), Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
+            "M72: Context paragraph last node must be Glue with stretch=1.0, got {:?}",
+            nodes.last()
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_full_match() {
-        // M71: paragraph ends with Penalty{-10000}, second-to-last is Glue{0,1,0}
+        // M72: paragraph ends with Glue{0,1,0} (no trailing Penalty after paragraph)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -15574,16 +15569,12 @@ mod tests {
         )]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "M71: paragraph last node must be Penalty{{-10000}}"
-        );
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
-        assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "Context: Expected Glue{{natural:0.0, stretch:1.0, shrink:0.0}} at paragraph end"
+            "M72: Context paragraph last node must be Glue{{0,1,0}}, got {:?}",
+            nodes.last()
         );
     }
 
@@ -19257,14 +19248,17 @@ mod tests {
 
     #[test]
     fn test_m71_paragraph_translation_ends_with_penalty() {
-        // M71: paragraph translation ends with Penalty{-10000} (forced break)
+        // M72: paragraph translation ends with Glue{0,1,0} (no trailing Penalty after paragraph)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello world.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
-            "paragraph must end with Penalty{{-10000}}, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
+                if natural.abs() < f64::EPSILON
+                && (*stretch - 1.0).abs() < f64::EPSILON
+                && shrink.abs() < f64::EPSILON),
+            "M72: paragraph must end with Glue{{0,1,0}}, got {:?}",
             nodes.last()
         );
     }
@@ -19292,10 +19286,15 @@ mod tests {
 
     #[test]
     fn test_m71_two_paragraphs_each_on_own_line() {
-        // M71: 2 consecutive paragraphs: para1 ends on its own line before para2 starts
+        // M72: 2 consecutive paragraphs with longer text produce 2+ lines naturally
+        // (without relying on forced Penalty{-10000} at paragraph ends)
         let doc = Node::Document(vec![
-            Node::Paragraph(vec![Node::Text("First paragraph text.".to_string())]),
-            Node::Paragraph(vec![Node::Text("Second paragraph text.".to_string())]),
+            Node::Paragraph(vec![Node::Text(
+                "The Pythagorean theorem states that x squared plus y squared equals z squared for a right triangle with legs x and y and hypotenuse z.".to_string(),
+            )]),
+            Node::Paragraph(vec![Node::Text(
+                "This second paragraph also contains enough text to occupy at least one full line in the output document.".to_string(),
+            )]),
         ]);
         let engine = Engine::new(doc);
         let pages = engine.typeset();
@@ -19303,7 +19302,7 @@ mod tests {
         let total_lines = pages[0].box_lines.len();
         assert!(
             total_lines >= 2,
-            "2 paragraphs must produce at least 2 lines, got {}",
+            "2 long paragraphs must produce at least 2 lines, got {}",
             total_lines
         );
     }
@@ -19366,20 +19365,251 @@ mod tests {
 
     #[test]
     fn test_m71_paragraph_end_glue_before_penalty() {
-        // M71: paragraph has end glue (stretch:1.0) as second-to-last, then Penalty{-10000}
+        // M72: paragraph ends with Glue{0,1,0} as last node (no trailing Penalty)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Some text here.".to_string())]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
-        // Second-to-last is the end glue
-        let second_last = nodes.get(nodes.len().saturating_sub(2));
+        // Last node is the end glue
         assert!(
-            matches!(second_last, Some(BoxNode::Glue { natural, stretch, shrink })
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, stretch, shrink })
                 if natural.abs() < f64::EPSILON
                 && (*stretch - 1.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "M71: paragraph second-to-last node must be end Glue{{0,1,0}}, got {:?}",
-            second_last
+            "M72: paragraph last node must be end Glue{{0,1,0}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    // ===== M72 tests: paragraph does NOT produce trailing Penalty{-10000} =====
+
+    #[test]
+    fn test_m72_paragraph_no_trailing_penalty_single_word() {
+        // M72: single-word paragraph must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Hello.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: paragraph must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_no_trailing_penalty_multi_word() {
+        // M72: multi-word paragraph must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text(
+            "The quick brown fox jumps over the lazy dog.".to_string(),
+        )]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: multi-word paragraph must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_ends_with_glue_not_penalty() {
+        // M72: paragraph must end with Glue (not Penalty)
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("End glue test paragraph.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { .. })),
+            "M72: paragraph must end with Glue, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_with_bold_text_no_trailing_penalty() {
+        // M72: paragraph containing bold text must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![
+            Node::Text("Some ".to_string()),
+            Node::Command {
+                name: "textbf".to_string(),
+                args: vec![Node::Group(vec![Node::Text("bold".to_string())])],
+            },
+            Node::Text(" text.".to_string()),
+        ]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: paragraph with bold must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_empty_paragraph_no_trailing_penalty() {
+        // M72: empty paragraph must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: empty paragraph must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_two_paragraphs_no_trailing_penalty_after_first() {
+        // M72: first paragraph in a document must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("First paragraph.".to_string())]);
+        let nodes1 = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes1.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: first paragraph must NOT end with Penalty{{-10000}}"
+        );
+        let node2 = Node::Paragraph(vec![Node::Text("Second paragraph.".to_string())]);
+        let nodes2 = translate_node_with_context(&node2, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes2.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: second paragraph must NOT end with Penalty{{-10000}}"
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_penalty_count_is_zero() {
+        // M72: paragraph translation must produce zero Penalty{-10000} nodes
+        // (they come from section headings, not paragraph ends)
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text(
+            "Paragraph with several words to test penalty count.".to_string(),
+        )]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        let penalty_count = nodes
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Penalty { value } if *value == -10000))
+            .count();
+        assert_eq!(
+            penalty_count, 0,
+            "M72: paragraph must produce 0 forced-break Penalty{{-10000}} nodes, got {}",
+            penalty_count
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_end_glue_stretch_is_one() {
+        // M72: paragraph end glue has stretch=1.0 (infinite stretch for paragraph end)
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Stretch test.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { stretch, .. }) if (*stretch - 1.0).abs() < f64::EPSILON),
+            "M72: paragraph end glue stretch must be 1.0, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_end_glue_natural_is_zero() {
+        // M72: paragraph end glue has natural=0.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Natural zero test.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { natural, .. }) if natural.abs() < f64::EPSILON),
+            "M72: paragraph end glue natural must be 0.0, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_end_glue_shrink_is_zero() {
+        // M72: paragraph end glue has shrink=0.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Shrink zero test.".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Glue { shrink, .. }) if shrink.abs() < f64::EPSILON),
+            "M72: paragraph end glue shrink must be 0.0, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_long_text_no_trailing_penalty() {
+        // M72: long paragraph that triggers line breaking must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text(
+            "This is a very long paragraph that will definitely need to be broken \
+             across multiple lines by the line-breaking algorithm and it must not \
+             end with a forced break penalty node."
+                .to_string(),
+        )]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: long paragraph must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_paragraph_with_inline_math_no_trailing_penalty() {
+        // M72: paragraph with inline math must NOT end with Penalty{-10000}
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![
+            Node::Text("The formula ".to_string()),
+            Node::InlineMath(vec![Node::Text("x^2".to_string())]),
+            Node::Text(" is important.".to_string()),
+        ]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: paragraph with inline math must NOT end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_section_heading_still_ends_with_penalty() {
+        // M72: section heading still ends with Penalty{-10000} (unchanged by M72)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test Section".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: section heading must still end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
+        );
+    }
+
+    #[test]
+    fn test_m72_subsection_heading_still_ends_with_penalty() {
+        // M72: subsection heading still ends with Penalty{-10000} (unchanged by M72)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test Subsection".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::Penalty { value }) if *value == -10000),
+            "M72: subsection heading must still end with Penalty{{-10000}}, got {:?}",
+            nodes.last()
         );
     }
 }
