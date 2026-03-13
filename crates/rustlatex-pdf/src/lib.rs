@@ -2090,7 +2090,7 @@ impl PdfWriter {
                                 } else {
                                     text.as_bytes().to_vec()
                                 };
-                                line_nat_width += compute_kern_pair_total(fn_name, &raw);
+                                line_nat_width += compute_kern_pair_total(fn_name, &raw) / 100.0;
                             }
                         }
                         BoxNode::Kern { amount } => line_nat_width += *amount as f32,
