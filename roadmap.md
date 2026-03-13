@@ -156,7 +156,9 @@ Binary-identical output requires:
 - **M77 + M78 analysis:** Confirmed 97.33% (best so far) is achieved WITH mega-lines. Diana's M78 forensic analysis found only 7 y-positions in output. ~90% of remaining gap is from layout (can't fix). Two small non-layout bugs found: (1) kern x-position tracking misses kern pair contribution at line 2224 of rustlatex-pdf; (2) kern scaling in line_nat_width uses hardcoded /100.0 (assumes 10pt) instead of font_size/1000. These are the last known fixable bugs before needing a fundamentally different paragraph-separation approach.
 - **Strategic assessment at M78:** The project is in a local maximum. We can squeeze ~0.1% more from non-layout fixes (M79). Breaking through 98%+ requires solving the mega-line problem — but every attempt to add paragraph separation regresses because our KP line-breaking produces different breakpoints than pdflatex's. True binary identity requires matching pdflatex's exact typesetting algorithm, which is a much larger undertaking.
 - **Cycle (M79):** M79 completed (f633fd8). Leo fixed BUG #1 (kern x-position tracking at line 2224 of rustlatex-pdf) and BUG #2 (kern scaling /100.0 → font_size/1000 at line 2093). 9 new tests. CI confirmed similarity = **97.34%** (+0.01% from 97.33%). ~1184 total tests pass, CI green.
-- **M80 approach (new hypothesis):** Deep analysis of mega-line root cause: The KP's `forced_j` path accepts ANY line width before a Penalty{-10000} with constant 10^8 demerits. This means mega-lines before forced breaks ALWAYS win (0 extra demerits vs positive demerits for extra breaks). Fix requires: (1) Section heading Penalty{-10000} after heading text, (2) Paragraph-end Penalty{-10000} after each paragraph, (3) forced_j width check (reject ratio<-1.0, accept underfull with 0 cost). KEY INSIGHT: Compare.tex paragraphs are all SHORT (< 345pt) so para-by-para KP produces same result as pdflatex (1 line per para). Word metrics now match pdflatex exactly (from M43/M49), so line breaks should also match. Previous M71/M74-fix regressions had different root causes: M71 kept tolerance=10000 (allowing mega-lines within paragraphs), M74-fix kept forced_j but had subsection 18.5pt regression.
+- **M80 REGRESSION (97.33%→96.90%):** M80 implemented all 3 components (paragraph Penalty, section Penalty, forced_j fix). CI showed 96.90% — REGRESSION from 97.33%. Despite the forced_j fix correctly rejecting mega-lines, the paragraph-by-paragraph KP runs produce different breakpoints than pdflatex continuous flow. This is the SAME root cause as M71/M74/M76. Confirmed pattern: ANY paragraph/section separation (Penalty, VSkip, AlignmentMarker) ALWAYS regresses. **Do NOT attempt this approach again.**
+- **M80 lesson**: The mega-line problem (7 y-positions vs pdflatex's ~25) cannot be solved by paragraph separation without regression. True fix requires exact pdflatex algorithm replication — a fundamentally larger undertaking. The project should focus on NON-LAYOUT improvements to maximize the ~10% of the gap that is fixable without structural changes.
+- **CONFIRMED anti-pattern #7**: M80 combination (Penalty+forced_j) REGRESSES. Added to dead ends list.
 
 ## Milestones
 
@@ -1299,6 +1301,26 @@ let result = vec![
 
 **Expected impact:** If paragraphs break correctly: 97.34% → 98%+ (speculative)
 **Cycles budget:** 2
+**Status:** ⚠️ REGRESSION — CI showed 96.90% (down from 97.33%). Paragraph separation + forced_j fix is confirmed dead end. Same root cause as M71/M74/M76. Commit 92a9ade needs revert.
+
+### M81: Revert M80 Regression + Fresh Non-Layout Analysis
+Recover 97.33%+ baseline by reverting M80, then investigate new non-layout improvement paths.
+
+**Goal 1: Revert M80** (Leo)
+- Revert commit 92a9ade (M80) in crates/rustlatex-engine/src/lib.rs
+- Remove: Penalty{-10000} after paragraph ends in translate_node_with_context (~line 2350)
+- Remove: Penalty{-10000} after paragraph ends in translate_node_with_metrics (~line 1460)
+- Remove: Penalty{-10000} after section/subsection/subsubsection headings in both paths (~lines 1593, 2530)
+- Revert: forced_j branch back to `pen * pen` (or equivalent pre-M80 behavior)
+- Update tests: revert all M80 test changes (M72 tests back to asserting NO paragraph Penalty, sections back to 1 node)
+- Expected: recover 97.33% similarity
+
+**Goal 2: Diana fresh analysis** (Diana, after Leo's revert is done)
+- Identify non-layout improvement candidates at M81 baseline
+- Focus: color/rendering accuracy, font metric precision, PDF operator correctness
+
+**Cycles budget:** 2
+
 **Status:** 🚧 Planned
 
 ---
