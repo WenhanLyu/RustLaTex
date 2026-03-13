@@ -998,3 +998,134 @@ fn test_ppm_text_bounding_box() {
     let _ = std::fs::remove_file(&pdflatex_ppm);
     let _ = std::fs::remove_dir_all(&pdflatex_dir);
 }
+
+// ===== Per-document pixel similarity logged tests (non-failing) =====
+
+/// Helper: compile tex_name.tex with our CLI + pdflatex, render both to PPM,
+/// compute similarity (±2 tolerance), write to /tmp/<tex_name>_similarity.txt and log.
+/// Non-failing (no assert on similarity value). Skips if pdflatex not available.
+fn run_similarity_logged(tex_name: &str) {
+    if skip_pdflatex() {
+        eprintln!("Skipping {}: SKIP_PDFLATEX_TESTS is set", tex_name);
+        return;
+    }
+    if !pdflatex_available() {
+        eprintln!("Skipping {}: pdflatex not found on PATH", tex_name);
+        return;
+    }
+    if !gs_available() {
+        eprintln!("Skipping {}: gs not available", tex_name);
+        return;
+    }
+
+    let mut tex_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    tex_path.push(format!("../../examples/{}.tex", tex_name));
+
+    if !tex_path.exists() {
+        eprintln!("Skipping {}: {:?} does not exist", tex_name, tex_path);
+        return;
+    }
+
+    // --- Our PDF ---
+    let our_pdf = std::env::temp_dir().join(format!(
+        "rustlatex_{}_ours_{}.pdf",
+        tex_name,
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&our_pdf);
+    let bin = env!("CARGO_BIN_EXE_rustlatex");
+    let output = Command::new(bin)
+        .arg(tex_path.to_str().unwrap())
+        .arg(our_pdf.to_str().unwrap())
+        .output()
+        .expect("failed to run rustlatex");
+    if !output.status.success() {
+        eprintln!(
+            "rustlatex failed for {}: {}",
+            tex_name,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let our_label = format!("{}_ours", tex_name);
+    let our_ppm = render_pdf_to_ppm(&our_pdf, &our_label);
+
+    // --- pdflatex PDF ---
+    let tmp = std::env::temp_dir().join(format!(
+        "rustlatex_{}_pdflatex_{}",
+        tex_name,
+        std::process::id()
+    ));
+    let _ = std::fs::create_dir_all(&tmp);
+    let tex_filename = format!("{}.tex", tex_name);
+    std::fs::copy(&tex_path, tmp.join(&tex_filename)).expect("copy failed");
+    let output = Command::new("pdflatex")
+        .args(["-interaction=nonstopmode", &tex_filename])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run pdflatex");
+    if !output.status.success() {
+        eprintln!(
+            "pdflatex failed for {}: {}",
+            tex_name,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let _ = std::fs::remove_file(&our_pdf);
+        let _ = std::fs::remove_file(&our_ppm);
+        let _ = std::fs::remove_dir_all(&tmp);
+        return;
+    }
+    let pdflatex_label = format!("{}_pdflatex", tex_name);
+    let pdflatex_ppm = render_pdf_to_ppm(&tmp.join(format!("{}.pdf", tex_name)), &pdflatex_label);
+
+    // --- Compare ---
+    let similarity = compare_ppm_files(&our_ppm, &pdflatex_ppm);
+
+    let our_size = std::fs::metadata(&our_ppm).map(|m| m.len()).unwrap_or(0);
+    let their_size = std::fs::metadata(&pdflatex_ppm)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    eprintln!("=== Pixel Similarity Report ({}) ===", tex_name);
+    eprintln!("Our PPM size:      {} bytes", our_size);
+    eprintln!("pdflatex PPM size: {} bytes", their_size);
+    eprintln!(
+        "Visual similarity: {:.4} ({:.2}%)",
+        similarity,
+        similarity * 100.0
+    );
+    eprintln!("=====================================");
+
+    // Write similarity to temp file for CI consumption
+    std::fs::write(
+        format!("/tmp/{}_similarity.txt", tex_name),
+        format!("similarity={:.4}", similarity),
+    )
+    .ok();
+
+    // Cleanup
+    let _ = std::fs::remove_file(&our_pdf);
+    let _ = std::fs::remove_file(&our_ppm);
+    let _ = std::fs::remove_file(&pdflatex_ppm);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_hello_tex_pixel_similarity_logged() {
+    run_similarity_logged("hello");
+}
+
+#[test]
+fn test_sections_tex_pixel_similarity_logged() {
+    run_similarity_logged("sections");
+}
+
+#[test]
+fn test_math_tex_pixel_similarity_logged() {
+    run_similarity_logged("math");
+}
+
+#[test]
+fn test_lists_tex_pixel_similarity_logged() {
+    run_similarity_logged("lists");
+}

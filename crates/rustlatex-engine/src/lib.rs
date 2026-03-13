@@ -1584,17 +1584,14 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         String::new()
                     };
                     let width = metrics.string_width(&title);
-                    vec![
-                        BoxNode::Text {
-                            text: title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::ParagraphEnd,
-                    ]
+                    vec![BoxNode::Text {
+                        text: title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }]
                 }
                 "hspace" => {
                     let dim = if let Some(arg) = args.first() {
@@ -2519,17 +2516,14 @@ pub fn translate_node_with_context(
                     let width = metrics.string_width_for_style(&numbered_title, FontStyle::Bold);
                     // VSkip suppressed — do not emit before/after VSkip around section headings.
                     // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![
-                        BoxNode::Text {
-                            text: numbered_title,
-                            width,
-                            font_size,
-                            color: None,
-                            font_style: FontStyle::Bold,
-                            vertical_offset: 0.0,
-                        },
-                        BoxNode::ParagraphEnd,
-                    ];
+                    let result = vec![BoxNode::Text {
+                        text: numbered_title,
+                        width,
+                        font_size,
+                        color: None,
+                        font_style: FontStyle::Bold,
+                        vertical_offset: 0.0,
+                    }];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -4759,12 +4753,8 @@ pub fn break_items_with_alignment(items: &[BoxNode], hsize: f64) -> Vec<OutputLi
                 // VSkip gets its own dedicated line
                 pre_lines.push(vec![item.clone()]);
             } else if matches!(item, BoxNode::ParagraphEnd) {
-                // Paragraph boundary: flush current chunk so each paragraph
-                // gets its own independent KP call. ParagraphEnd is consumed
-                // (not emitted to any chunk or pre_lines).
-                if !current_chunk.is_empty() {
-                    pre_lines.push(std::mem::take(&mut current_chunk));
-                }
+                // no-op: consumed (ParagraphEnd is emitted by paragraphs but
+                // does not split the KP chunk — global KP is preserved)
             } else {
                 current_chunk.push(item.clone());
             }
@@ -6631,7 +6621,7 @@ mod tests {
 
     #[test]
     fn test_section_has_vertical_vskip_after() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6639,8 +6629,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -6718,7 +6708,7 @@ mod tests {
 
     #[test]
     fn test_section_produces_three_nodes() {
-        // M82: section produces 2 nodes (Text + ParagraphEnd)
+        // Section produces 1 node (Text only, no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -6727,8 +6717,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: Section should produce exactly 2 nodes (Text + ParagraphEnd)"
+            1,
+            "Section should produce exactly 1 node (Text only)"
         );
     }
 
@@ -13327,7 +13317,7 @@ mod tests {
 
     #[test]
     fn test_section_vskip_after_is_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -13335,8 +13325,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13359,7 +13349,7 @@ mod tests {
 
     #[test]
     fn test_subsection_vskip_after_is_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // subsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13367,8 +13357,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13391,7 +13381,7 @@ mod tests {
 
     #[test]
     fn test_subsubsection_vskip_after_is_zero() {
-        // M65: VSkip{0.0} removed — last node is now Text
+        // subsubsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13399,8 +13389,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsubsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -13431,7 +13421,7 @@ mod tests {
 
     #[test]
     fn test_section_and_subsection_after_vskips_both_zero() {
-        // M74-fix: VSkip/Penalty removed — both last nodes are now Text
+        // Section/subsection produce 1 node (Text only, no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let sec_node = Node::Command {
             name: "section".to_string(),
@@ -13444,12 +13434,12 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec_node, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub_node, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: section last node must be ParagraphEnd"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsection last node must be ParagraphEnd"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
@@ -13541,7 +13531,7 @@ mod tests {
 
     #[test]
     fn test_subsection_produces_three_nodes() {
-        // M74-fix: subsection produces 1 node (Text only)
+        // subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -13550,14 +13540,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsection should produce exactly 1 node (Text)"
+            1,
+            "subsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_subsubsection_produces_three_nodes() {
-        // M74-fix: subsubsection produces 1 node (Text only)
+        // subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -13566,21 +13556,21 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsubsection should produce exactly 1 node (Text)"
+            1,
+            "subsubsection should produce exactly 1 node (Text)"
         );
     }
 
     #[test]
     fn test_section_spacing_exact_values() {
-        // M74-fix: section produces 1 node (Text only)
+        // section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M82: section should produce 1 node (Text)");
+        assert_eq!(nodes.len(), 1, "section should produce 1 node (Text)");
         assert!(
             matches!(
                 &nodes[0],
@@ -13595,18 +13585,14 @@ mod tests {
 
     #[test]
     fn test_subsection_spacing_exact_values() {
-        // M74-fix: subsection produces 1 node (Text only)
+        // subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: subsection should produce 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "subsection should produce 1 node (Text)");
         assert!(
             matches!(
                 &nodes[0],
@@ -13621,18 +13607,14 @@ mod tests {
 
     #[test]
     fn test_subsubsection_spacing_exact_values() {
-        // M74-fix: subsubsection produces 1 node (Text only)
+        // subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: subsubsection should produce 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "subsubsection should produce 1 node (Text)");
         assert!(
             matches!(
                 &nodes[0],
@@ -15722,7 +15704,7 @@ mod tests {
 
     #[test]
     fn test_subsection_emits_vskip_after_zero() {
-        // M74-fix: last node is Text
+        // subsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -15730,14 +15712,14 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_subsubsection_emits_vskip_after_zero() {
-        // M74-fix: last node is Text
+        // subsubsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -15745,8 +15727,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsubsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text"
         );
     }
 
@@ -15888,18 +15870,14 @@ mod tests {
 
     #[test]
     fn test_section_heading_has_text_between_vskips() {
-        // M82: section emits 2 nodes (Text + ParagraphEnd)
+        // Section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: Section should emit 2 nodes (Text + ParagraphEnd)"
-        );
+        assert_eq!(nodes.len(), 1, "Section should emit 1 node (Text only)");
         assert!(matches!(
             &nodes[0],
             BoxNode::Text {
@@ -16022,7 +16000,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_kern_after_zero() {
-        // M82: last node is now ParagraphEnd
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16030,8 +16008,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: section last node must be ParagraphEnd"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text"
         );
     }
 
@@ -16052,7 +16030,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsection_kern_after_zero() {
-        // M82: last node is now ParagraphEnd
+        // subsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16060,8 +16038,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsection last node must be ParagraphEnd"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
@@ -16082,7 +16060,7 @@ mod tests {
 
     #[test]
     fn test_m51_subsubsection_kern_after_zero() {
-        // M82: last node is now ParagraphEnd
+        // subsubsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16090,8 +16068,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsubsection last node must be ParagraphEnd"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text"
         );
     }
 
@@ -16204,7 +16182,7 @@ mod tests {
 
     #[test]
     fn test_m51_section_and_subsection_after_both_zero() {
-        // M82: both last nodes are now ParagraphEnd
+        // Both section/subsection last nodes are Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let sec = Node::Command {
             name: "section".to_string(),
@@ -16217,18 +16195,18 @@ mod tests {
         let sec_nodes = translate_node_with_metrics(&sec, &metrics);
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         assert!(
-            matches!(sec_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: section last node must be ParagraphEnd"
+            matches!(sec_nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text"
         );
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsection last node must be ParagraphEnd"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
     #[test]
     fn test_m51_subsection_and_subsubsection_share_after_value() {
-        // M82: both last nodes are now ParagraphEnd
+        // Both subsection/subsubsection last nodes are Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let sub = Node::Command {
             name: "subsection".to_string(),
@@ -16241,12 +16219,12 @@ mod tests {
         let sub_nodes = translate_node_with_metrics(&sub, &metrics);
         let subsub_nodes = translate_node_with_metrics(&subsub, &metrics);
         assert!(
-            matches!(sub_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsection last node must be ParagraphEnd"
+            matches!(sub_nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
         assert!(
-            matches!(subsub_nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: subsubsection last node must be ParagraphEnd"
+            matches!(subsub_nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text"
         );
     }
 
@@ -16373,7 +16351,7 @@ mod tests {
 
     #[test]
     fn test_m53_all_section_after_vskips_are_zero() {
-        // M74-fix: Penalty removed — all section types have Text as last node
+        // All section types have Text as last node (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16381,8 +16359,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text"
         );
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -16390,8 +16368,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -16399,8 +16377,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsubsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text"
         );
     }
 
@@ -16450,7 +16428,7 @@ mod tests {
 
     #[test]
     fn test_m53_section_produces_zero_vskip_before_and_after() {
-        // M65: section produces only Text (no VSkip)
+        // section produces only Text (no VSkip, no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16459,12 +16437,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
             matches!(nodes.first(), Some(BoxNode::Text { .. })),
-            "M65: first node must be Text, got {:?}",
+            "first node must be Text, got {:?}",
             nodes.first()
         );
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -16976,7 +16954,7 @@ mod tests {
 
     #[test]
     fn test_m55_section_returns_one_node() {
-        // M65: section returns 1 node (Text only, VSkip{0.0} removed)
+        // section returns 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -16985,14 +16963,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: section should return exactly 1 node (Text only)"
+            1,
+            "section should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsection_returns_one_node() {
-        // M65: subsection returns 1 node (Text only, VSkip{0.0} removed)
+        // subsection returns 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17001,14 +16979,14 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsection should return exactly 1 node (Text only)"
+            1,
+            "subsection should return exactly 1 node (Text only)"
         );
     }
 
     #[test]
     fn test_m55_subsubsection_returns_one_node() {
-        // M65: subsubsection returns 1 node (Text only, VSkip{0.0} removed)
+        // subsubsection returns 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17017,8 +16995,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsubsection should return exactly 1 node (Text only)"
+            1,
+            "subsubsection should return exactly 1 node (Text only)"
         );
     }
 
@@ -17342,45 +17320,37 @@ mod tests {
         }
     }
 
-    // 2. M56-fix: Section emits exactly 1 node (Text only, no VSkip)
+    // 2. Section emits exactly 1 node (Text only)
     #[test]
     fn test_m56_section_after_vskip() {
-        // M74-fix: section emits 1 node (Text only)
+        // section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("B".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: section must emit exactly 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "section must emit exactly 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M71: section first node must be Text"
+            "section first node must be Text"
         );
     }
 
-    // 3. M74-fix: Section emits 1 node (Text only)
+    // 3. Section emits 1 node (Text only)
     #[test]
     fn test_m56_section_text_before_vskip() {
-        // M82: section emits 2 nodes (Text + ParagraphEnd)
+        // section emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("C".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: section must emit 2 nodes (Text + ParagraphEnd)"
-        );
+        assert_eq!(nodes.len(), 1, "section must emit 1 node (Text only)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: first node must be Text"
+            "first node must be Text"
         );
     }
 
@@ -17404,31 +17374,27 @@ mod tests {
         }
     }
 
-    // 5. M61: Subsection emits exactly 1 node (Text only)
+    // 5. Subsection emits exactly 1 node (Text only)
     #[test]
     fn test_m56_subsection_after_vskip() {
-        // M74-fix: subsection emits 1 node (Text only)
+        // subsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("D".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: subsection must emit exactly 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "subsection must emit exactly 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M71: subsection first node must be Text"
+            "subsection first node must be Text"
         );
     }
 
-    // 6. M74-fix: Subsubsection emits 1 node (Text only)
+    // 6. Subsubsection emits 1 node (Text only)
     #[test]
     fn test_m56_subsubsection_no_vskip() {
-        // M74-fix: subsubsection emits 1 node (Text only)
+        // subsubsection emits 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17437,12 +17403,12 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsubsection must emit exactly 1 node (Text)"
+            1,
+            "subsubsection must emit exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M71: subsubsection first node must be Text"
+            "subsubsection first node must be Text"
         );
     }
 
@@ -17642,10 +17608,10 @@ mod tests {
         );
     }
 
-    // 17. M61: Section last node is Text (no VSkip)
+    // 17. Section last node is Text
     #[test]
     fn test_m56_section_vskip_exact_amount() {
-        // M74-fix: last node is Text
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17653,15 +17619,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text"
         );
     }
 
-    // 18. M74-fix: Subsection last node is Text
+    // 18. Subsection last node is Text
     #[test]
     fn test_m56_subsection_vskip_exact_amount() {
-        // M74-fix: last node is Text
+        // subsection last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17669,8 +17635,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
@@ -17678,27 +17644,23 @@ mod tests {
 
     #[test]
     fn test_m60_section_emits_after_vskip() {
-        // M74-fix: section produces 1 node (Text only)
+        // section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: section must produce exactly 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "section must produce exactly 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: section first node must be Text"
+            "section first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsection_emits_after_vskip() {
-        // M74-fix: subsection produces 1 node (Text only)
+        // subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -17707,18 +17669,18 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsection must produce exactly 1 node (Text)"
+            1,
+            "subsection must produce exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M71: subsection first node must be Text"
+            "subsection first node must be Text"
         );
     }
 
     #[test]
     fn test_m60_subsubsection_emits_after_vskip() {
-        // M74-fix: subsubsection produces 1 node (Text only)
+        // subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -17727,8 +17689,8 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: subsubsection must produce exactly 1 node (Text)"
+            1,
+            "subsubsection must produce exactly 1 node (Text)"
         );
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
@@ -17975,7 +17937,7 @@ mod tests {
 
     #[test]
     fn test_m60_section_node_count_metrics() {
-        // M74-fix: section produces exactly 1 BoxNode (Text only)
+        // section produces exactly 1 BoxNode (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -17984,28 +17946,24 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: section must produce exactly 1 BoxNode (Text)"
+            1,
+            "section must produce exactly 1 BoxNode (Text)"
         );
     }
 
     #[test]
     fn test_m60_section_vskip_after_text_not_before() {
-        // M74-fix: section produces 1 node (Text only)
+        // section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Order".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: section must have exactly 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "section must have exactly 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { .. }),
-            "M65: first node must be Text"
+            "first node must be Text"
         );
     }
 
@@ -18170,7 +18128,7 @@ mod tests {
 
     #[test]
     fn test_m63_section_emits_vskip_zero_as_last_node() {
-        // M74-fix: last node is now Text
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18178,46 +18136,42 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m63_section_context_emits_vskip_zero_as_last_node() {
-        // M74-fix: context section last node is now Text
+        // context section last node is Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: context section last node must be ParagraphEnd, got {:?}",
+            matches!(items.last(), Some(BoxNode::Text { .. })),
+            "context section last node must be Text, got {:?}",
             items.last()
         );
     }
 
     #[test]
     fn test_m63_section_produces_two_nodes() {
-        // M74-fix: section produces 1 node (Text only)
+        // section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Two".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: section must produce exactly 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "section must produce exactly 1 node (Text)");
     }
 
     #[test]
     fn test_m63_section_vskip_amount_is_zero() {
-        // M74-fix: last node is now Text
+        // section last node is Text (no ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -18225,25 +18179,25 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m63_subsection_emits_vskip_zero() {
-        // M74-fix: subsection produces 1 node (Text only)
+        // subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M82: subsection must produce 1 node (Text)");
+        assert_eq!(nodes.len(), 1, "subsection must produce 1 node (Text)");
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text"
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text"
         );
     }
 
@@ -18322,14 +18276,14 @@ mod tests {
 
     #[test]
     fn test_m63_section_vskip_chunk_boundary() {
-        // M74-fix: section produces [Text] only
+        // section produces [Text] only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Boundary".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M82: section must produce 1 node (Text)");
+        assert_eq!(nodes.len(), 1, "section must produce 1 node (Text)");
         assert!(
             matches!(&nodes[0], BoxNode::Text { text, font_style: FontStyle::Bold, .. } if text == "Boundary")
         );
@@ -18337,19 +18291,15 @@ mod tests {
 
     #[test]
     fn test_m63_subsubsection_emits_vskip_zero() {
-        // M74-fix: subsubsection produces 1 node (Text only)
+        // subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Deep".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: subsubsection must produce 1 node (Text)"
-        );
-        assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
+        assert_eq!(nodes.len(), 1, "subsubsection must produce 1 node (Text)");
+        assert!(matches!(nodes.last(), Some(BoxNode::Text { .. })));
     }
 
     #[test]
@@ -19220,55 +19170,51 @@ mod tests {
 
     #[test]
     fn test_m71_section_heading_returns_penalty_as_last_node() {
-        // M74-fix: section produces 1 node (Text only, no trailing Penalty)
+        // section produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M82: section must produce 1 node (Text)");
+        assert_eq!(nodes.len(), 1, "section must produce 1 node (Text)");
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsection_heading_includes_forced_break() {
-        // M74-fix: subsection produces 1 node (Text only, no trailing Penalty)
+        // subsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Methods".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(nodes.len(), 2, "M82: subsection must produce 1 node (Text)");
+        assert_eq!(nodes.len(), 1, "subsection must produce 1 node (Text)");
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m71_subsubsection_heading_includes_forced_break() {
-        // M74-fix: subsubsection produces 1 node (Text only, no trailing Penalty)
+        // subsubsection produces 1 node (Text only)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
             args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            2,
-            "M82: subsubsection must produce 1 node (Text)"
-        );
+        assert_eq!(nodes.len(), 1, "subsubsection must produce 1 node (Text)");
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsubsection last node must be Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection last node must be Text, got {:?}",
             nodes.last()
         );
     }
@@ -19615,7 +19561,7 @@ mod tests {
 
     #[test]
     fn test_m72_section_heading_still_ends_with_penalty() {
-        // M74-fix: section heading ends with Text (no trailing Penalty)
+        // section heading ends with Text (no trailing Penalty or ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19623,15 +19569,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section heading must end with Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section heading must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m72_subsection_heading_still_ends_with_penalty() {
-        // M74-fix: subsection heading ends with Text (no trailing Penalty)
+        // subsection heading ends with Text (no trailing Penalty or ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19639,8 +19585,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection heading must end with Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection heading must end with Text, got {:?}",
             nodes.last()
         );
     }
@@ -19712,7 +19658,7 @@ mod tests {
 
     #[test]
     fn test_m74_section_ends_with_penalty() {
-        // M74-fix: section heading translation must end with Text (no trailing Penalty)
+        // section heading ends with Text (no trailing Penalty or ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19720,15 +19666,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: section must end with Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "section must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_subsection_ends_with_penalty() {
-        // M74-fix: subsection heading must end with Text (no trailing Penalty)
+        // subsection heading ends with Text (no trailing Penalty or ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsection".to_string(),
@@ -19736,15 +19682,15 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsection must end with Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsection must end with Text, got {:?}",
             nodes.last()
         );
     }
 
     #[test]
     fn test_m74_section_produces_two_nodes() {
-        // M74-fix: section produces 1 node: Text only
+        // section produces 1 node: Text only
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "section".to_string(),
@@ -19753,13 +19699,13 @@ mod tests {
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert_eq!(
             nodes.len(),
-            2,
-            "M82: section must produce 1 node, got {}",
+            1,
+            "section must produce 1 node, got {}",
             nodes.len()
         );
         assert!(
             matches!(nodes[0], BoxNode::Text { .. }),
-            "M74-fix: first node must be Text"
+            "first node must be Text"
         );
     }
 
@@ -19920,7 +19866,7 @@ mod tests {
 
     #[test]
     fn test_m74_subsubsection_ends_with_penalty() {
-        // M74-fix: subsubsection heading must end with Text (no trailing Penalty)
+        // subsubsection heading ends with Text (no trailing Penalty or ParagraphEnd)
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "subsubsection".to_string(),
@@ -19928,8 +19874,8 @@ mod tests {
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M74-fix: subsubsection must end with Text, got {:?}",
+            matches!(nodes.last(), Some(BoxNode::Text { .. })),
+            "subsubsection must end with Text, got {:?}",
             nodes.last()
         );
     }
