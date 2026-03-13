@@ -140,6 +140,7 @@ Binary-identical output requires:
 - **M66 REGRESSION (97.24%→97.06%):** Itemize VSkip conversion REGRESSED. VSkip-based spacing consistently regresses for both section headings AND itemize environments. This is now confirmed as a pattern: do NOT add VSkip for list spacing. The underlying model of "add VSkip to match pdflatex spacing" is fundamentally broken in our engine. Future fixes must focus on NON-SPACING sources of difference.
 - **VSkip anti-pattern:** VSkip-only lines use their `line_height = amount` for vertical advance in the PDF backend. This is the WRONG model: pdflatex integrates spacing into the baseline skip calculation for neighboring lines, not as separate VSkip lines. Adding VSkip before/after lists adds spacing that ISN'T in pdflatex's model (at those exact positions relative to our layout), causing cascading mismatches.
 - **LESSON: Do NOT add VSkip around itemize lists** — confirmed regresses. Add this to the same rule as section heading VSkip.
+- **LESSON: Do NOT use KP forced_j sentinel that rejects `ratio < -1.0`** — M74-fix confirmed: when no valid break fits in hsize (e.g., word longer than hsize), the KP optimizer has no feasible path and produces overflow mega-lines. The original `pen * pen` demerits behavior (accepting all forced-break endings) is safer because at minimum one breakpoint (at the forced break itself) is always feasible.
 - **Cycle (M67):** M67 completed (a14a9a7). Reverted M66 VSkip regression, fixed display math 10pt (natural:12→10, stretch:3→2, shrink:9→5), fixed subsection line_height 14.0→14.5. 720 engine tests pass. Expected similarity ≥ 97.24% + small improvement from display math fix.
 - **Cycle (M68):** M68 completed (b51eddd). Section line_height 18→21pt (absorbing afterskip effect). Pixel similarity = **97.31%** (+0.07% from 97.24%). CI green, 720+ engine tests pass.
 - **Cycle (M69):** M69 implemented by Leo (47cdf9f). Two fixes: display math post-processing (+10pt to Center-aligned 10pt lines and preceding lines) + subsection line_height 14.5→17.0. CI result: **97.30% — essentially unchanged from 97.31%**. Both fixes had ~zero net impact. Possible explanations: subsection 17.0 overshot creating regression that cancelled display math gain; or display math post-processing isn't triggered or doesn't affect the actual mismatch pixels. Diana analyzing root cause for M70 planning.
@@ -1118,6 +1119,47 @@ Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix
 - This fix makes mega-lines INFEASIBLE (ratio < -1.0 → continue)
 - `contains_forced_break` check (unchanged) still prevents bridging over Penalty nodes
 - No VSkip involved, no chunk-splitting — pure line-breaking improvement
+
+- **Cycles budget:** 2 | **Status:** 🚧 Planned
+
+### M74-fix: Revert M74 Paragraph/Section Penalties — REGRESSION RECOVERY ⚠️ NEW REGRESSION
+Apollo required reverting paragraph and section Penalty{-10000} additions from M74. Leo did so (commit 5773a2d), also keeping: (1) KP forced_j sentinel logic, (2) FontStyle::Bold section width fix, (3) subsection line_height 17.0 → 18.5.
+
+**Result: 96.79% similarity** — WORSE than M73's 97.30%.
+
+**Root cause of new regression:**
+1. **KP forced_j sentinel** (kept from M74): rejects lines where `ratio < -1.0` as infeasible. When NO valid break fits in hsize, the segment falls through to emergency/fallback → produces overfull mega-lines extending 300-400pt past the right margin. Verified: 11 lines in M74-fix extend past x=471.25, including y=577.73 extending to x=861pt.
+2. **Subsection line_height 18.5pt** (was 17.0 in M73): caused cascading vertical shift → regression.
+
+**What's kept and good:** FontStyle::Bold for section heading width (correct, harmless).
+
+- **Status:** ⚠️ REGRESSION — 96.79%, KP sentinel and subsection 18.5 are the causes
+
+### M75: Recover 97.30% Baseline (Revert KP Sentinel + Subsection 18.5)
+Revert the two regressions from M74-fix while keeping the Bold section width fix.
+
+**Required changes (all in crates/rustlatex-engine/src/lib.rs):**
+
+1. **Revert KP forced_j sentinel** (~line 4601-4610): Change back to original `pen * pen` behavior:
+   ```rust
+   } else if forced_j {
+       // Forced break: accept regardless of width, but add penalty² cost
+       let pen = bp_pen_j.unwrap_or(0) as f64;
+       pen * pen
+   }
+   ```
+
+2. **Revert subsection line_height** (~line 217): Change `18.5` → `17.0`:
+   ```rust
+   } else if (max_font_size - 12.0).abs() < 0.01 {
+       17.0 // subsection: 14.5pt baselineskip + afterskip effect
+   ```
+
+3. **Keep** FontStyle::Bold section width fix (line ~2509-2510) — correct and harmless.
+
+4. **Update tests**: Fix tests that assert 18.5 → 17.0 for 12pt line height.
+
+**Expected result:** Recover 97.30% similarity.
 
 - **Cycles budget:** 2 | **Status:** 🚧 Planned
 
