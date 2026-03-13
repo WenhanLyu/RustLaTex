@@ -2108,6 +2108,12 @@ impl PdfWriter {
                 }
                 let hsize = 345.0_f32; // engine line-break width
                 let remaining = hsize - line_nat_width;
+                let stretch_ratio = if total_stretch > 0.0 {
+                    remaining / total_stretch
+                } else {
+                    f32::INFINITY
+                };
+                let is_last_line_like = stretch_ratio > 10.0; // very underfull = paragraph last line
 
                 let start_x = match line.alignment {
                     Alignment::Center => margin_left + remaining / 2.0,
@@ -2232,17 +2238,18 @@ impl PdfWriter {
                         BoxNode::Glue {
                             natural, stretch, ..
                         } => {
-                            let extra = if line.alignment == Alignment::Justify {
-                                if total_stretch > 0.0 {
-                                    remaining * (*stretch as f32) / total_stretch
-                                } else if glue_count > 0 {
-                                    remaining / glue_count as f32
+                            let extra =
+                                if line.alignment == Alignment::Justify && !is_last_line_like {
+                                    if total_stretch > 0.0 {
+                                        remaining * (*stretch as f32) / total_stretch
+                                    } else if glue_count > 0 {
+                                        remaining / glue_count as f32
+                                    } else {
+                                        0.0
+                                    }
                                 } else {
-                                    0.0
-                                }
-                            } else {
-                                0.0
-                            };
+                                    0.0 // Last line or non-justify: no stretching (ragged right)
+                                };
                             current_x += *natural as f32 + extra;
                             content.set_text_matrix([1.0, 0.0, 0.0, 1.0, current_x, current_y]);
                         }
