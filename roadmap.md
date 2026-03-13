@@ -153,6 +153,8 @@ Binary-identical output requires:
 - **M71 REGRESSION (97.30%→96.88%):** M71 added Penalty{-10000} after section headings AND paragraph ends. This REGRESSED similarity from 97.30% to 96.88% (-0.42%). Root cause: Penalty{-10000} after paragraph ends forces each paragraph to break independently in break_items_with_alignment (separate chunk per paragraph). pdflatex breaks text in continuous flow. Different line breaks → more pixel mismatches. KEY INSIGHT: Section headings are ALREADY separated by AlignmentMarker (Center vs Justify). The Penalty after headings is redundant but harmless. The Penalty after PARAGRAPH ENDS is the regression cause. M72 must revert the paragraph-end penalties. LESSON: Paragraph-end forced breaks cause regression just like VSkip around section/list environments.
 - **Cycle (M72):** M72 removed paragraph-end Penalty{-10000} (commit 5357d13). But M72 regressed to 96.77% because it KEPT the section/subsection Penalty nodes AND the forced-break processing in break_items_with_alignment. M73 fixed this by also removing the section Penalties and the forced-break block. Result: M73 = 97.30%.
 - **Cycle (M73):** M73 (commit 4a18bf3) removed section/subsection Penalty{-10000} nodes AND the Penalty{≤-10000} forced-break else-if block from break_items_with_alignment. CI confirmed: **97.30% similarity** restored. This is the M70 baseline behavior. 777 engine tests pass, CI green.
+- **M77 + M78 analysis:** Confirmed 97.33% (best so far) is achieved WITH mega-lines. Diana's M78 forensic analysis found only 7 y-positions in output. ~90% of remaining gap is from layout (can't fix). Two small non-layout bugs found: (1) kern x-position tracking misses kern pair contribution at line 2224 of rustlatex-pdf; (2) kern scaling in line_nat_width uses hardcoded /100.0 (assumes 10pt) instead of font_size/1000. These are the last known fixable bugs before needing a fundamentally different paragraph-separation approach.
+- **Strategic assessment at M78:** The project is in a local maximum. We can squeeze ~0.1% more from non-layout fixes (M79). Breaking through 98%+ requires solving the mega-line problem — but every attempt to add paragraph separation regresses because our KP line-breaking produces different breakpoints than pdflatex's. True binary identity requires matching pdflatex's exact typesetting algorithm, which is a much larger undertaking.
 
 ## Milestones
 
@@ -1177,18 +1179,62 @@ Revert M76's AlignmentMarker additions from the engine while keeping the two goo
 - **Cycles budget:** 2 | **Cycles actual:** 1 (Leo, commit 0052314)
 - **Status:** ✅ Complete — CI confirmed 97.33%
 
-### M78: Fresh Analysis at M77 Baseline → Identify Safe Improvements
-Diana's previous analysis (based on M73 state) identified mega-lines as the root cause. But the project history shows that ALL attempts to fix paragraph separation have regressed (M71-M76). The 97.33% is achieved WITH mega-lines.
+### M78: Fresh Analysis at M77 Baseline → Identify Safe Improvements ✅ COMPLETE
+Diana performed fresh forensic analysis. Key findings:
+- Output has only 7 y-positions (expected ~25) — mega-lines confirmed
+- **~90% of the 2.67% gap** is from structural layout (paragraphs as mega-lines) — cannot fix without regression
+- **~10% of the gap** (~1300 pixels) comes from two PDF backend word-level bugs:
+  1. **BUG #1** (line 2224): `current_x += *width` does NOT include kern pair contribution → words after kerned text positioned slightly too far right (~100-500 pixels impact)
+  2. **BUG #2** (line 2093): Kern scaling hardcoded `/100.0` (assumes 10pt) — wrong for 14.4pt sections (44% error) and 12pt subsections (20% error) (~50-200 pixels impact)
+- Word spacing values match pdflatex exactly ✓
+- TJ kern arrays are correctly scaled ✓
 
-**New hypothesis**: The remaining 2.67% gap is NOT fixable by paragraph separation/layout changes — those always regress. The gap must come from non-layout sources:
-- Word spacing within correctly-placed lines
-- Kern pair application accuracy
-- Font rendering details
-- Character position precision
+- **Status:** ✅ Complete — Diana's analysis in workspace/diana/note.md
 
-**Goal**: Fresh analysis at M77 state to identify safe, non-layout improvements that can push above 97.5%+.
+### M79: Fix Kern X-Position Tracking + Kern Scaling in PDF Backend
+Two targeted non-layout fixes from Diana's M78 analysis. These are safe: they only affect how accurately we track `current_x` and how much kern contribution is counted in `line_nat_width`.
 
-- **Status:** 🚧 Planned — Diana to perform fresh analysis
+**Fix 1 — BUG #1: Kern x-position tracking** (`crates/rustlatex-pdf/src/lib.rs`, line 2224):
+When we render a Text node with kern pairs via TJ, the actual rendered width is `*width + kern_adjustment`. But we only advance `current_x += *width`. The next word's Tm position is slightly off (too far right). Fix: after rendering a kerned text node, include the total kern pair contribution in `current_x`:
+```rust
+// After: current_x += *width as f32;
+// Change to:
+let kern_adj = if is_cmr10_kern_font(font_name) && font_has_kern_pairs(font_name, &raw_bytes) {
+    compute_kern_pair_total(font_name, &raw_bytes) * (*font_size as f32) / 1000.0
+} else {
+    0.0
+};
+current_x += *width as f32 + kern_adj;
+```
+Note: `font_size` is already available in scope at line 2224 as `font_size_outer` (f32). Need `raw_bytes` (already computed above).
+
+**Fix 2 — BUG #2: Kern scaling in line_nat_width** (`crates/rustlatex-pdf/src/lib.rs`, line 2093):
+Change the match arm at line 2078-2082 to destructure `font_size`:
+```rust
+BoxNode::Text {
+    text,
+    width,
+    font_size,
+    font_style,
+    ..
+} => {
+```
+Then change line 2093:
+```rust
+// FROM: compute_kern_pair_total(fn_name, &raw) / 100.0
+// TO:   compute_kern_pair_total(fn_name, &raw) * (*font_size as f32) / 1000.0
+```
+
+**Tests (8+ new):**
+- Test that current_x after kerned word includes kern contribution
+- Test that BUG #2 fix gives correct kern contribution for 14.4pt font (not just 10pt)
+- Test line_nat_width computation uses font-size-scaled kern values
+- All 1150+ existing tests continue to pass
+
+**Expected impact:** ~0.05-0.14% pixel similarity improvement (97.33% → ~97.40-97.47%)
+
+- **Cycles budget:** 2
+- **Status:** 🚧 Planned
 
 ---
 
