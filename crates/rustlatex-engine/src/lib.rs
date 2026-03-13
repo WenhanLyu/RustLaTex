@@ -214,7 +214,7 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     } else if (max_font_size - 14.4).abs() < 0.01 {
         21.0 // pdflatex effective section-to-paragraph baseline advance = 21pt (afterskip ~9.9pt + depth ~3.4pt + baselineskip)
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        18.5 // subsection: pdflatex baselineskip 14.5pt + afterskip ~4pt
+        17.0 // subsection: 14.5pt baselineskip + afterskip effect
     } else {
         max_font_size * 1.2
     }
@@ -4601,12 +4601,9 @@ impl LineBreaker for KnuthPlassLineBreaker {
                         _ => 0.0,                        // underfull or perfect → 0 demerits
                     }
                 } else if forced_j {
-                    let ratio = adjustment_ratio(nat_w, stretch, shrink, hsize);
-                    match ratio {
-                        None => continue,                // overfull with no shrink → infeasible
-                        Some(r) if r < -1.0 => continue, // over-shrunk → infeasible
-                        _ => 0.0,                        // underfull or perfect → 0 demerits
-                    }
+                    // Forced break: accept regardless of width, but add penalty² cost
+                    let pen = bp_pen_j.unwrap_or(0) as f64;
+                    pen * pen
                 } else {
                     // Normal line: compute adjustment ratio and badness
                     let ratio = match adjustment_ratio(nat_w, stretch, shrink, hsize) {
@@ -8036,8 +8033,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.001,
-            "M74-fix: 12pt text should give 18.5, got {}",
+            (lh - 17.0).abs() < 0.001,
+            "M74-fix: 12pt text should give 17.0, got {}",
             lh
         );
     }
@@ -14603,7 +14600,7 @@ mod tests {
 
     #[test]
     fn test_m67_subsection_line_height_is_14_5() {
-        // M74-fix: 12pt subsection font → line_height = 18.5
+        // M74-fix: 12pt subsection font → line_height = 17.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 60.0,
@@ -14614,8 +14611,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.01,
-            "M74-fix: 12pt subsection must give line_height=18.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M74-fix: 12pt subsection must give line_height=17.0, got {}",
             lh
         );
     }
@@ -17800,7 +17797,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M74-fix: compute_line_height for [Text{font_size:12.0}] → 18.5
+        // M74-fix: compute_line_height for [Text{font_size:12.0}] → 17.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -17811,8 +17808,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.01,
-            "M74-fix: 12.0pt text should give line height 18.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M74-fix: 12.0pt text should give line height 17.0, got {}",
             lh
         );
     }
@@ -18005,7 +18002,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_12pt_is_14_5() {
-        // M74-fix: compute_line_height for 12pt text must return 18.5
+        // M74-fix: compute_line_height for 12pt text must return 17.0
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -18016,8 +18013,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.01,
-            "M74-fix: 12pt text must give line_height=18.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M74-fix: 12pt text must give line_height=17.0, got {}",
             lh
         );
     }
@@ -18226,7 +18223,7 @@ mod tests {
 
     #[test]
     fn test_m64_compute_line_height_subsection_is_14_5() {
-        // M74-fix: 12.0pt → 18.5
+        // M74-fix: 12.0pt → 17.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -18237,8 +18234,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.01,
-            "M74-fix: 12.0pt must give line_height=18.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M74-fix: 12.0pt must give line_height=17.0, got {}",
             lh
         );
     }
@@ -18482,7 +18479,7 @@ mod tests {
 
     #[test]
     fn test_m68_section_line_height_exceeds_subsection() {
-        // M68: 14.4pt section (21.0) > 12pt subsection (18.5)
+        // M68: 14.4pt section (21.0) > 12pt subsection (17.0)
         let section_nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 60.0,
@@ -18512,8 +18509,8 @@ mod tests {
             "M68: section must be 21.0"
         );
         assert!(
-            (subsection_lh - 18.5).abs() < 0.01,
-            "M68: subsection must be 18.5"
+            (subsection_lh - 17.0).abs() < 0.01,
+            "M68: subsection must be 17.0"
         );
     }
 
@@ -18691,7 +18688,7 @@ mod tests {
 
     #[test]
     fn test_m69_subsection_line_height_is_17() {
-        // M74-fix: 12pt font (subsection) should give 18.5
+        // M74-fix: 12pt font (subsection) should give 17.0
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 80.0,
@@ -18702,8 +18699,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 18.5).abs() < 0.01,
-            "M74-fix: 12pt subsection must give line_height=18.5, got {}",
+            (lh - 17.0).abs() < 0.01,
+            "M74-fix: 12pt subsection must give line_height=17.0, got {}",
             lh
         );
     }
@@ -18834,10 +18831,10 @@ mod tests {
             "M69: should have Center heading line"
         );
         let hl = heading_line.unwrap();
-        // Should be 18.5 (subsection), NOT 18.5+10=28.5
+        // Should be 17.0 (subsection), NOT 17.0+10=28.5
         assert!(
-            (hl.line_height - 18.5).abs() < 0.01,
-            "M74-fix: center heading (12pt) should be 18.5, not +10; got {}",
+            (hl.line_height - 17.0).abs() < 0.01,
+            "M74-fix: center heading (12pt) should be 17.0, not +10; got {}",
             hl.line_height
         );
     }
