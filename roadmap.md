@@ -1074,6 +1074,53 @@ Revert M66's itemize VSkip changes back to Glue nodes (recover 97.24%), then fix
 
 - **Cycles budget:** 2
 
+### M74: Fix KP Forced Break Demerits + Add Paragraph/Section Separation
+**Root cause identified (Diana M74 research):** The KP line-breaker has a critical bug: forced break (`Penalty{-10000}`) handling accepts ALL lines ending at forced breaks regardless of width, using fixed demerits of `(-10000)² = 10^8`. The DP optimizer always picks a mega-line (entire paragraph on one line) because it has the same cost as any other line ending at a forced break. Result: only 7 text y-positions instead of 20+, with lines extending 600-1299pt beyond the 345pt hsize.
+
+**Fixes:**
+
+1. **Fix KP forced break demerits** (`crates/rustlatex-engine/src/lib.rs`, ~line 4604-4607):
+   - Change `else if forced_j` branch from accepting all lines with `pen*pen` demerits
+   - Treat forced breaks like "last line" (sentinel): reject if overfull (`ratio < -1.0` or `None`), accept with 0 demerits if underfull/perfect
+   - This causes the optimizer to REJECT mega-lines and find intermediate breaks instead
+   ```rust
+   } else if forced_j {
+       // Forced break: treat like last line — overfull rejected, underfull OK
+       let ratio = adjustment_ratio(nat_w, stretch, shrink, hsize);
+       match ratio {
+           None => continue,                // overfull with no shrink → infeasible
+           Some(r) if r < -1.0 => continue, // over-shrunk → infeasible
+           _ => 0.0,                        // underfull or perfect → 0 demerits
+       }
+   }
+   ```
+
+2. **Add Paragraph forced break** (`translate_node_with_context`, `Node::Paragraph` handler, ~line 2342):
+   - After `result.push(BoxNode::Glue { natural: 0.0, ... })` at end of paragraph, add:
+   - `result.push(BoxNode::Penalty { value: -10000 });`
+
+3. **Add Section/Subsection forced break** (`translate_node_with_context`, section handler, ~line 2520):
+   - Change `result` from `vec![BoxNode::Text { ... }]` to `vec![BoxNode::Text { ... }, BoxNode::Penalty { value: -10000 }]`
+
+4. **Fix section heading width** (~line 2509-2510):
+   - Change `metrics.string_width_for_style(&numbered_title, ctx.current_font_style)` to `metrics.string_width_for_style(&numbered_title, FontStyle::Bold)`
+   - Width was computed with Normal metrics but heading is rendered Bold
+
+5. **Update tests** — tests checking paragraph output that verify NO trailing Penalty (M72 tests) need updating.
+   - M72 tests (`test_m72_*`) asserted paragraphs do NOT have trailing Penalty — update to ALLOW trailing Penalty
+   - Tests checking section produces 1 node — update to expect 2 nodes (Text + Penalty)
+   - Add 15+ new tests
+
+**Expected impact**: 97.30% → 99%+ (proper line breaking produces 20+ y-levels instead of 7)
+
+**Why this is safe (won't regress):**
+- Previous M71-M73 failed because forced break demerits were still 10^8 — mega-lines won
+- This fix makes mega-lines INFEASIBLE (ratio < -1.0 → continue)
+- `contains_forced_break` check (unchanged) still prevents bridging over Penalty nodes
+- No VSkip involved, no chunk-splitting — pure line-breaking improvement
+
+- **Cycles budget:** 2 | **Status:** 🚧 Planned
+
 ---
 
 ## Notes on "Binary Identical" Goal
