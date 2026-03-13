@@ -121,25 +121,47 @@ fn compare_ppm_files(path1: &Path, path2: &Path) -> f64 {
         Err(_) => return 0.0,
     };
 
-    // Parse PPM P6 header: "P6\n", "width height\n", "maxval\n"
+    // Parse PPM P6 header: "P6\n[#comment\n]...<width> <height>\n<maxval>\n"
+    // Returns offset to start of pixel data.
     fn parse_ppm_header(data: &[u8]) -> Option<usize> {
         if !data.starts_with(b"P6") {
             return None;
         }
-        // Skip past 3 newlines to get pixel data offset
-        let mut newlines = 0;
-        let mut i = 0;
-        while i < data.len() && newlines < 3 {
-            if data[i] == b'\n' {
-                newlines += 1;
-            }
+        let mut i = 2; // skip "P6"
+                       // skip to end of magic line
+        while i < data.len() && data[i] != b'\n' {
             i += 1;
         }
-        if newlines == 3 {
-            Some(i)
-        } else {
-            None
+        if i >= data.len() {
+            return None;
         }
+        i += 1; // skip '\n' after P6
+                // skip comment lines starting with '#'
+        while i < data.len() && data[i] == b'#' {
+            while i < data.len() && data[i] != b'\n' {
+                i += 1;
+            }
+            if i < data.len() {
+                i += 1;
+            }
+        }
+        // skip width height line
+        while i < data.len() && data[i] != b'\n' {
+            i += 1;
+        }
+        if i >= data.len() {
+            return None;
+        }
+        i += 1; // skip '\n'
+                // skip maxval line
+        while i < data.len() && data[i] != b'\n' {
+            i += 1;
+        }
+        if i >= data.len() {
+            return None;
+        }
+        i += 1; // skip '\n'
+        Some(i)
     }
 
     let offset1 = match parse_ppm_header(&data1) {
@@ -791,30 +813,56 @@ fn parse_ppm(data: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
     if !data.starts_with(b"P6") {
         return None;
     }
-    // find the first 3 newlines to locate pixel data
-    let mut nl_positions = Vec::new();
-    for (pos, &b) in data.iter().enumerate() {
-        if b == b'\n' {
-            nl_positions.push(pos);
-            if nl_positions.len() == 3 {
-                break;
-            }
-        }
+    // Parse PPM P6 header, skipping comment lines starting with '#'
+    // Format: "P6\n[#comment\n]...<width> <height>\n<maxval>\n<pixels>"
+    let mut i = 2; // skip "P6"
+                   // skip to end of magic line
+    while i < data.len() && data[i] != b'\n' {
+        i += 1;
     }
-    if nl_positions.len() < 3 {
+    if i >= data.len() {
         return None;
     }
-    let pixel_offset = nl_positions[2] + 1;
-    // header between first newline+1 and second newline contains "width height"
-    let header_str =
-        String::from_utf8_lossy(&data[nl_positions[0] + 1..nl_positions[1]]).to_string();
-    let parts: Vec<&str> = header_str.split_whitespace().collect();
+    i += 1; // skip '\n' after P6
+
+    // skip comment lines
+    while i < data.len() && data[i] == b'#' {
+        while i < data.len() && data[i] != b'\n' {
+            i += 1;
+        }
+        if i < data.len() {
+            i += 1; // skip '\n'
+        }
+    }
+
+    // read width height
+    let wh_start = i;
+    while i < data.len() && data[i] != b'\n' {
+        i += 1;
+    }
+    if i >= data.len() {
+        return None;
+    }
+    let wh_str = String::from_utf8_lossy(&data[wh_start..i]).to_string();
+    i += 1; // skip '\n'
+
+    let parts: Vec<&str> = wh_str.split_whitespace().collect();
     if parts.len() < 2 {
         return None;
     }
     let width: usize = parts[0].parse().ok()?;
     let height: usize = parts[1].parse().ok()?;
-    let pixels = data[pixel_offset..].to_vec();
+
+    // skip maxval line
+    while i < data.len() && data[i] != b'\n' {
+        i += 1;
+    }
+    if i >= data.len() {
+        return None;
+    }
+    i += 1; // skip '\n'
+
+    let pixels = data[i..].to_vec();
     Some((width, height, pixels))
 }
 
