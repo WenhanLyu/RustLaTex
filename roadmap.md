@@ -1493,26 +1493,23 @@ Leo fixed parfillskip stretch from 1.0 to 100000.0 (matching pdflatex's "0pt plu
 - **Status:** ✅ Tests pass (1288 total), CI green. **BUT: similarity = 0.9729 (effectively unchanged)**
 - **Lesson**: Structurally correct fix, but the mega-line problem at 72 DPI means word spacing changes don't improve measurements
 
-### M90: Increase GhostScript DPI from 72 to 150 + Fresh Analysis
-**The mandatory next step.** Original M88 goal, still not done. At 72 DPI, improvements of <0.1% are invisible. Moving to 150 DPI gives ~4.3× more pixels to measure (from ~501K to ~2.17M pixels), making improvements of ~0.02% measurable.
+### M90: Increase GhostScript DPI from 72 to 150 ✅ COMPLETE
+Leo changed -r72 → -r150 in render_pdf_to_ppm(), added 12 unit tests. 1300 tests pass, CI green (commit f2aa620).
 
-**Goal 1: Change -r72 → -r150 in all comparison tests**
-- File: `crates/rustlatex-cli/tests/pdflatex_comparison_test.rs`
-- Function: `render_pdf_to_ppm()` at line 96: change `"-r72"` to `"-r150"`
-- All 5 per-document similarity tests use this function — they'll all benefit
-- Update any hardcoded pixel count/size assertions that assume 72 DPI
+**New 150 DPI baseline scores (CI confirmed):**
+- compare.tex: **97.88%** (up from ~97.34% at 72 DPI — more accurate measurement)
+- hello.tex: **99.87%** (gap: 0.13%)
+- sections.tex: **99.12%** (gap: 0.88%)
+- math.tex: **99.66%** (gap: 0.34%)
+- lists.tex: **99.50%** (gap: 0.50%)
 
-**Goal 2: Get new baseline measurements at 150 DPI**
-- Expected pixel counts: ~2.17M pixels per A4 page at 150 DPI
-- New similarity scores will be different (likely lower at first since more pixels = more precision)
-- These become the new baseline targets for future milestones
+**Key insight**: At 150 DPI we have 2.17M pixels per page, enabling measurement of improvements ≥0.02%. The scores improved at 150 DPI because the ±2 tolerance is more effective at higher resolution (antialiasing artifacts are spread over more pixels). The remaining gap in compare.tex (2.12%) is still dominated by mega-lines.
 
-**Goal 3: Diana fresh analysis at higher DPI**
-- After running comparison at 150 DPI, identify which specific pixel regions differ
-- Find any remaining non-layout fixable bugs that are now measurable
+- **Cycles budget:** 2 | **Cycles actual:** 2 (Ares + Leo)
+- **Status:** ✅ Complete — 1300 tests pass, CI green
 
-**Tests**: 10+ new tests. Target: 1300+ tests pass, CI green.
-**Cycles budget:** 2
+### M91 scope: Fresh 150 DPI forensic analysis + targeted fixes
+Diana performs pixel-by-pixel analysis at 150 DPI for hello.tex (0.13% gap), math.tex (0.34% gap), and compare.tex (2.12% gap). Focus: identify specific non-layout bugs now visible at 150 DPI that weren't measurable at 72 DPI. Implement safe confirmed fixes. Target: hello.tex ≥99.9%, math.tex ≥99.8%, compare.tex ≥98%.
 
 ---
 
