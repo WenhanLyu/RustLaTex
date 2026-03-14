@@ -49,7 +49,11 @@ jobs:
         run: cat /tmp/pixel_similarity.txt || true
 
       - name: Per-doc similarity scores (nocapture)
-        run: cargo test test_hello_tex_pixel_similarity_logged test_sections_tex_pixel_similarity_logged test_math_tex_pixel_similarity_logged test_lists_tex_pixel_similarity_logged -- --nocapture 2>&1
+        run: |
+          cargo test test_hello_tex_pixel_similarity_logged -- --nocapture 2>&1 || true
+          cargo test test_sections_tex_pixel_similarity_logged -- --nocapture 2>&1 || true
+          cargo test test_math_tex_pixel_similarity_logged -- --nocapture 2>&1 || true
+          cargo test test_lists_tex_pixel_similarity_logged -- --nocapture 2>&1 || true
         continue-on-error: true
 
       - name: Show per-doc similarity results
