@@ -2056,8 +2056,9 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         // Label prefix
                         if is_enumerate {
                             let label = format!("{}. ", i + 1);
+                            let label_width = metrics.string_width(&label);
                             result.push(BoxNode::Text {
-                                width: 12.0,
+                                width: label_width,
                                 text: label,
                                 font_size: 10.0,
                                 color: None,
@@ -2768,18 +2769,30 @@ pub fn translate_node_with_context(
                         page: 0,
                     });
 
-                    let numbered_title = format!("{} {}", ctx.counters.last_counter_value, title);
-                    let width = metrics.string_width_for_style(&numbered_title, FontStyle::Bold);
-                    // VSkip suppressed — do not emit before/after VSkip around section headings.
-                    // This has been tried in M50-M56, M60 and always regresses pixel similarity.
-                    let result = vec![BoxNode::Text {
-                        text: numbered_title,
-                        width,
-                        font_size,
-                        color: None,
-                        font_style: FontStyle::Bold,
-                        vertical_offset: 0.0,
-                    }];
+                    // M88: Emit 3 nodes for section headings: Text(number) + Kern(font_size) + Text(title)
+                    // This matches pdflatex's quad spacing between section number and title.
+                    let number_str = ctx.counters.last_counter_value.clone();
+                    let number_width = metrics.string_width_for_style(&number_str, FontStyle::Bold);
+                    let title_width = metrics.string_width_for_style(&title, FontStyle::Bold);
+                    let result = vec![
+                        BoxNode::Text {
+                            text: number_str,
+                            width: number_width,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern { amount: font_size },
+                        BoxNode::Text {
+                            text: title,
+                            width: title_width,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Bold,
+                            vertical_offset: 0.0,
+                        },
+                    ];
                     // Suppress indentation for the first paragraph after a heading
                     ctx.after_heading = true;
                     ctx.content_emitted = true;
@@ -3740,8 +3753,9 @@ pub fn translate_node_with_context(
                         result.push(BoxNode::Kern { amount: 25.0 });
                         if is_enumerate {
                             let label = format!("{}. ", i + 1);
+                            let label_width = metrics.string_width(&label);
                             result.push(BoxNode::Text {
-                                width: 12.0,
+                                width: label_width,
                                 text: label,
                                 font_size: 10.0,
                                 color: None,
@@ -8151,16 +8165,20 @@ mod tests {
     }
 
     #[test]
-    fn test_enumerate_label_width_is_12() {
+    fn test_enumerate_label_width_is_dynamic() {
+        // M88: enumerate label width uses metrics.string_width instead of hardcoded 12.0
+        let metrics = StandardFontMetrics;
         let node = make_enumerate(vec![vec![Node::Text("item".to_string())]]);
         let items = translate_node(&node);
         let label_node = items
             .iter()
             .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1. "));
+        let expected_width = metrics.string_width("1. ");
         if let Some(BoxNode::Text { width, .. }) = label_node {
             assert!(
-                (*width - 12.0).abs() < f64::EPSILON,
-                "Expected enumerate label width 12.0, got {}",
+                (*width - expected_width).abs() < 0.01,
+                "Expected enumerate label width {}, got {}",
+                expected_width,
                 width
             );
         } else {
@@ -9363,17 +9381,36 @@ mod tests {
 
     #[test]
     fn test_section_numbered_title_in_context() {
+        // M88: section emits 3 nodes: Text("1") + Kern(font_size) + Text("Intro")
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
-        let has_numbered = items
+        // Check for separate number and title text nodes
+        let has_number = items
             .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("1 Intro")));
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        let has_title = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "Intro"));
+        let has_kern = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 14.4).abs() < 0.01));
         assert!(
-            has_numbered,
-            "Expected numbered section title '1 Intro' in context-aware output"
+            has_number,
+            "Expected section number Text('1') in context-aware output, got: {:?}",
+            items
+        );
+        assert!(
+            has_title,
+            "Expected section title Text('Intro') in context-aware output, got: {:?}",
+            items
+        );
+        assert!(
+            has_kern,
+            "Expected Kern(14.4) quad spacing between number and title, got: {:?}",
+            items
         );
     }
 
@@ -9832,7 +9869,7 @@ mod tests {
         ]);
         let items = translate_with_context(&node);
         // Find the paragraph content (after the section heading nodes)
-        // Section produces: Text("1 Intro") only (no VSkip)
+        // M88: Section produces: Text("1") + Kern(14.4) + Text("Intro")
         // Paragraph should NOT start with Kern(20.0)
         // Look for "First" text and check what precedes it
         let first_idx = items
@@ -21936,5 +21973,382 @@ mod tests {
         } else {
             panic!("Expected Text node for \\Gamma");
         }
+    }
+
+    // =====================================================================
+    // M88 Tests: Section quad spacing + enumerate label dynamic width
+    // =====================================================================
+
+    #[test]
+    fn test_m88_section_emits_three_nodes_in_context() {
+        // M88: section in context mode emits Text(number) + Kern(font_size) + Text(title)
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Overview".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let text_nodes: Vec<&BoxNode> = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .collect();
+        // Should have at least two text nodes: "1" and "Overview"
+        let has_number = text_nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        let has_title = text_nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "Overview"));
+        assert!(
+            has_number,
+            "M88: section should emit Text('1'), got: {:?}",
+            items
+        );
+        assert!(
+            has_title,
+            "M88: section should emit Text('Overview'), got: {:?}",
+            items
+        );
+    }
+
+    #[test]
+    fn test_m88_section_kern_equals_font_size() {
+        // M88: Kern between section number and title should equal the section font_size (14.4)
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        // Find the "1" text node and check the next node is Kern(14.4)
+        let num_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        assert!(num_idx.is_some(), "M88: expected '1' text node");
+        let kern = &items[num_idx.unwrap() + 1];
+        assert!(
+            matches!(kern, BoxNode::Kern { amount } if (*amount - 14.4).abs() < 0.01),
+            "M88: Kern after section number should be 14.4 (font_size), got: {:?}",
+            kern
+        );
+    }
+
+    #[test]
+    fn test_m88_subsection_kern_equals_font_size() {
+        // M88: subsection Kern between number and title should equal 12.0 (subsection font_size)
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sec".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        // Find the subsection number "1.1"
+        let num_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "1.1"));
+        assert!(num_idx.is_some(), "M88: expected '1.1' text node");
+        let kern = &items[num_idx.unwrap() + 1];
+        assert!(
+            matches!(kern, BoxNode::Kern { amount } if (*amount - 12.0).abs() < 0.01),
+            "M88: Kern after subsection number should be 12.0, got: {:?}",
+            kern
+        );
+    }
+
+    #[test]
+    fn test_m88_subsubsection_kern_equals_font_size() {
+        // M88: subsubsection Kern should equal 11.0 (subsubsection font_size)
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("S".to_string())])],
+            },
+            Node::Command {
+                name: "subsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("SS".to_string())])],
+            },
+            Node::Command {
+                name: "subsubsection".to_string(),
+                args: vec![Node::Group(vec![Node::Text("SSS".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let num_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "1.1.1"));
+        assert!(num_idx.is_some(), "M88: expected '1.1.1' text node");
+        let kern = &items[num_idx.unwrap() + 1];
+        assert!(
+            matches!(kern, BoxNode::Kern { amount } if (*amount - 11.0).abs() < 0.01),
+            "M88: Kern after subsubsection number should be 11.0, got: {:?}",
+            kern
+        );
+    }
+
+    #[test]
+    fn test_m88_section_number_font_size_14_4() {
+        // M88: section number Text node should have font_size 14.4
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("A".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let num_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        assert!(
+            matches!(num_node, Some(BoxNode::Text { font_size, .. }) if (*font_size - 14.4).abs() < 0.01),
+            "M88: section number font_size should be 14.4"
+        );
+    }
+
+    #[test]
+    fn test_m88_section_title_font_size_14_4() {
+        // M88: section title Text node should have font_size 14.4
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Title".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let title_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "Title"));
+        assert!(
+            matches!(title_node, Some(BoxNode::Text { font_size, .. }) if (*font_size - 14.4).abs() < 0.01),
+            "M88: section title font_size should be 14.4"
+        );
+    }
+
+    #[test]
+    fn test_m88_section_number_bold() {
+        // M88: section number should be bold
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("X".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let num_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        assert!(
+            matches!(
+                num_node,
+                Some(BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                })
+            ),
+            "M88: section number should be Bold"
+        );
+    }
+
+    #[test]
+    fn test_m88_section_title_bold() {
+        // M88: section title should be bold
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("MyTitle".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let title_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "MyTitle"));
+        assert!(
+            matches!(
+                title_node,
+                Some(BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                })
+            ),
+            "M88: section title should be Bold"
+        );
+    }
+
+    #[test]
+    fn test_m88_section_number_width_uses_metrics() {
+        // M88: section number width should use metrics, not hardcoded
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Z".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let expected_width = metrics.string_width_for_style("1", FontStyle::Bold);
+        let num_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1"));
+        if let Some(BoxNode::Text { width, .. }) = num_node {
+            assert!(
+                (*width - expected_width).abs() < 0.01,
+                "M88: section number width should be {}, got {}",
+                expected_width,
+                width
+            );
+        } else {
+            panic!("M88: expected section number text node");
+        }
+    }
+
+    #[test]
+    fn test_m88_enumerate_label_width_uses_metrics() {
+        // M88: enumerate label width uses metrics.string_width, not hardcoded 12.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Environment {
+            name: "enumerate".to_string(),
+            options: None,
+            content: vec![
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("First".to_string()),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &metrics);
+        let label_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1. "));
+        let expected_width = metrics.string_width("1. ");
+        if let Some(BoxNode::Text { width, .. }) = label_node {
+            assert!(
+                (*width - expected_width).abs() < 0.01,
+                "M88: enumerate label width should be {}, got {}",
+                expected_width,
+                width
+            );
+        } else {
+            panic!("M88: expected enumerate label text node '1. '");
+        }
+    }
+
+    #[test]
+    fn test_m88_enumerate_label_width_context_uses_metrics() {
+        // M88: enumerate label width in context mode also uses metrics.string_width
+        let metrics = StandardFontMetrics;
+        let node = Node::Document(vec![Node::Environment {
+            name: "enumerate".to_string(),
+            options: None,
+            content: vec![
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![],
+                },
+                Node::Text("First".to_string()),
+            ],
+        }]);
+        let items = translate_with_context(&node);
+        let label_node = items
+            .iter()
+            .find(|n| matches!(n, BoxNode::Text { text, .. } if text == "1. "));
+        let expected_width = metrics.string_width("1. ");
+        if let Some(BoxNode::Text { width, .. }) = label_node {
+            assert!(
+                (*width - expected_width).abs() < 0.01,
+                "M88: context enumerate label width should be {}, got {}",
+                expected_width,
+                width
+            );
+        } else {
+            panic!("M88: expected enumerate label text node '1. ' in context output");
+        }
+    }
+
+    #[test]
+    fn test_m88_enumerate_label_not_hardcoded_12() {
+        // M88: verify enumerate label width is NOT hardcoded 12.0
+        let metrics = StandardFontMetrics;
+        let label = "1. ";
+        let dynamic_width = metrics.string_width(label);
+        // The dynamic width should differ from the old hardcoded 12.0
+        assert!(
+            (dynamic_width - 12.0).abs() > 0.1,
+            "M88: dynamic label width ({}) should differ from old hardcoded 12.0",
+            dynamic_width
+        );
+    }
+
+    #[test]
+    fn test_m88_section_no_combined_title_string() {
+        // M88: section should NOT produce a combined "1 Title" string anymore
+        let node = Node::Document(vec![Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Combined".to_string())])],
+        }]);
+        let items = translate_with_context(&node);
+        let has_combined = items
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("1 Combined")));
+        assert!(
+            !has_combined,
+            "M88: section should NOT produce combined '1 Combined' string, should be 3 separate nodes"
+        );
+    }
+
+    #[test]
+    fn test_m88_two_sections_different_numbers() {
+        // M88: two sections should have numbers "1" and "2" as separate text nodes
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("First".to_string())])],
+            },
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Second".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let numbers: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text {
+                    text, font_size, ..
+                } = n
+                {
+                    if (*font_size - 14.4).abs() < 0.01 && text.parse::<u32>().is_ok() {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            numbers.contains(&"1") && numbers.contains(&"2"),
+            "M88: two sections should produce number nodes '1' and '2', got: {:?}",
+            numbers
+        );
+    }
+
+    #[test]
+    fn test_m88_metrics_path_section_still_one_node() {
+        // M88: in the non-context (metrics-only) path, section still produces 1 Text node
+        // because there's no numbering in that path
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Plain".to_string())])],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let text_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Text { .. }))
+            .collect();
+        assert_eq!(
+            text_nodes.len(),
+            1,
+            "M88: non-context section should still produce 1 Text node, got {:?}",
+            text_nodes
+        );
+        assert!(
+            matches!(text_nodes[0], BoxNode::Text { text, .. } if text == "Plain"),
+            "M88: non-context section text should be 'Plain'"
+        );
     }
 }
