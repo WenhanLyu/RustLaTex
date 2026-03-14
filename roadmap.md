@@ -164,6 +164,9 @@ Binary-identical output requires:
 - **M83 strategy**: Revert M82 to recover 97.34%. Expand pixel similarity testing to cover all 5 example documents (hello.tex, sections.tex, math.tex, lists.tex, compare.tex). This broadens the "binary identical" quality measurement and may reveal fixable gaps in simpler documents.
 - **Cycle (M83):** M83 completed in 2 cycles (Ares). Reverted M82 regression (ParagraphEnd no-op in break_items, sections produce 1 Text node). Added 4 per-document similarity logged tests + 4 extra unit tests to reach 1200. CI confirmed: compare.tex similarity = **97.34%**, 1200 tests pass, CI green (commit 00de140).
 - **M84 scope:** Add CI display for all 5 document similarity scores (hello/sections/math/lists/compare). Have Diana analyze simpler documents (hello.tex, sections.tex) for non-layout fixable gaps. Focus on improvements achievable without layout changes.
+- **Cycle (M84):** M84 completed in 1 implementation + 1 verification. Leo: CI per-doc steps, whitespace paragraph fix, 12 new unit tests (1212 total). Apollo confirmed: hello=99.83%, sections=98.92%, math=99.56%, lists=99.39%, compare=97.34%. CI green.
+- **M84 findings (Diana):** hello.tex 0.17% gap = missing parindent on bare text (no Paragraph wrapper). sections.tex 1.08% gap = mega-lines (layout) + small non-layout. All margins, line_height, hsize, footer_y confirmed correct. Whitespace-only paragraph skip fixed in M84.
+- **M85 scope:** (1) Fix bare text → paragraph wrapping in parser: document environment content that is not already in Paragraph nodes should get implicit paragraph wrapping so parindent is applied (fixes hello.tex 0.17% gap). (2) Diana deep-dives sections.tex and math.tex pixel differences for non-mega-line fixable bugs. (3) Implement any confirmed safe fixes. Target: hello.tex >99.9%, 1225+ tests.
 
 ## Milestones
 
@@ -1387,7 +1390,7 @@ Revert M82's per-paragraph KP splitting regression and add pixel similarity test
 **Cycles budget:** 2 | **Cycles actual:** 2 (Ares)
 **Status:** ✅ Complete — CI confirmed 97.34% similarity, 1200 tests pass (commit 00de140)
 
-### M84: Add Multi-Document CI Scores + Investigate Non-Layout Improvements
+### M84: Add Multi-Document CI Scores + Investigate Non-Layout Improvements ✅ COMPLETE
 Expose all 5 document similarity scores in CI and identify non-layout fixable gaps.
 
 **Goal 1 (CI visibility)**: Update `.github/workflows/ci.yml` to also show hello/sections/math/lists similarity scores in CI output (add nocapture steps + cat /tmp/{name}_similarity.txt steps for each document).
@@ -1397,7 +1400,26 @@ Expose all 5 document similarity scores in CI and identify non-layout fixable ga
 **Goal 3 (Fix)**: Fix any identified non-layout issues that improve similarity without risking regression.
 
 **Tests**: 10+ new tests. Target: 1210+ total tests pass, CI green, compare.tex similarity ≥ 97.34%.
-**Cycles budget:** 3
+**Cycles budget:** 3 | **Cycles actual:** 1 + 1 verification (Leo + Apollo)
+**Status:** ✅ Complete — Apollo verified: hello=99.83%, sections=98.92%, math=99.56%, lists=99.39%, compare=97.34%. 1212 tests pass, CI green.
+
+### M85: Fix Parser Implicit Paragraph Wrapping + Sections.tex Gap Analysis
+Improve hello.tex similarity by fixing bare text paragraph wrapping, and analyze sections.tex and math.tex for non-layout fixable bugs.
+
+**Goal 1: Parser implicit paragraph wrapping**
+- In `rustlatex-parser/src/lib.rs`, when parsing `\begin{document}...\end{document}` environment content, any top-level `Node::Text(...)` nodes that are NOT already inside a `Node::Paragraph(...)` should be wrapped implicitly into a `Node::Paragraph([...])` so the engine applies `\parindent=15pt` correctly.
+- hello.tex currently has bare `Node::Text` content → no parindent → text starts at x=126.25 instead of x=141.25
+- Expected: hello.tex similarity improves from 99.83% → ~100%
+
+**Goal 2: Diana analysis of sections.tex and math.tex non-layout gaps**
+- Diana identifies and reports non-mega-line bugs in sections.tex and math.tex
+- Focus: PDF rendering precision, font width accuracy, horizontal position bugs
+
+**Goal 3: Fix any safe confirmed improvements**
+- Implement Diana's confirmed non-layout fixes
+
+**Tests**: 12+ new tests. Target: 1225+ tests pass, CI green, hello.tex ≥ 99.9%.
+**Cycles budget:** 2
 
 ---
 
