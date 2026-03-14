@@ -1466,6 +1466,38 @@ Fix two remaining rendering issues:
 
 **Tests**: 18+ new tests. Target: 1260+ tests pass, CI green.
 **Cycles budget:** 3
+**Status:** ✅ Complete — Ares implemented (commit 5407118), 1261 tests pass, CI green. Pixel similarity UNCHANGED: hello=99.83%, sections=98.92%, math=99.56%, lists=99.40%, compare=97.32%. The Greek/LaTeX fixes were correct in principle but too small to show at 72 DPI resolution.
+
+- **M87 lesson**: Improvements smaller than ~0.05% (1/8 pixel per line at 72 DPI) cannot be measured reliably at the current DPI. Need to either increase DPI for measurement or focus on larger-impact fixes.
+- **M88 direction**: Diana should analyze why Greek encoding didn't improve math.tex score and identify what remaining fixable bugs exist in each document. Consider increasing GhostScript DPI from 72 to 150 for more accurate measurement.
+- **Current state summary (post M87)**:
+  - hello.tex: **99.83%** (0.17% gap = \LaTeX logo rendering, sub-pixel effects)
+  - sections.tex: **98.92%** (1.08% gap = mostly mega-lines layout)
+  - math.tex: **99.56%** (0.44% gap = Greek letters rendered to wrong positions? or layout?)
+  - lists.tex: **99.40%** (0.60% gap = layout differences)
+  - compare.tex: **97.32%** (2.68% gap = mega-lines confirmed)
+  - 1261 tests pass, CI green
+
+### M88: Increase Comparison DPI + Diagnose Remaining Gaps
+Goal: Get more accurate pixel similarity measurements by increasing GhostScript DPI from 72 to 150. At 150 DPI, even small improvements are measurable. Also diagnose why M87's Greek encoding didn't improve math.tex.
+
+**Goal 1: Increase GhostScript DPI to 150**
+- Change all `gs -r72` calls to `gs -r150` in comparison tests
+- Update PPM size expectations (150 DPI A4 ≈ 1240×1753 pixels = 6.5M pixel page)
+- Re-run comparisons to get accurate baseline scores at new DPI
+
+**Goal 2: Diana fresh analysis**
+- Check why math.tex didn't improve despite M87 Greek encoding
+- Verify Greek bytes are being correctly output in PDF
+- Check if there are remaining encoding issues affecting any document
+
+**Goal 3: Lists.tex analysis**
+- lists.tex has 0.60% gap (3,006 pixels at 72 DPI = ~18,750 pixels at 150 DPI)
+- Should be mostly layout differences, but may have fixable rendering issues
+- Diana to check if list item bullet rendering differs from pdflatex
+
+**Tests**: 12+ new tests. Target: 1273+ tests pass, CI green.
+**Cycles budget:** 2
 
 ---
 
