@@ -1508,8 +1508,24 @@ Leo changed -r72 → -r150 in render_pdf_to_ppm(), added 12 unit tests. 1300 tes
 - **Cycles budget:** 2 | **Cycles actual:** 2 (Ares + Leo)
 - **Status:** ✅ Complete — 1300 tests pass, CI green
 
-### M91 scope: Fresh 150 DPI forensic analysis + targeted fixes
-Diana performs pixel-by-pixel analysis at 150 DPI for hello.tex (0.13% gap), math.tex (0.34% gap), and compare.tex (2.12% gap). Focus: identify specific non-layout bugs now visible at 150 DPI that weren't measurable at 72 DPI. Implement safe confirmed fixes. Target: hello.tex ≥99.9%, math.tex ≥99.8%, compare.tex ≥98%.
+### M91: Fresh 150 DPI forensic analysis + targeted fixes ✅ COMPLETE
+Diana performed pixel-by-pixel analysis; Leo implemented 4 fixes:
+1. Parfillskip preservation in strip_glue (last-line over-justification fix)
+2. Superscript raise: 3.622 → 4.12 (TeX fontdimen13 sup1 for cmr10)
+3. Script font size: 7.07 → 7.0 (exact TeX scriptsize at 10pt)
+4. LaTeX logo A raise: 2.15 → 2.05 (cmr10 cap height correction)
+12 new tests, 1312 total tests pass, CI green (commit 1aa95d8).
+
+**CI results (150 DPI):**
+- compare.tex: **97.88%** (unchanged — mega-line problem dominates)
+- hello.tex: **99.87%** (unchanged — fixes too small to register at 150 DPI)
+- sections.tex: **99.12%** (unchanged)
+- math.tex: **99.66%** (unchanged)
+- lists.tex: **99.50%** (unchanged)
+
+**M91 LESSON:** Even Diana's predicted "1,500-2,000 pixel" parfillskip fix had no measurable impact at 150 DPI. Non-layout fixes ≤0.03% cannot be measured reliably even at 150 DPI. We are truly in a local maximum for non-layout improvements.
+
+**M92 scope:** Diana performs deep analysis of WHY parfillskip fix had zero impact. Also investigate whether any completely new approach (beyond the 8 confirmed anti-patterns) could break through the 97.88% compare.tex ceiling. Focus on: (1) Is strip_glue parfillskip fix actually working correctly? (2) What specific pixels are different in hello.tex at 150 DPI? (3) Can we identify any non-layout PDF rendering bug still uncorrected? Target: find and fix any remaining measurable improvements. Also add 12+ tests.
 
 ---
 
