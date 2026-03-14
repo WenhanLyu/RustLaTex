@@ -1539,8 +1539,12 @@ Added AlignmentMarker{Center/Justify} around section headings in translate_node_
 
 **M93 scope:** Revert M92 to restore 97.88% for compare.tex. Then have Diana analyze sections.tex and compare.tex at the PDF content stream level to identify the EXACT y-positions of text in both our output and pdflatex output, to determine what non-layout gaps remain.
 
-- **Cycles budget:** 1 | **Cycles actual:** 1 (Ares, commit 6bd8fb6)
-- **Status:** ⚠️ REGRESSION — needs revert in M93
+- **Cycles budget:** 1 | **Cycles actual:** 1 (Ares, commit 216d190)
+- **Status:** ✅ Complete — M93 reverted M92, CI green, 1312 tests pass, compare.tex similarity restored to 97.88%
+
+### M94 scope: Fix Last-Line Justification Heuristic
+Diana's forensic analysis identified the most impactful remaining non-layout bug: the `is_last_line_like` threshold=10.0 in `rustlatex-pdf/src/lib.rs` misses stretch_ratio=9.82. Hello.tex's only paragraph line gets fully justified (word spaces = 19.5pt each, 5.8× too large) instead of ragged-right (natural 3.333pt). Fix: lower threshold from 10.0 to 5.0. Target: 1325+ tests, hello.tex > 99.87%.
+- **Estimated impact**: ~1,500-2,000 pixel improvement (~0.07-0.09% similarity)
 
 ---
 
