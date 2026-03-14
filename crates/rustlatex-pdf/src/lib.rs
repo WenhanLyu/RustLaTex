@@ -1804,7 +1804,54 @@ impl PdfWriter {
         // first_char=65, last_char=122 → 58 entries (65..=122)
         // Positions 91-96 ([ \ ] ^ _ `) are not Latin letters in OML; use 0.0 for unused slots.
         let cmmi10_widths: Vec<f32> = vec![
-            // 65 A through 90 Z (26 entries)
+            // 0-10: Greek uppercase (OML positions)
+            615.000, // Gamma=0
+            833.000, // Delta=1
+            762.000, // Theta=2
+            694.000, // Lambda=3
+            742.000, // Xi=4
+            831.000, // Pi=5
+            779.000, // Sigma=6
+            583.000, // Upsilon=7
+            666.000, // Phi=8
+            612.000, // Psi=9
+            772.000, // Omega=10
+            // 11-33: Greek lowercase (OML positions)
+            639.000, // alpha=11
+            565.000, // beta=12
+            517.000, // gamma=13
+            444.000, // delta=14
+            405.000, // epsilon1=15
+            437.000, // zeta=16
+            496.000, // eta=17
+            469.000, // theta=18
+            353.000, // iota=19
+            576.000, // kappa=20
+            583.000, // lambda=21
+            602.000, // mu=22
+            493.000, // nu=23
+            437.000, // xi=24
+            570.000, // pi=25
+            517.000, // rho=26
+            571.000, // sigma=27
+            437.000, // tau=28
+            540.000, // upsilon=29
+            595.000, // phi=30
+            625.000, // chi=31
+            651.000, // psi=32
+            622.000, // omega=33
+            // 34-39: variant Greek
+            466.000, // varepsilon=34
+            591.000, // vartheta=35
+            828.000, // varpi=36
+            517.000, // varrho=37
+            362.000, // varsigma=38
+            654.000, // varphi=39
+            // 40-64: unused OML positions
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 40-49
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 50-59
+            0.0, 0.0, 0.0, 0.0, 0.0, // 60-64
+            // 65-90: A-Z (existing, unchanged)
             750.000, // A=65
             759.261, // B=66
             715.532, // C=67
@@ -1838,7 +1885,7 @@ impl PdfWriter {
             0.0, // 94
             0.0, // 95
             0.0, // 96
-            // 97 a through 122 z (26 entries)
+            // 97-122: a-z (existing, unchanged)
             528.630, // a=97
             524.078, // b=98
             432.755, // c=99
@@ -1983,47 +2030,94 @@ impl PdfWriter {
             write_ot1_encoding!(font);
         }
 
-        // F7 = CMMI10 (Math Italic) with OML encoding (Latin letters at standard ASCII positions)
+        // F7 = CMMI10 (Math Italic) with OML encoding
+        // Covers Greek letters at positions 0-39 and Latin letters at 65-122.
         {
             let mut font = pdf.type1_font(cmmi10_id);
             font.base_font(Name(b"CMMI10"))
-                .first_char(65)
+                .first_char(0)
                 .last_char(122)
                 .widths(cmmi10_widths)
                 .font_descriptor(cmmi10_descriptor_id);
-            // OML encoding: Latin letters A-Z (65-90) and a-z (97-122) at standard positions.
-            // No need for /Differences for the Latin letter range since they match standard names.
-            font.encoding_custom().differences().consecutive(
-                65,
-                [
-                    Name(b"A"),
-                    Name(b"B"),
-                    Name(b"C"),
-                    Name(b"D"),
-                    Name(b"E"),
-                    Name(b"F"),
-                    Name(b"G"),
-                    Name(b"H"),
-                    Name(b"I"),
-                    Name(b"J"),
-                    Name(b"K"),
-                    Name(b"L"),
-                    Name(b"M"),
-                    Name(b"N"),
-                    Name(b"O"),
-                    Name(b"P"),
-                    Name(b"Q"),
-                    Name(b"R"),
-                    Name(b"S"),
-                    Name(b"T"),
-                    Name(b"U"),
-                    Name(b"V"),
-                    Name(b"W"),
-                    Name(b"X"),
-                    Name(b"Y"),
-                    Name(b"Z"),
-                ],
-            );
+            // OML encoding: Greek at 0-39, Latin A-Z at 65-90, a-z at 97-122.
+            let mut enc = font.encoding_custom();
+            enc.differences()
+                .consecutive(
+                    0,
+                    [
+                        Name(b"Gamma"),
+                        Name(b"Delta"),
+                        Name(b"Theta"),
+                        Name(b"Lambda"),
+                        Name(b"Xi"),
+                        Name(b"Pi"),
+                        Name(b"Sigma"),
+                        Name(b"Upsilon"),
+                        Name(b"Phi"),
+                        Name(b"Psi"),
+                        Name(b"Omega"),
+                        Name(b"alpha"),
+                        Name(b"beta"),
+                        Name(b"gamma"),
+                        Name(b"delta"),
+                        Name(b"epsilon1"),
+                        Name(b"zeta"),
+                        Name(b"eta"),
+                        Name(b"theta"),
+                        Name(b"iota"),
+                        Name(b"kappa"),
+                        Name(b"lambda"),
+                        Name(b"mu"),
+                        Name(b"nu"),
+                        Name(b"xi"),
+                        Name(b"pi"),
+                        Name(b"rho"),
+                        Name(b"sigma"),
+                        Name(b"tau"),
+                        Name(b"upsilon"),
+                        Name(b"phi"),
+                        Name(b"chi"),
+                        Name(b"psi"),
+                        Name(b"omega"),
+                        Name(b"epsilon"),
+                        Name(b"theta1"),
+                        Name(b"pi1"),
+                        Name(b"rho1"),
+                        Name(b"sigma1"),
+                        Name(b"phi1"),
+                    ],
+                )
+                .consecutive(
+                    65,
+                    [
+                        Name(b"A"),
+                        Name(b"B"),
+                        Name(b"C"),
+                        Name(b"D"),
+                        Name(b"E"),
+                        Name(b"F"),
+                        Name(b"G"),
+                        Name(b"H"),
+                        Name(b"I"),
+                        Name(b"J"),
+                        Name(b"K"),
+                        Name(b"L"),
+                        Name(b"M"),
+                        Name(b"N"),
+                        Name(b"O"),
+                        Name(b"P"),
+                        Name(b"Q"),
+                        Name(b"R"),
+                        Name(b"S"),
+                        Name(b"T"),
+                        Name(b"U"),
+                        Name(b"V"),
+                        Name(b"W"),
+                        Name(b"X"),
+                        Name(b"Y"),
+                        Name(b"Z"),
+                    ],
+                );
         }
 
         // F8 = CMSY10 (Math Symbol) — used for bullet glyph at position 15

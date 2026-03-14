@@ -968,6 +968,100 @@ fn math_node_to_boxes_inner(
         matches!(s, "=" | "<" | ">")
     }
 
+    /// Check if a command name is a Greek letter (uses cmmi10 OML encoding).
+    fn is_greek_letter(name: &str) -> bool {
+        matches!(
+            name,
+            "alpha"
+                | "beta"
+                | "gamma"
+                | "delta"
+                | "epsilon"
+                | "zeta"
+                | "eta"
+                | "theta"
+                | "iota"
+                | "kappa"
+                | "lambda"
+                | "mu"
+                | "nu"
+                | "xi"
+                | "pi"
+                | "rho"
+                | "sigma"
+                | "tau"
+                | "upsilon"
+                | "phi"
+                | "chi"
+                | "psi"
+                | "omega"
+                | "Gamma"
+                | "Delta"
+                | "Theta"
+                | "Lambda"
+                | "Xi"
+                | "Pi"
+                | "Sigma"
+                | "Upsilon"
+                | "Phi"
+                | "Psi"
+                | "Omega"
+                | "varepsilon"
+                | "vartheta"
+                | "varpi"
+                | "varrho"
+                | "varsigma"
+                | "varphi"
+        )
+    }
+
+    /// Return (OML byte position, width per 1000 em) for a Greek letter in cmmi10.
+    fn greek_oml_position(name: &str) -> (u8, f64) {
+        match name {
+            "Gamma" => (0, 615.0),
+            "Delta" => (1, 833.0),
+            "Theta" => (2, 762.0),
+            "Lambda" => (3, 694.0),
+            "Xi" => (4, 742.0),
+            "Pi" => (5, 831.0),
+            "Sigma" => (6, 779.0),
+            "Upsilon" => (7, 583.0),
+            "Phi" => (8, 666.0),
+            "Psi" => (9, 612.0),
+            "Omega" => (10, 772.0),
+            "alpha" => (11, 639.0),
+            "beta" => (12, 565.0),
+            "gamma" => (13, 517.0),
+            "delta" => (14, 444.0),
+            "epsilon" => (15, 405.0),
+            "zeta" => (16, 437.0),
+            "eta" => (17, 496.0),
+            "theta" => (18, 469.0),
+            "iota" => (19, 353.0),
+            "kappa" => (20, 576.0),
+            "lambda" => (21, 583.0),
+            "mu" => (22, 602.0),
+            "nu" => (23, 493.0),
+            "xi" => (24, 437.0),
+            "pi" => (25, 570.0),
+            "rho" => (26, 517.0),
+            "sigma" => (27, 571.0),
+            "tau" => (28, 437.0),
+            "upsilon" => (29, 540.0),
+            "phi" => (30, 595.0),
+            "chi" => (31, 625.0),
+            "psi" => (32, 651.0),
+            "omega" => (33, 622.0),
+            "varepsilon" => (34, 466.0),
+            "vartheta" => (35, 591.0),
+            "varpi" => (36, 828.0),
+            "varrho" => (37, 517.0),
+            "varsigma" => (38, 362.0),
+            "varphi" => (39, 654.0),
+            _ => (0, 500.0),
+        }
+    }
+
     /// Check if a command name is a binary operator.
     fn is_cmd_binop(name: &str) -> bool {
         matches!(name, "times" | "div" | "pm" | "mp" | "cdot")
@@ -1060,6 +1154,21 @@ fn math_node_to_boxes_inner(
             .iter()
             .flat_map(|n| math_node_to_boxes_inner(n, metrics, font_size, vertical_offset))
             .collect(),
+        // Handle Greek letter commands: map to cmmi10 OML byte positions with MathItalic style
+        Node::Command { name, .. } if is_greek_letter(name) => {
+            let (byte_pos, width_1000) = greek_oml_position(name);
+            // Safety: byte_pos is 0–39, all valid single-byte UTF-8 codepoints
+            let text = unsafe { String::from_utf8_unchecked(vec![byte_pos]) };
+            let width = (width_1000 / 100.0) * (font_size / 10.0);
+            vec![BoxNode::Text {
+                width,
+                text,
+                font_size,
+                color: None,
+                font_style: FontStyle::MathItalic,
+                vertical_offset,
+            }]
+        }
         // Handle Command nodes: check for binary operators and relations before fallback
         Node::Command { name, .. } if is_cmd_binop(name) => {
             let text = math_node_to_text(node);
@@ -1679,22 +1788,102 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         vertical_offset: 0.0,
                     }]
                 }
-                "LaTeX" => vec![BoxNode::Text {
-                    text: "LaTeX".to_string(),
-                    width: metrics.string_width("LaTeX"),
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                    vertical_offset: 0.0,
-                }],
-                "TeX" => vec![BoxNode::Text {
-                    text: "TeX".to_string(),
-                    width: metrics.string_width("TeX"),
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                    vertical_offset: 0.0,
-                }],
+                "LaTeX" => {
+                    // Render \LaTeX logo: L kern A(raised) kern T kern E(lowered) kern X
+                    let font_size = 10.0_f64;
+                    let scale = font_size / 10.0;
+                    vec![
+                        BoxNode::Text {
+                            text: "L".to_string(),
+                            width: metrics.char_width('L') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -3.6 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "A".to_string(),
+                            width: metrics.char_width('A') * 0.7 * scale,
+                            font_size: font_size * 0.7,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.5 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "T".to_string(),
+                            width: metrics.char_width('T') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.667 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "E".to_string(),
+                            width: metrics.char_width('E') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: -2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.25 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "X".to_string(),
+                            width: metrics.char_width('X') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ]
+                }
+                "TeX" => {
+                    // Render \TeX logo: T kern E(lowered) kern X
+                    let font_size = 10.0_f64;
+                    let scale = font_size / 10.0;
+                    vec![
+                        BoxNode::Text {
+                            text: "T".to_string(),
+                            width: metrics.char_width('T') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.667 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "E".to_string(),
+                            width: metrics.char_width('E') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: -2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.25 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "X".to_string(),
+                            width: metrics.char_width('X') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ]
+                }
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
                     vec![BoxNode::Text {
@@ -2804,22 +2993,102 @@ pub fn translate_node_with_context(
                         vertical_offset: 0.0,
                     }]
                 }
-                "LaTeX" => vec![BoxNode::Text {
-                    text: "LaTeX".to_string(),
-                    width: metrics.string_width_for_style("LaTeX", ctx.current_font_style),
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                    vertical_offset: 0.0,
-                }],
-                "TeX" => vec![BoxNode::Text {
-                    text: "TeX".to_string(),
-                    width: metrics.string_width_for_style("TeX", ctx.current_font_style),
-                    font_size: 10.0,
-                    color: None,
-                    font_style: FontStyle::Normal,
-                    vertical_offset: 0.0,
-                }],
+                "LaTeX" => {
+                    // Render \LaTeX logo: L kern A(raised) kern T kern E(lowered) kern X
+                    let font_size = 10.0_f64;
+                    let scale = font_size / 10.0;
+                    vec![
+                        BoxNode::Text {
+                            text: "L".to_string(),
+                            width: metrics.char_width('L') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -3.6 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "A".to_string(),
+                            width: metrics.char_width('A') * 0.7 * scale,
+                            font_size: font_size * 0.7,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.5 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "T".to_string(),
+                            width: metrics.char_width('T') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.667 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "E".to_string(),
+                            width: metrics.char_width('E') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: -2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.25 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "X".to_string(),
+                            width: metrics.char_width('X') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ]
+                }
+                "TeX" => {
+                    // Render \TeX logo: T kern E(lowered) kern X
+                    let font_size = 10.0_f64;
+                    let scale = font_size / 10.0;
+                    vec![
+                        BoxNode::Text {
+                            text: "T".to_string(),
+                            width: metrics.char_width('T') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.667 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "E".to_string(),
+                            width: metrics.char_width('E') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: -2.15 * scale,
+                        },
+                        BoxNode::Kern {
+                            amount: -1.25 * scale,
+                        },
+                        BoxNode::Text {
+                            text: "X".to_string(),
+                            width: metrics.char_width('X') * scale,
+                            font_size,
+                            color: None,
+                            font_style: FontStyle::Normal,
+                            vertical_offset: 0.0,
+                        },
+                    ]
+                }
                 "today" => {
                     let date_str = "January 1, 2025".to_string();
                     vec![BoxNode::Text {
@@ -6651,30 +6920,42 @@ mod tests {
 
     #[test]
     fn test_latex_command_expands_to_text() {
+        // M87: \LaTeX now expands to 9-element sequence: L kern A(raised) kern T kern E(lowered) kern X
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "LaTeX".to_string(),
             args: vec![],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        let has_latex = nodes
+        assert_eq!(nodes.len(), 9, "\\LaTeX should produce 9 nodes");
+        let has_l = nodes
             .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "LaTeX"));
-        assert!(has_latex, "Expected LaTeX text node");
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "L"));
+        assert!(has_l, "Expected 'L' text node in \\LaTeX expansion");
+        let has_x = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "X"));
+        assert!(has_x, "Expected 'X' text node in \\LaTeX expansion");
     }
 
     #[test]
     fn test_tex_command_expands_to_text() {
+        // M87: \TeX now expands to 5-element sequence: T kern E(lowered) kern X
         let metrics = StandardFontMetrics;
         let node = Node::Command {
             name: "TeX".to_string(),
             args: vec![],
         };
         let nodes = translate_node_with_metrics(&node, &metrics);
-        let has_tex = nodes
+        assert_eq!(nodes.len(), 5, "\\TeX should produce 5 nodes");
+        let has_t = nodes
             .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "TeX"));
-        assert!(has_tex);
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "T"));
+        assert!(has_t, "Expected 'T' text node in \\TeX expansion");
+        let has_x = nodes
+            .iter()
+            .any(|n| matches!(n, BoxNode::Text { text, .. } if text == "X"));
+        assert!(has_x, "Expected 'X' text node in \\TeX expansion");
     }
 
     #[test]
@@ -6958,18 +7239,22 @@ mod tests {
 
     #[test]
     fn test_math_greek_alpha() {
-        // $\alpha$ should produce text containing "α"
+        // M87: $\alpha$ produces OML byte 11 (cmmi10 position) with MathItalic style
         let node = Node::InlineMath(vec![Node::Command {
             name: "alpha".to_string(),
             args: vec![],
         }]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
-        if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(
-                text.contains('α'),
-                "Expected 'α' for \\alpha, got '{}'",
-                text
+        if let BoxNode::Text {
+            text, font_style, ..
+        } = &items[0]
+        {
+            assert_eq!(text.as_bytes(), &[11], "Expected OML byte 11 for \\alpha");
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Expected MathItalic for \\alpha"
             );
         } else {
             panic!("Expected BoxNode::Text");
@@ -6978,18 +7263,22 @@ mod tests {
 
     #[test]
     fn test_math_greek_beta() {
-        // $\beta$ should produce text containing "β"
+        // M87: $\beta$ produces OML byte 12 (cmmi10 position) with MathItalic style
         let node = Node::InlineMath(vec![Node::Command {
             name: "beta".to_string(),
             args: vec![],
         }]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
-        if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(
-                text.contains('β'),
-                "Expected 'β' for \\beta, got '{}'",
-                text
+        if let BoxNode::Text {
+            text, font_style, ..
+        } = &items[0]
+        {
+            assert_eq!(text.as_bytes(), &[12], "Expected OML byte 12 for \\beta");
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Expected MathItalic for \\beta"
             );
         } else {
             panic!("Expected BoxNode::Text");
@@ -6998,15 +7287,23 @@ mod tests {
 
     #[test]
     fn test_math_greek_pi() {
-        // $\pi$ should produce text containing "π"
+        // M87: $\pi$ produces OML byte 25 (cmmi10 position) with MathItalic style
         let node = Node::InlineMath(vec![Node::Command {
             name: "pi".to_string(),
             args: vec![],
         }]);
         let items = translate_node(&node);
         assert_eq!(items.len(), 1);
-        if let BoxNode::Text { text, .. } = &items[0] {
-            assert!(text.contains('π'), "Expected 'π' for \\pi, got '{}'", text);
+        if let BoxNode::Text {
+            text, font_style, ..
+        } = &items[0]
+        {
+            assert_eq!(text.as_bytes(), &[25], "Expected OML byte 25 for \\pi");
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "Expected MathItalic for \\pi"
+            );
         } else {
             panic!("Expected BoxNode::Text");
         }
@@ -14275,15 +14572,19 @@ mod tests {
 
     #[test]
     fn test_math_command_in_boxes() {
-        // Math command like \alpha should produce text
+        // M87: Math command \alpha produces OML byte 11 with MathItalic style
         let node = Node::Command {
             name: "alpha".to_string(),
             args: vec![],
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 1);
-        if let BoxNode::Text { text, .. } = &boxes[0] {
-            assert_eq!(text, "α");
+        if let BoxNode::Text {
+            text, font_style, ..
+        } = &boxes[0]
+        {
+            assert_eq!(text.as_bytes(), &[11], "Expected OML byte 11 for \\alpha");
+            assert_eq!(*font_style, FontStyle::MathItalic);
         } else {
             panic!("Expected BoxNode::Text");
         }
@@ -15453,7 +15754,7 @@ mod tests {
 
     #[test]
     fn test_m39_non_operator_command_no_kern() {
-        // Greek letter commands like \alpha should NOT get operator spacing
+        // M87: Greek letter commands like \alpha produce 1 node with OML byte (no operator kerns)
         let node = Node::Command {
             name: "alpha".to_string(),
             args: vec![],
@@ -15464,7 +15765,8 @@ mod tests {
             1,
             "\\alpha should produce 1 box node (no kerns)"
         );
-        assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "α"));
+        assert!(matches!(&boxes[0], BoxNode::Text { text, font_style, .. }
+                if text.as_bytes() == &[11] && *font_style == FontStyle::MathItalic));
     }
 
     // ============================================================
@@ -21222,5 +21524,417 @@ mod tests {
             kern_25,
             "Description list must have Kern(25.0) indentation (M85-G)"
         );
+    }
+
+    // ============================================================
+    // M87: Greek OML Encoding Tests
+    // ============================================================
+
+    #[test]
+    fn test_m87_alpha_produces_oml_byte11() {
+        // M87: \alpha → OML byte position 11 in cmmi10 with MathItalic style
+        let node = Node::Command {
+            name: "alpha".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1, "\\alpha should produce exactly 1 node");
+        if let BoxNode::Text {
+            text, font_style, ..
+        } = &boxes[0]
+        {
+            assert_eq!(text.as_bytes(), &[11u8], "\\alpha OML byte should be 11");
+            assert_eq!(
+                *font_style,
+                FontStyle::MathItalic,
+                "\\alpha should use MathItalic (cmmi10)"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for \\alpha");
+        }
+    }
+
+    #[test]
+    fn test_m87_beta_produces_oml_byte12() {
+        // M87: \beta → OML byte position 12 in cmmi10
+        let node = Node::Command {
+            name: "beta".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert_eq!(text.as_bytes(), &[12u8], "\\beta OML byte should be 12");
+        } else {
+            panic!("Expected BoxNode::Text for \\beta");
+        }
+    }
+
+    #[test]
+    fn test_m87_gamma_produces_oml_byte13() {
+        // M87: \gamma → OML byte position 13 in cmmi10
+        let node = Node::Command {
+            name: "gamma".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert_eq!(text.as_bytes(), &[13u8], "\\gamma OML byte should be 13");
+        } else {
+            panic!("Expected BoxNode::Text for \\gamma");
+        }
+    }
+
+    #[test]
+    fn test_m87_greek_uppercase_gamma_byte0() {
+        // M87: \Gamma → OML byte position 0 in cmmi10
+        let node = Node::Command {
+            name: "Gamma".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert_eq!(text.as_bytes(), &[0u8], "\\Gamma OML byte should be 0");
+        } else {
+            panic!("Expected BoxNode::Text for \\Gamma");
+        }
+    }
+
+    #[test]
+    fn test_m87_varepsilon_produces_oml_byte34() {
+        // M87: \varepsilon → OML byte position 34 in cmmi10
+        let node = Node::Command {
+            name: "varepsilon".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, .. } = &boxes[0] {
+            assert_eq!(
+                text.as_bytes(),
+                &[34u8],
+                "\\varepsilon OML byte should be 34"
+            );
+        } else {
+            panic!("Expected BoxNode::Text for \\varepsilon");
+        }
+    }
+
+    #[test]
+    fn test_m87_greek_width_alpha() {
+        // M87: \alpha width at 10pt = 639/100 = 6.390pt
+        let node = Node::Command {
+            name: "alpha".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { width, .. } = &boxes[0] {
+            assert!(
+                (width - 6.390).abs() < 0.001,
+                "\\alpha width should be 6.390pt, got {}",
+                width
+            );
+        } else {
+            panic!("Expected BoxNode::Text for \\alpha");
+        }
+    }
+
+    #[test]
+    fn test_m87_greek_width_gamma() {
+        // M87: \gamma width at 10pt = 517/100 = 5.170pt
+        let node = Node::Command {
+            name: "gamma".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { width, .. } = &boxes[0] {
+            assert!(
+                (width - 5.170).abs() < 0.001,
+                "\\gamma width should be 5.170pt, got {}",
+                width
+            );
+        } else {
+            panic!("Expected BoxNode::Text for \\gamma");
+        }
+    }
+
+    #[test]
+    fn test_m87_greek_width_omega() {
+        // M87: \Omega width at 10pt = 772/100 = 7.720pt
+        let node = Node::Command {
+            name: "Omega".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { width, .. } = &boxes[0] {
+            assert!(
+                (width - 7.720).abs() < 0.001,
+                "\\Omega width should be 7.720pt, got {}",
+                width
+            );
+        } else {
+            panic!("Expected BoxNode::Text for \\Omega");
+        }
+    }
+
+    #[test]
+    fn test_m87_greek_uses_mathitalic_not_normal() {
+        // M87: All Greek letters must use FontStyle::MathItalic (mapped to cmmi10/F7)
+        for name in &["alpha", "beta", "Gamma", "omega", "varphi"] {
+            let node = Node::Command {
+                name: name.to_string(),
+                args: vec![],
+            };
+            let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+            assert_eq!(boxes.len(), 1, "\\{name} should produce 1 node");
+            if let BoxNode::Text { font_style, .. } = &boxes[0] {
+                assert_eq!(
+                    *font_style,
+                    FontStyle::MathItalic,
+                    "\\{name} should use MathItalic"
+                );
+            } else {
+                panic!("Expected BoxNode::Text for \\{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_m87_non_greek_command_not_affected() {
+        // M87: Non-Greek commands should still go through normal path
+        let node = Node::Command {
+            name: "times".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        // \times produces 3 nodes: Kern, Text, Kern (binary operator spacing)
+        assert_eq!(
+            boxes.len(),
+            3,
+            "\\times should still produce 3 nodes (binop spacing)"
+        );
+    }
+
+    // ============================================================
+    // M87: LaTeX Logo Tests
+    // ============================================================
+
+    #[test]
+    fn test_m87_latex_logo_produces_9_nodes() {
+        // M87: \LaTeX expands to 9 nodes: L kern A(raised) kern T kern E(lowered) kern X
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9, "\\LaTeX should produce exactly 9 nodes");
+    }
+
+    #[test]
+    fn test_m87_latex_logo_node_types() {
+        // M87: \LaTeX nodes should alternate Text/Kern/Text/Kern/Text/Kern/Text/Kern/Text
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9);
+        // Positions 0,2,4,6,8 = Text; 1,3,5,7 = Kern
+        assert!(
+            matches!(&nodes[0], BoxNode::Text { text, .. } if text == "L"),
+            "Node 0 should be Text('L')"
+        );
+        assert!(
+            matches!(&nodes[1], BoxNode::Kern { .. }),
+            "Node 1 should be Kern"
+        );
+        assert!(
+            matches!(&nodes[2], BoxNode::Text { text, .. } if text == "A"),
+            "Node 2 should be Text('A')"
+        );
+        assert!(
+            matches!(&nodes[4], BoxNode::Text { text, .. } if text == "T"),
+            "Node 4 should be Text('T')"
+        );
+        assert!(
+            matches!(&nodes[6], BoxNode::Text { text, .. } if text == "E"),
+            "Node 6 should be Text('E')"
+        );
+        assert!(
+            matches!(&nodes[8], BoxNode::Text { text, .. } if text == "X"),
+            "Node 8 should be Text('X')"
+        );
+    }
+
+    #[test]
+    fn test_m87_latex_logo_a_is_raised() {
+        // M87: The 'A' in \LaTeX should have positive vertical_offset (raised)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9);
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &nodes[2]
+        {
+            assert!(
+                *vertical_offset > 0.0,
+                "The 'A' in \\LaTeX should be raised (positive offset), got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Node 2 should be Text('A')");
+        }
+    }
+
+    #[test]
+    fn test_m87_latex_logo_e_is_lowered() {
+        // M87: The 'E' in \LaTeX should have negative vertical_offset (lowered)
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9);
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &nodes[6]
+        {
+            assert!(
+                *vertical_offset < 0.0,
+                "The 'E' in \\LaTeX should be lowered (negative offset), got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Node 6 should be Text('E')");
+        }
+    }
+
+    #[test]
+    fn test_m87_latex_logo_first_kern_negative() {
+        // M87: The first kern in \LaTeX (after L) should be negative
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9);
+        if let BoxNode::Kern { amount } = &nodes[1] {
+            assert!(
+                *amount < 0.0,
+                "First kern in \\LaTeX should be negative, got {}",
+                amount
+            );
+        } else {
+            panic!("Node 1 should be Kern");
+        }
+    }
+
+    #[test]
+    fn test_m87_latex_logo_a_width_scaled() {
+        // M87: The 'A' in \LaTeX is at 70% font size (7pt), width should be 7.5 * 0.7 = 5.25pt
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 9);
+        if let BoxNode::Text {
+            width, font_size, ..
+        } = &nodes[2]
+        {
+            let expected_width = 7.500 * 0.7; // char_width('A') * 0.7 * scale(1.0)
+            assert!(
+                (width - expected_width).abs() < 0.001,
+                "A width should be {}, got {}",
+                expected_width,
+                width
+            );
+            assert!(
+                (font_size - 7.0).abs() < 0.001,
+                "A font_size should be 7.0, got {}",
+                font_size
+            );
+        } else {
+            panic!("Node 2 should be Text('A')");
+        }
+    }
+
+    #[test]
+    fn test_m87_tex_logo_produces_5_nodes() {
+        // M87: \TeX expands to 5 nodes: T kern E(lowered) kern X
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "TeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert_eq!(nodes.len(), 5, "\\TeX should produce exactly 5 nodes");
+        assert!(
+            matches!(&nodes[0], BoxNode::Text { text, .. } if text == "T"),
+            "Node 0 should be Text('T')"
+        );
+        assert!(
+            matches!(&nodes[2], BoxNode::Text { text, .. } if text == "E"),
+            "Node 2 should be Text('E')"
+        );
+        assert!(
+            matches!(&nodes[4], BoxNode::Text { text, .. } if text == "X"),
+            "Node 4 should be Text('X')"
+        );
+    }
+
+    #[test]
+    fn test_m87_latex_logo_context_path_9_nodes() {
+        // M87: \LaTeX also produces 9 nodes in the context path
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            nodes.len(),
+            9,
+            "\\LaTeX context path should produce exactly 9 nodes"
+        );
+    }
+
+    #[test]
+    fn test_m87_cmmi10_f7_covers_position0() {
+        // M87: The cmmi10 first_char is now 0 (Greek OML coverage starts at position 0)
+        // This is a PDF encoding test: verify that width at position 0 (Gamma) is 615pt/1000em
+        // We test this indirectly by verifying the greek_oml_position function logic
+        // Since pdf/lib.rs is not accessible from engine tests, we verify the engine side.
+        let node = Node::Command {
+            name: "Gamma".to_string(),
+            args: vec![],
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 1);
+        if let BoxNode::Text { text, width, .. } = &boxes[0] {
+            assert_eq!(text.as_bytes(), &[0u8], "Gamma should map to byte 0");
+            assert!(
+                (width - 6.150).abs() < 0.001,
+                "Gamma width should be 6.150pt (615/100), got {}",
+                width
+            );
+        } else {
+            panic!("Expected Text node for \\Gamma");
+        }
     }
 }
