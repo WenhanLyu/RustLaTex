@@ -212,9 +212,9 @@ pub fn compute_line_height(nodes: &[BoxNode]) -> f64 {
     if max_font_size == f64::NEG_INFINITY {
         12.0
     } else if (max_font_size - 14.4).abs() < 0.01 {
-        21.0 // pdflatex effective section-to-paragraph baseline advance = 21pt (afterskip ~9.9pt + depth ~3.4pt + baselineskip)
+        27.9 // section: baselineskip(18) + afterskip(9.9) = 27.9pt — matches pdflatex section-to-body spacing
     } else if (max_font_size - 12.0).abs() < 0.01 {
-        17.0 // subsection: 14.5pt baselineskip + afterskip effect
+        20.46 // subsection: baselineskip(14) + afterskip(6.46) = 20.46pt
     } else {
         max_font_size * 1.2
     }
@@ -2773,11 +2773,14 @@ pub fn translate_node_with_context(
                         page: 0,
                     });
 
-                    // Emit 3 nodes for section headings: Text(number) + Kern(font_size) + Text(title)
+                    // Emit 5 nodes for section headings: AlignmentMarker(Center) + Text(number) + Kern(font_size) + Text(title) + AlignmentMarker(Justify)
                     let number_str = ctx.counters.last_counter_value.clone();
                     let number_width = metrics.string_width_for_style(&number_str, FontStyle::Bold);
                     let title_width = metrics.string_width_for_style(&title, FontStyle::Bold);
                     let result = vec![
+                        BoxNode::AlignmentMarker {
+                            alignment: Alignment::Center,
+                        },
                         BoxNode::Text {
                             text: number_str,
                             width: number_width,
@@ -2794,6 +2797,9 @@ pub fn translate_node_with_context(
                             color: None,
                             font_style: FontStyle::Bold,
                             vertical_offset: 0.0,
+                        },
+                        BoxNode::AlignmentMarker {
+                            alignment: Alignment::Justify,
                         },
                     ];
                     // Suppress indentation for the first paragraph after a heading
@@ -8498,8 +8504,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.001,
-            "M74-fix: 12pt text should give 17.0, got {}",
+            (lh - 20.46).abs() < 0.001,
+            "M95: 12pt text should give 20.46, got {}",
             lh
         );
     }
@@ -13904,15 +13910,20 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_context_15_07pt() {
-        // M55: VSkip removed — first item is now Text
+        // M95: first item is AlignmentMarker{Center} (section wrapped in alignment markers)
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::Text { .. })),
-            "M55: first item should be Text (no VSkip), got {:?}",
+            matches!(
+                items.first(),
+                Some(BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                })
+            ),
+            "M95: first item should be AlignmentMarker{{Center}}, got {:?}",
             items.first()
         );
     }
@@ -15074,7 +15085,7 @@ mod tests {
 
     #[test]
     fn test_m67_subsection_line_height_is_14_5() {
-        // M74-fix: 12pt subsection font → line_height = 17.0
+        // M95: 12pt subsection font → line_height = 20.46
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 60.0,
@@ -15085,8 +15096,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M74-fix: 12pt subsection must give line_height=17.0, got {}",
+            (lh - 20.46).abs() < 0.01,
+            "M95: 12pt subsection must give line_height=20.46, got {}",
             lh
         );
     }
@@ -16718,15 +16729,20 @@ mod tests {
 
     #[test]
     fn test_m52_first_section_gets_zero_before_vskip() {
-        // M55: VSkip removed — first item is Text (section heading)
+        // M95: first item is AlignmentMarker{Center} (section heading wrapped in alignment markers)
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::Text { .. })),
-            "M55: first section should start with Text (no VSkip), got {:?}",
+            matches!(
+                items.first(),
+                Some(BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                })
+            ),
+            "M95: first section should start with AlignmentMarker{{Center}}, got {:?}",
             items.first()
         );
     }
@@ -18164,16 +18180,21 @@ mod tests {
 
     #[test]
     fn test_m60_section_before_vskip_suppressed_at_top() {
-        // context path: first section has no before-VSkip
+        // M95: first section has AlignmentMarker{Center} as first node
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Top".to_string())])],
         }]);
         let items = translate_with_context(&node);
-        // First node should be Text (no before-VSkip)
+        // First node should be AlignmentMarker{Center} (no before-VSkip)
         assert!(
-            matches!(items.first(), Some(BoxNode::Text { .. })),
-            "M60: first section at top should have Text as first node"
+            matches!(
+                items.first(),
+                Some(BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                })
+            ),
+            "M95: first section at top should have AlignmentMarker{{Center}} as first node"
         );
     }
 
@@ -18253,7 +18274,7 @@ mod tests {
 
     #[test]
     fn test_m60_compute_line_height_14pt_section() {
-        // M68: compute_line_height for [Text{font_size:14.4}] → 21.0
+        // M95: compute_line_height for [Text{font_size:14.4}] → 27.9
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -18264,15 +18285,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt text should give line height 21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt text should give line height 27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m60_compute_line_height_12pt_subsection() {
-        // M74-fix: compute_line_height for [Text{font_size:12.0}] → 17.0
+        // M95: compute_line_height for [Text{font_size:12.0}] → 20.46
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -18283,8 +18304,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M74-fix: 12.0pt text should give line height 17.0, got {}",
+            (lh - 20.46).abs() < 0.01,
+            "M95: 12.0pt text should give line height 20.46, got {}",
             lh
         );
     }
@@ -18435,7 +18456,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_14_4pt_is_18() {
-        // M68: compute_line_height for 14.4pt text must return 21.0 (effective section advance)
+        // M95: compute_line_height for 14.4pt text must return 27.9
         let nodes = vec![BoxNode::Text {
             text: "Test".to_string(),
             width: 40.0,
@@ -18446,15 +18467,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt text must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt text must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m62_line_height_14_4pt_bold() {
-        // M68: compute_line_height for 14.4pt Bold text must return 21.0
+        // M95: compute_line_height for 14.4pt Bold text must return 27.9
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -18465,15 +18486,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt Bold text must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt Bold text must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m62_line_height_12pt_is_14_5() {
-        // M74-fix: compute_line_height for 12pt text must return 17.0
+        // M95: compute_line_height for 12pt text must return 20.46
         let nodes = vec![BoxNode::Text {
             text: "Normal".to_string(),
             width: 40.0,
@@ -18484,8 +18505,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M74-fix: 12pt text must give line_height=17.0, got {}",
+            (lh - 20.46).abs() < 0.01,
+            "M95: 12pt text must give line_height=20.46, got {}",
             lh
         );
     }
@@ -18523,7 +18544,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_mixed_sizes_picks_max() {
-        // M68: with mixed font sizes, line_height based on max (14.4pt → 21.0)
+        // M95: with mixed font sizes, line_height based on max (14.4pt → 27.9)
         let nodes = vec![
             BoxNode::Text {
                 text: "Small".to_string(),
@@ -18544,8 +18565,8 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: mixed sizes with max=14.4pt must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: mixed sizes with max=14.4pt must give line_height=27.9, got {}",
             lh
         );
     }
@@ -18571,7 +18592,7 @@ mod tests {
 
     #[test]
     fn test_m62_line_height_14_4pt_ratio() {
-        // M68: 21.0 / 14.4 = 1.458... (effective section advance ratio)
+        // M95: 27.9 / 14.4 = 1.9375 (effective section advance ratio)
         let nodes = vec![BoxNode::Text {
             text: "Ratio".to_string(),
             width: 40.0,
@@ -18582,8 +18603,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt must give line_height=27.9, got {}",
             lh
         );
     }
@@ -18608,15 +18629,20 @@ mod tests {
 
     #[test]
     fn test_m63_section_context_emits_vskip_zero_as_last_node() {
-        // context section last node is Text
+        // M95: context section last node is AlignmentMarker{Justify}
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.last(), Some(BoxNode::Text { .. })),
-            "context section last node must be Text, got {:?}",
+            matches!(
+                items.last(),
+                Some(BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                })
+            ),
+            "M95: context section last node must be AlignmentMarker{{Justify}}, got {:?}",
             items.last()
         );
     }
@@ -18667,7 +18693,7 @@ mod tests {
 
     #[test]
     fn test_m64_compute_line_height_section_is_18() {
-        // M68: 14.4pt → 21.0 (effective section-to-paragraph baseline advance)
+        // M95: 14.4pt → 27.9 (section baselineskip 18 + afterskip 9.9)
         let nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 50.0,
@@ -18678,15 +18704,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m64_compute_line_height_subsection_is_14_5() {
-        // M74-fix: 12.0pt → 17.0
+        // M95: 12.0pt → 20.46
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 50.0,
@@ -18697,8 +18723,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M74-fix: 12.0pt must give line_height=17.0, got {}",
+            (lh - 20.46).abs() < 0.01,
+            "M95: 12.0pt must give line_height=20.46, got {}",
             lh
         );
     }
@@ -18819,7 +18845,7 @@ mod tests {
 
     #[test]
     fn test_m68_section_line_height_is_21() {
-        // M68: 14.4pt section heading → compute_line_height returns 21.0
+        // M95: 14.4pt section heading → compute_line_height returns 27.9
         let nodes = vec![BoxNode::Text {
             text: "Introduction".to_string(),
             width: 80.0,
@@ -18830,8 +18856,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt section must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt section must give line_height=27.9, got {}",
             lh
         );
     }
@@ -18857,7 +18883,7 @@ mod tests {
 
     #[test]
     fn test_m68_section_line_height_normal_style() {
-        // M68: 14.4pt normal-style text also gives 21.0
+        // M95: 14.4pt normal-style text also gives 27.9
         let nodes = vec![BoxNode::Text {
             text: "SectionNormal".to_string(),
             width: 90.0,
@@ -18868,15 +18894,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt normal-style must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt normal-style must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_mixed_with_body() {
-        // M68: line with 14.4pt heading mixed with 10pt body → max=14.4pt → 21.0
+        // M95: line with 14.4pt heading mixed with 10pt body → max=14.4pt → 27.9
         let nodes = vec![
             BoxNode::Text {
                 text: "Body".to_string(),
@@ -18897,15 +18923,15 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: mixed 10pt+14.4pt must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: mixed 10pt+14.4pt must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_mixed_with_12pt() {
-        // M68: line with 14.4pt max → 21.0 even with 12pt present
+        // M95: line with 14.4pt max → 27.9 even with 12pt present
         let nodes = vec![
             BoxNode::Text {
                 text: "Sub".to_string(),
@@ -18926,15 +18952,15 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 12pt+14.4pt mixed must give line_height=21.0 (max=14.4pt), got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 12pt+14.4pt mixed must give line_height=27.9 (max=14.4pt), got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_exceeds_subsection() {
-        // M68: 14.4pt section (21.0) > 12pt subsection (17.0)
+        // M95: 14.4pt section (27.9) > 12pt subsection (20.46)
         let section_nodes = vec![BoxNode::Text {
             text: "Section".to_string(),
             width: 60.0,
@@ -18955,17 +18981,17 @@ mod tests {
         let subsection_lh = compute_line_height(&subsection_nodes);
         assert!(
             section_lh > subsection_lh,
-            "M68: section line_height ({}) must exceed subsection line_height ({})",
+            "M95: section line_height ({}) must exceed subsection line_height ({})",
             section_lh,
             subsection_lh
         );
         assert!(
-            (section_lh - 21.0).abs() < 0.01,
-            "M68: section must be 21.0"
+            (section_lh - 27.9).abs() < 0.01,
+            "M95: section must be 27.9"
         );
         assert!(
-            (subsection_lh - 17.0).abs() < 0.01,
-            "M68: subsection must be 17.0"
+            (subsection_lh - 20.46).abs() < 0.01,
+            "M95: subsection must be 20.46"
         );
     }
 
@@ -19000,7 +19026,7 @@ mod tests {
 
     #[test]
     fn test_m68_compute_line_height_single_14_4pt_character() {
-        // M68: even a single 14.4pt character gives 21.0
+        // M95: even a single 14.4pt character gives 27.9
         let nodes = vec![BoxNode::Text {
             text: "A".to_string(),
             width: 10.0,
@@ -19011,15 +19037,15 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: single 14.4pt char must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: single 14.4pt char must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_with_glue() {
-        // M68: 14.4pt text + Glue → still 21.0 (Glue doesn't affect line_height)
+        // M95: 14.4pt text + Glue → still 27.9 (Glue doesn't affect line_height)
         let nodes = vec![
             BoxNode::Text {
                 text: "Section".to_string(),
@@ -19037,15 +19063,15 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt text + Glue must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt text + Glue must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_with_kern() {
-        // M68: 14.4pt text + Kern → still 21.0
+        // M95: 14.4pt text + Kern → still 27.9
         let nodes = vec![
             BoxNode::Text {
                 text: "Section".to_string(),
@@ -19059,15 +19085,15 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: 14.4pt text + Kern must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: 14.4pt text + Kern must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_three_14_4pt_nodes() {
-        // M68: multiple 14.4pt nodes → 21.0
+        // M95: multiple 14.4pt nodes → 27.9
         let nodes = vec![
             BoxNode::Text {
                 text: "Section".to_string(),
@@ -19096,15 +19122,15 @@ mod tests {
         ];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 21.0).abs() < 0.01,
-            "M68: three 14.4pt nodes must give line_height=21.0, got {}",
+            (lh - 27.9).abs() < 0.01,
+            "M95: three 14.4pt nodes must give line_height=27.9, got {}",
             lh
         );
     }
 
     #[test]
     fn test_m68_section_line_height_is_exactly_21() {
-        // M68: verify exact value is 21.0 (not 20.9 or 21.1)
+        // M95: verify exact value is 27.9
         let nodes = vec![BoxNode::Text {
             text: "Exact".to_string(),
             width: 40.0,
@@ -19115,8 +19141,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert_eq!(
-            lh, 21.0,
-            "M68: compute_line_height for 14.4pt must be exactly 21.0"
+            lh, 27.9,
+            "M95: compute_line_height for 14.4pt must be exactly 27.9"
         );
     }
 
@@ -19143,7 +19169,7 @@ mod tests {
 
     #[test]
     fn test_m69_subsection_line_height_is_17() {
-        // M74-fix: 12pt font (subsection) should give 17.0
+        // M95: 12pt font (subsection) should give 20.46
         let nodes = vec![BoxNode::Text {
             text: "Subsection".to_string(),
             width: 80.0,
@@ -19154,8 +19180,8 @@ mod tests {
         }];
         let lh = compute_line_height(&nodes);
         assert!(
-            (lh - 17.0).abs() < 0.01,
-            "M74-fix: 12pt subsection must give line_height=17.0, got {}",
+            (lh - 20.46).abs() < 0.01,
+            "M95: 12pt subsection must give line_height=20.46, got {}",
             lh
         );
     }
@@ -19286,10 +19312,10 @@ mod tests {
             "M69: should have Center heading line"
         );
         let hl = heading_line.unwrap();
-        // Should be 17.0 (subsection), NOT 17.0+10=28.5
+        // M95: Should be 20.46 (subsection), NOT 20.46+10
         assert!(
-            (hl.line_height - 17.0).abs() < 0.01,
-            "M74-fix: center heading (12pt) should be 17.0, not +10; got {}",
+            (hl.line_height - 20.46).abs() < 0.01,
+            "M95: center heading (12pt) should be 20.46, not +10; got {}",
             hl.line_height
         );
     }
@@ -19329,12 +19355,335 @@ mod tests {
             "M69: should have Center section line"
         );
         let sl = section_line.unwrap();
-        // Should be 21.0 (section), NOT 21.0+10=31.0
+        // M95: Should be 27.9 (section), NOT 27.9+10
         assert!(
-            (sl.line_height - 21.0).abs() < 0.01,
-            "M69: center section (14.4pt) should be 21.0, not +10; got {}",
+            (sl.line_height - 27.9).abs() < 0.01,
+            "M95: center section (14.4pt) should be 27.9, not +10; got {}",
             sl.line_height
         );
+    }
+
+    // ===== M95: Section Heading Vertical Spacing Tests =====
+
+    #[test]
+    fn test_m95_compute_line_height_section_14pt() {
+        // M95: section line_height = 27.9pt (baselineskip 18 + afterskip 9.9)
+        let nodes = vec![BoxNode::Text {
+            font_size: 14.4,
+            text: String::new(),
+            width: 10.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 27.9).abs() < 0.01,
+            "14.4pt section line_height should be 27.9pt, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_compute_line_height_subsection_12pt() {
+        // M95: subsection line_height = 20.46pt (baselineskip 14 + afterskip 6.46)
+        let nodes = vec![BoxNode::Text {
+            font_size: 12.0,
+            text: String::new(),
+            width: 10.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 20.46).abs() < 0.01,
+            "12.0pt subsection line_height should be 20.46pt, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_section_heading_emits_5_nodes() {
+        // M95: section heading emits 5 nodes (was 3)
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_rendering(LabelTable::new());
+        ctx.prescan_sections = prescan_sections(&Node::Document(vec![]));
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(
+            nodes.len(),
+            5,
+            "section should emit 5 nodes: AlignmentMarker + Text + Kern + Text + AlignmentMarker"
+        );
+        assert!(
+            matches!(
+                nodes[0],
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Center
+                }
+            ),
+            "First node should be AlignmentMarker{{Center}}"
+        );
+        assert!(
+            matches!(
+                nodes[4],
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                }
+            ),
+            "Last node should be AlignmentMarker{{Justify}}"
+        );
+    }
+
+    #[test]
+    fn test_m95_subsection_emits_5_nodes() {
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_rendering(LabelTable::new());
+        ctx.prescan_sections = prescan_sections(&Node::Document(vec![]));
+        let node = Node::Command {
+            name: "subsection".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Details".to_string())])],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert_eq!(nodes.len(), 5, "subsection should emit 5 nodes");
+        assert!(matches!(
+            nodes[0],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center
+            }
+        ));
+        assert!(matches!(
+            nodes[4],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Justify
+            }
+        ));
+    }
+
+    #[test]
+    fn test_m95_section_center_text_is_at_index_1() {
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_rendering(LabelTable::new());
+        ctx.prescan_sections = prescan_sections(&Node::Document(vec![]));
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Index 1 should be the section number (Text node)
+        assert!(
+            matches!(
+                nodes[1],
+                BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                }
+            ),
+            "Index 1 should be Bold Text for section number"
+        );
+        // Index 2 should be the quad Kern
+        assert!(
+            matches!(nodes[2], BoxNode::Kern { .. }),
+            "Index 2 should be Kern for section quad"
+        );
+        // Index 3 should be the title
+        assert!(
+            matches!(
+                nodes[3],
+                BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                }
+            ),
+            "Index 3 should be Bold Text for title"
+        );
+    }
+
+    #[test]
+    fn test_m95_section_line_height_greater_than_old() {
+        // New section line_height (27.9) > old (21.0)
+        let nodes = vec![BoxNode::Text {
+            font_size: 14.4,
+            text: "1 Introduction".to_string(),
+            width: 80.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            lh > 21.0,
+            "New section line_height should be > 21.0pt, got {}",
+            lh
+        );
+        assert!(
+            lh < 30.0,
+            "New section line_height should be < 30.0pt (sanity check), got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_subsection_line_height_greater_than_old() {
+        // New subsection line_height (20.46) > old (17.0)
+        let nodes = vec![BoxNode::Text {
+            font_size: 12.0,
+            text: "2.1 Details".to_string(),
+            width: 60.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            lh > 17.0,
+            "New subsection line_height should be > 17.0pt, got {}",
+            lh
+        );
+        assert!(
+            lh < 22.0,
+            "New subsection line_height should be < 22.0pt (sanity check), got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_body_line_height_unchanged() {
+        // Body text (10pt) line_height should still be 12.0pt (10 * 1.2)
+        let nodes = vec![BoxNode::Text {
+            font_size: 10.0,
+            text: "body text".to_string(),
+            width: 50.0,
+            color: None,
+            font_style: FontStyle::Normal,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - 12.0).abs() < 0.01,
+            "10pt body line_height should still be 12.0pt, got {}",
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_section_afterskip_baked_in() {
+        // 27.9 = 18 (section baselineskip) + 9.9 (section afterskip)
+        let section_baselineskip = 18.0_f64;
+        let section_afterskip = 9.9_f64;
+        let expected = section_baselineskip + section_afterskip;
+        assert!((expected - 27.9).abs() < 0.01, "27.9 = 18 + 9.9");
+
+        let nodes = vec![BoxNode::Text {
+            font_size: 14.4,
+            text: String::new(),
+            width: 10.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - expected).abs() < 0.01,
+            "section line_height should equal baselineskip+afterskip={}, got {}",
+            expected,
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_subsection_afterskip_baked_in() {
+        // 20.46 = 14.0 (subsection baselineskip) + 6.46 (subsection afterskip)
+        let subsection_baselineskip = 14.0_f64;
+        let subsection_afterskip = 6.46_f64;
+        let expected = subsection_baselineskip + subsection_afterskip;
+        assert!((expected - 20.46).abs() < 0.01, "20.46 = 14.0 + 6.46");
+
+        let nodes = vec![BoxNode::Text {
+            font_size: 12.0,
+            text: String::new(),
+            width: 10.0,
+            color: None,
+            font_style: FontStyle::Bold,
+            vertical_offset: 0.0,
+        }];
+        let lh = compute_line_height(&nodes);
+        assert!(
+            (lh - expected).abs() < 0.01,
+            "subsection line_height should equal baselineskip+afterskip={}, got {}",
+            expected,
+            lh
+        );
+    }
+
+    #[test]
+    fn test_m95_section_node_sequence() {
+        // Full sequence: [AlignmentMarker{Center}, Text{Bold}, Kern, Text{Bold}, AlignmentMarker{Justify}]
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_rendering(LabelTable::new());
+        ctx.prescan_sections = prescan_sections(&Node::Document(vec![]));
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+
+        // Verify the AlignmentMarker → Text → Kern → Text → AlignmentMarker sequence
+        let is_correct_sequence = matches!(
+            nodes[0],
+            BoxNode::AlignmentMarker {
+                alignment: Alignment::Center
+            }
+        ) && matches!(
+            nodes[1],
+            BoxNode::Text {
+                font_style: FontStyle::Bold,
+                ..
+            }
+        ) && matches!(nodes[2], BoxNode::Kern { .. })
+            && matches!(
+                nodes[3],
+                BoxNode::Text {
+                    font_style: FontStyle::Bold,
+                    ..
+                }
+            )
+            && matches!(
+                nodes[4],
+                BoxNode::AlignmentMarker {
+                    alignment: Alignment::Justify
+                }
+            );
+        assert!(
+            is_correct_sequence,
+            "Section should emit [Center, Text, Kern, Text, Justify] sequence"
+        );
+    }
+
+    #[test]
+    fn test_m95_section_font_size_14pt() {
+        // Section font_size should be 14.4 in the Text nodes
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_rendering(LabelTable::new());
+        ctx.prescan_sections = prescan_sections(&Node::Document(vec![]));
+        let node = Node::Command {
+            name: "section".to_string(),
+            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        if let BoxNode::Text { font_size, .. } = &nodes[3] {
+            assert!(
+                (*font_size - 14.4).abs() < 0.01,
+                "Section title font_size should be 14.4, got {}",
+                font_size
+            );
+        } else {
+            panic!("nodes[3] should be Text");
+        }
     }
 
     // ===== M70: break_into_lines glue width, forced break, KP tolerance tests =====
