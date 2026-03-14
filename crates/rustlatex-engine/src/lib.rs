@@ -1579,9 +1579,10 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     .iter()
                     .flat_map(|n| translate_node_with_metrics(n, metrics)),
             );
+            // M89: parfillskip = "0pt plus 1fil" — stretch=100000 simulates infinite stretch
             result.push(BoxNode::Glue {
                 natural: 0.0,
-                stretch: 1.0,
+                stretch: 100000.0,
                 shrink: 0.0,
             });
             result.push(BoxNode::ParagraphEnd);
@@ -2328,9 +2329,10 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                         result.extend(items);
                     }
                     if has_bare_text {
+                        // M89: parfillskip = "0pt plus 1fil" — stretch=100000 simulates infinite stretch
                         result.push(BoxNode::Glue {
                             natural: 0.0,
-                            stretch: 1.0,
+                            stretch: 100000.0,
                             shrink: 0.0,
                         });
                         result.push(BoxNode::ParagraphEnd);
@@ -2598,9 +2600,10 @@ pub fn translate_node_with_context(
                     .iter()
                     .flat_map(|n| translate_node_with_context(n, metrics, ctx)),
             );
+            // M89: parfillskip = "0pt plus 1fil" — stretch=100000 simulates infinite stretch
             result.push(BoxNode::Glue {
                 natural: 0.0,
-                stretch: 1.0,
+                stretch: 100000.0,
                 shrink: 0.0,
             });
             result.push(BoxNode::ParagraphEnd);
@@ -4208,9 +4211,10 @@ pub fn translate_node_with_context(
                     }
                     // Add parfillskip (stretchable glue) and ParagraphEnd for bare-text paragraphs
                     if has_bare_text {
+                        // M89: parfillskip = "0pt plus 1fil" — stretch=100000 simulates infinite stretch
                         result.push(BoxNode::Glue {
                             natural: 0.0,
-                            stretch: 1.0,
+                            stretch: 100000.0,
                             shrink: 0.0,
                         });
                         result.push(BoxNode::ParagraphEnd);
@@ -5835,7 +5839,7 @@ mod tests {
         );
         // parfillskip glue
         assert!(
-            matches!(items[4], BoxNode::Glue { natural, stretch, shrink } if natural == 0.0 && stretch == 1.0 && shrink == 0.0)
+            matches!(items[4], BoxNode::Glue { natural, stretch, shrink } if natural == 0.0 && stretch == 100000.0 && shrink == 0.0)
         );
         // ParagraphEnd
         assert!(matches!(items[5], BoxNode::ParagraphEnd));
@@ -15948,15 +15952,16 @@ mod tests {
     }
 
     #[test]
-    fn test_paragraph_end_glue_stretch_one() {
+    fn test_paragraph_end_glue_stretch_100000() {
+        // M89: parfillskip stretch changed from 1.0 to 100000.0
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Hello".to_string())]);
         let nodes = translate_node_with_metrics(&node, &metrics);
         assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
         let glue = &nodes[nodes.len() - 2];
         assert!(
-            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
-            "Paragraph-end glue stretch should be 1.0, got {:?}",
+            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 100000.0).abs() < f64::EPSILON),
+            "Paragraph-end glue stretch should be 100000.0, got {:?}",
             glue
         );
     }
@@ -15976,6 +15981,7 @@ mod tests {
 
     #[test]
     fn test_paragraph_end_glue_full_match() {
+        // M89: parfillskip stretch changed from 1.0 to 100000.0
         let metrics = StandardFontMetrics;
         let node = Node::Paragraph(vec![Node::Text("Test paragraph content".to_string())]);
         let nodes = translate_node_with_metrics(&node, &metrics);
@@ -15984,9 +15990,9 @@ mod tests {
         assert!(
             matches!(&nodes[n - 2], BoxNode::Glue { natural, stretch, shrink }
                 if natural.abs() < f64::EPSILON
-                && (*stretch - 1.0).abs() < f64::EPSILON
+                && (*stretch - 100000.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "Expected Glue{{natural:0.0, stretch:1.0, shrink:0.0}} before ParagraphEnd"
+            "Expected Glue{{natural:0.0, stretch:100000.0, shrink:0.0}} before ParagraphEnd"
         );
     }
 
@@ -16007,8 +16013,8 @@ mod tests {
     }
 
     #[test]
-    fn test_paragraph_end_glue_context_stretch_one() {
-        // M82: paragraph ends with Glue{0,1,0} + ParagraphEnd
+    fn test_paragraph_end_glue_context_stretch_100000() {
+        // M89: paragraph ends with Glue{0,100000,0} + ParagraphEnd
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Hello context".to_string())]);
@@ -16016,15 +16022,15 @@ mod tests {
         assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
         let glue = &nodes[nodes.len() - 2];
         assert!(
-            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
-            "Context paragraph second-to-last must be Glue with stretch=1.0, got {:?}",
+            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 100000.0).abs() < f64::EPSILON),
+            "Context paragraph second-to-last must be Glue with stretch=100000.0, got {:?}",
             glue
         );
     }
 
     #[test]
     fn test_paragraph_end_glue_context_full_match() {
-        // M82: paragraph ends with Glue{0,1,0} + ParagraphEnd
+        // M89: paragraph ends with Glue{0,100000,0} + ParagraphEnd
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text(
@@ -16036,9 +16042,9 @@ mod tests {
         assert!(
             matches!(&nodes[n - 2], BoxNode::Glue { natural, stretch, shrink }
                 if natural.abs() < f64::EPSILON
-                && (*stretch - 1.0).abs() < f64::EPSILON
+                && (*stretch - 100000.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "Context paragraph second-to-last must be Glue{{0,1,0}}, got {:?}",
+            "Context paragraph second-to-last must be Glue{{0,100000,0}}, got {:?}",
             &nodes[n - 2]
         );
     }
@@ -19789,7 +19795,7 @@ mod tests {
 
     #[test]
     fn test_m71_paragraph_end_glue_before_penalty() {
-        // M82: paragraph ends with Glue{0,1,0} + ParagraphEnd
+        // M89: paragraph ends with Glue{0,100000,0} + ParagraphEnd
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Some text here.".to_string())]);
@@ -19800,9 +19806,9 @@ mod tests {
         assert!(
             matches!(glue, BoxNode::Glue { natural, stretch, shrink }
                 if natural.abs() < f64::EPSILON
-                && (*stretch - 1.0).abs() < f64::EPSILON
+                && (*stretch - 100000.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON),
-            "M82: second-to-last must be Glue{{0,1,0}}, got {:?}",
+            "M89: second-to-last must be Glue{{0,100000,0}}, got {:?}",
             glue
         );
     }
@@ -19928,8 +19934,8 @@ mod tests {
     }
 
     #[test]
-    fn test_m72_paragraph_end_glue_stretch_is_one() {
-        // M82: second-to-last must be Glue with stretch=1.0 (last is ParagraphEnd)
+    fn test_m72_paragraph_end_glue_stretch_is_100000() {
+        // M89: second-to-last must be Glue with stretch=100000.0 (last is ParagraphEnd)
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Stretch test.".to_string())]);
@@ -19937,8 +19943,8 @@ mod tests {
         assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
         let glue = &nodes[nodes.len() - 2];
         assert!(
-            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 1.0).abs() < f64::EPSILON),
-            "M82: second-to-last must be Glue with stretch=1.0, got {:?}",
+            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 100000.0).abs() < f64::EPSILON),
+            "M89: second-to-last must be Glue with stretch=100000.0, got {:?}",
             glue
         );
     }
@@ -20090,7 +20096,7 @@ mod tests {
 
     #[test]
     fn test_m74_paragraph_glue_before_penalty() {
-        // M82: paragraph second-to-last is Glue{0,1,0}, last is ParagraphEnd
+        // M89: paragraph second-to-last is Glue{0,100000,0}, last is ParagraphEnd
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![Node::Text("Test paragraph.".to_string())]);
@@ -20101,10 +20107,10 @@ mod tests {
         assert!(
             matches!(glue, BoxNode::Glue { natural, stretch, shrink }
                 if natural.abs() < f64::EPSILON
-                && (*stretch - 1.0).abs() < f64::EPSILON
+                && (*stretch - 100000.0).abs() < f64::EPSILON
                 && shrink.abs() < f64::EPSILON
             ),
-            "M82: second-to-last must be Glue{{0,1,0}}, got {:?}",
+            "M89: second-to-last must be Glue{{0,100000,0}}, got {:?}",
             glue
         );
     }
@@ -20422,7 +20428,7 @@ mod tests {
         }
         items.push(BoxNode::Glue {
             natural: 0.0,
-            stretch: 1.0,
+            stretch: 100000.0,
             shrink: 0.0,
         });
         items.push(BoxNode::ParagraphEnd);
@@ -20453,7 +20459,7 @@ mod tests {
         }
         items.push(BoxNode::Glue {
             natural: 0.0,
-            stretch: 1.0,
+            stretch: 100000.0,
             shrink: 0.0,
         });
         items.push(BoxNode::ParagraphEnd);
@@ -20505,7 +20511,7 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 0.0,
-                stretch: 1.0,
+                stretch: 100000.0,
                 shrink: 0.0,
             },
             BoxNode::ParagraphEnd,
@@ -20600,7 +20606,7 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 0.0,
-                stretch: 1.0,
+                stretch: 100000.0,
                 shrink: 0.0,
             },
             BoxNode::ParagraphEnd,
@@ -20637,7 +20643,7 @@ mod tests {
         });
         items.push(BoxNode::Glue {
             natural: 0.0,
-            stretch: 1.0,
+            stretch: 100000.0,
             shrink: 0.0,
         });
         items.push(BoxNode::ParagraphEnd);
@@ -20669,7 +20675,7 @@ mod tests {
         });
         items.push(BoxNode::Glue {
             natural: 0.0,
-            stretch: 1.0,
+            stretch: 100000.0,
             shrink: 0.0,
         });
         items.push(BoxNode::ParagraphEnd);
@@ -20734,7 +20740,7 @@ mod tests {
             },
             BoxNode::Glue {
                 natural: 0.0,
-                stretch: 1.0,
+                stretch: 100000.0,
                 shrink: 0.0,
             },
             BoxNode::ParagraphEnd,
@@ -22350,5 +22356,277 @@ mod tests {
             matches!(text_nodes[0], BoxNode::Text { text, .. } if text == "Plain"),
             "M88: non-context section text should be 'Plain'"
         );
+    }
+
+    // ===== M89 tests: parfillskip stretch=100000 to match pdflatex =====
+
+    #[test]
+    fn test_m89_parfillskip_stretch_is_100000() {
+        // M89: parfillskip Glue in metrics path must have stretch=100000.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 100000.0).abs() < f64::EPSILON),
+            "M89: parfillskip stretch must be 100000.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_parfillskip_natural_is_zero() {
+        // M89: parfillskip natural width must be 0.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Test text".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { natural, .. } if natural.abs() < f64::EPSILON),
+            "M89: parfillskip natural must be 0.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_parfillskip_shrink_is_zero() {
+        // M89: parfillskip shrink must be 0.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Shrink test".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { shrink, .. } if shrink.abs() < f64::EPSILON),
+            "M89: parfillskip shrink must be 0.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_parfillskip_before_paragraph_end() {
+        // M89: Glue{0,100000,0} must immediately precede ParagraphEnd
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Position test".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let n = nodes.len();
+        assert!(n >= 2, "M89: paragraph must have at least 2 nodes");
+        assert!(
+            matches!(nodes[n - 1], BoxNode::ParagraphEnd),
+            "M89: last node must be ParagraphEnd"
+        );
+        assert!(
+            matches!(&nodes[n - 2], BoxNode::Glue { natural, stretch, shrink }
+                if natural.abs() < f64::EPSILON
+                && (*stretch - 100000.0).abs() < f64::EPSILON
+                && shrink.abs() < f64::EPSILON),
+            "M89: second-to-last must be Glue{{0,100000,0}}, got {:?}",
+            &nodes[n - 2]
+        );
+    }
+
+    #[test]
+    fn test_m89_context_parfillskip_stretch_100000() {
+        // M89: parfillskip in context path must also be 100000.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Context paragraph test".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(matches!(nodes.last(), Some(BoxNode::ParagraphEnd)));
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { stretch, .. } if (*stretch - 100000.0).abs() < f64::EPSILON),
+            "M89: context parfillskip stretch must be 100000.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_context_parfillskip_natural_zero() {
+        // M89: context path parfillskip natural=0.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Natural zero test".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { natural, .. } if natural.abs() < f64::EPSILON),
+            "M89: context parfillskip natural must be 0.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_context_parfillskip_shrink_zero() {
+        // M89: context path parfillskip shrink=0.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Shrink zero test".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        let glue = &nodes[nodes.len() - 2];
+        assert!(
+            matches!(glue, BoxNode::Glue { shrink, .. } if shrink.abs() < f64::EPSILON),
+            "M89: context parfillskip shrink must be 0.0, got {:?}",
+            glue
+        );
+    }
+
+    #[test]
+    fn test_m89_bare_text_parfillskip_stretch_100000() {
+        // M89: bare-text path (translate_node_with_context for document environment)
+        // produces parfillskip with stretch=100000.0
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![Node::Text("Bare text content".to_string())],
+        };
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        // Find the parfillskip glue before ParagraphEnd
+        let mut found_parfillskip = false;
+        for i in 0..nodes.len().saturating_sub(1) {
+            if matches!(nodes[i + 1], BoxNode::ParagraphEnd) {
+                if let BoxNode::Glue {
+                    natural,
+                    stretch,
+                    shrink,
+                } = &nodes[i]
+                {
+                    assert!(
+                        natural.abs() < f64::EPSILON,
+                        "M89: bare-text parfillskip natural must be 0.0"
+                    );
+                    assert!(
+                        (*stretch - 100000.0).abs() < f64::EPSILON,
+                        "M89: bare-text parfillskip stretch must be 100000.0, got {}",
+                        stretch
+                    );
+                    assert!(
+                        shrink.abs() < f64::EPSILON,
+                        "M89: bare-text parfillskip shrink must be 0.0"
+                    );
+                    found_parfillskip = true;
+                }
+            }
+        }
+        assert!(
+            found_parfillskip,
+            "M89: bare-text path must contain Glue{{0,100000,0}} before ParagraphEnd"
+        );
+    }
+
+    #[test]
+    fn test_m89_parfillskip_stretch_exceeds_inter_word() {
+        // M89: parfillskip stretch (100000) must be >> inter-word stretch (~1.667)
+        // This ensures parfillskip absorbs virtually all remaining space
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Find inter-word glue stretch and parfillskip stretch
+        let mut inter_word_stretch = 0.0_f64;
+        let mut parfillskip_stretch = 0.0_f64;
+        let n = nodes.len();
+        for (i, node) in nodes.iter().enumerate() {
+            if let BoxNode::Glue { stretch, .. } = node {
+                if i == n - 2 {
+                    // Last glue before ParagraphEnd = parfillskip
+                    parfillskip_stretch = *stretch;
+                } else {
+                    inter_word_stretch = *stretch;
+                }
+            }
+        }
+        assert!(
+            parfillskip_stretch > 1000.0 * inter_word_stretch,
+            "M89: parfillskip stretch ({}) must be >> inter-word stretch ({})",
+            parfillskip_stretch,
+            inter_word_stretch
+        );
+    }
+
+    #[test]
+    fn test_m89_parfillskip_much_larger_than_old_value() {
+        // M89: verify parfillskip stretch is much larger than old value of 1.0
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Comparison test".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let glue = &nodes[nodes.len() - 2];
+        if let BoxNode::Glue { stretch, .. } = glue {
+            assert!(
+                *stretch > 1000.0,
+                "M89: parfillskip stretch ({}) must be > 1000.0 (old value was 1.0)",
+                stretch
+            );
+        } else {
+            panic!("M89: second-to-last node must be Glue, got {:?}", glue);
+        }
+    }
+
+    #[test]
+    fn test_m89_single_paragraph_parfillskip_dominates() {
+        // M89: for a single-line paragraph, parfillskip should dominate total stretch
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        let mut total_stretch = 0.0_f64;
+        let mut parfillskip_stretch = 0.0_f64;
+        let n = nodes.len();
+        for (i, node) in nodes.iter().enumerate() {
+            if let BoxNode::Glue { stretch, .. } = node {
+                total_stretch += *stretch;
+                if i == n - 2 {
+                    parfillskip_stretch = *stretch;
+                }
+            }
+        }
+        assert!(total_stretch > 0.0, "M89: total stretch must be positive");
+        let ratio = parfillskip_stretch / total_stretch;
+        assert!(
+            ratio > 0.99,
+            "M89: parfillskip should absorb >99% of total stretch, got {:.4}%",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    fn test_m89_no_justified_single_line_paragraph() {
+        // M89: with stretch=100000, a single-line paragraph should NOT be over-justified
+        // The stretch ratio for inter-word glue should be negligible
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Calculate what the stretch ratio would be for inter-word glue
+        let mut content_width = 0.0_f64;
+        let mut total_stretch = 0.0_f64;
+        let n = nodes.len();
+        for (i, node) in nodes.iter().enumerate() {
+            match node {
+                BoxNode::Text { width, .. } => content_width += *width,
+                BoxNode::Glue {
+                    natural, stretch, ..
+                } => {
+                    content_width += *natural;
+                    if i < n - 2 {
+                        // Only count inter-word stretch for ratio calculation
+                    }
+                    total_stretch += *stretch;
+                }
+                BoxNode::Kern { amount } => content_width += *amount,
+                _ => {}
+            }
+        }
+        let hsize = 345.0_f64;
+        let remaining = hsize - content_width;
+        if remaining > 0.0 && total_stretch > 0.0 {
+            let stretch_ratio = remaining / total_stretch;
+            // With parfillskip=100000, inter-word extra = stretch_ratio * 1.667 ≈ tiny
+            let inter_word_extra = stretch_ratio * 1.667;
+            assert!(
+                inter_word_extra < 0.1,
+                "M89: inter-word stretch extra should be < 0.1pt, got {:.4}pt",
+                inter_word_extra
+            );
+        }
     }
 }
