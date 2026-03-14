@@ -167,6 +167,8 @@ Binary-identical output requires:
 - **Cycle (M84):** M84 completed in 1 implementation + 1 verification. Leo: CI per-doc steps, whitespace paragraph fix, 12 new unit tests (1212 total). Apollo confirmed: hello=99.83%, sections=98.92%, math=99.56%, lists=99.39%, compare=97.34%. CI green.
 - **M84 findings (Diana):** hello.tex 0.17% gap = missing parindent on bare text (no Paragraph wrapper). sections.tex 1.08% gap = mega-lines (layout) + small non-layout. All margins, line_height, hsize, footer_y confirmed correct. Whitespace-only paragraph skip fixed in M84.
 - **M85 scope:** (1) Fix bare text → paragraph wrapping in parser: document environment content that is not already in Paragraph nodes should get implicit paragraph wrapping so parindent is applied (fixes hello.tex 0.17% gap). (2) Diana deep-dives sections.tex and math.tex pixel differences for non-mega-line fixable bugs. (3) Implement any confirmed safe fixes. Target: hello.tex >99.9%, 1225+ tests.
+- **Cycle (M85):** M85 DEADLINE MISSED (2/2 cycles). Leo implemented: (cycle 1) parindent for bare text, BINOP_KERN=2.222, superscript rise=3.622, math space filtering. (cycle 2) inter-word glue between bare Text and Command nodes. CI results unchanged: hello=99.83%, compare=97.32%, math=99.56%, sections=98.92%, lists=99.39%. 1228 tests pass. The hello.tex 0.17% gap remains — cause is likely \LaTeX logo rendering differences or sub-pixel kerning, not missing glue/indentation.
+- **M86 scope:** Implement Diana's remaining confirmed safe fixes: (1) list item indent 20pt→25pt (M85-G), (2) space char width 5.0→3.333/3.833 in char_width/string_width_for_style (M85-F), (3) cmmi10 engine/PDF width table alignment for letters with >0.5pt discrepancy (e.g., 'f': 4.896→3.028, 'j': 4.118→2.998). Target: lists.tex >99.5%, math.tex >99.6%, 1242+ tests. NOTE: hello.tex 0.17% gap is likely from \LaTeX logo rendering (complex, deferred to later milestone).
 
 ## Milestones
 
@@ -1419,6 +1421,29 @@ Improve hello.tex similarity by fixing bare text paragraph wrapping, and analyze
 - Implement Diana's confirmed non-layout fixes
 
 **Tests**: 12+ new tests. Target: 1225+ tests pass, CI green, hello.tex ≥ 99.9%.
+**Cycles budget:** 2
+**Status:** ⚠️ DEADLINE MISSED (2/2 cycles) — hello.tex stuck at 99.83%. Fixes implemented (parindent, BINOP_KERN, superscript, math space, inter-word glue) but similarity unchanged. 1228 tests pass, CI green.
+
+### M86: Remaining Safe Rendering Fixes (Diana's Analysis)
+Implement the confirmed low-risk rendering improvements from Diana's M85 research.
+
+**Goal 1: List item indentation 20pt→25pt** (M85-G)
+- Change `BoxNode::Kern { amount: 20.0 }` in itemize/enumerate item rendering to `amount: 25.0`
+- Locations: ~lines 1860 and 3464 of `crates/rustlatex-engine/src/lib.rs`
+- pdflatex `\leftmargin = 25pt` for level-1 lists
+- Update all tests that assert `Kern(20.0)` for list indentation
+
+**Goal 2: Space character width fix** (M85-F)
+- Add `' ' => 3.333` to cmr10 `char_width()` function (~line 622)
+- Add `' ' => 3.833` to cmbx10 match in `char_width_for_style()` (~line 690)
+- Currently space falls through to `_ => 5.000`, causing 1.2pt error per space in width computations
+
+**Goal 3: cmmi10 engine/PDF width table alignment**
+- Diana found major discrepancies for letters 'f', 'j', 'V', 'Y', 'W' between engine cmmi10_char_width() and PDF cmmi10 width table
+- Fix: update engine's `cmmi10_char_width()` to match the PDF embedded font widths (PDF values are authoritative — they match the actual embedded pfb file)
+- Key discrepancies: 'f' (engine: 4.896pt, PDF: 3.028pt), 'j' (engine: 4.118pt, PDF: 2.998pt)
+
+**Tests**: 14+ new tests. Target: 1242+ tests pass, CI green, lists.tex ≥ 99.5%, math.tex ≥ 99.6%.
 **Cycles budget:** 2
 
 ---
