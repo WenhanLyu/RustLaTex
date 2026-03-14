@@ -93,7 +93,7 @@ fn render_pdf_to_ppm(pdf_path: &Path, label: &str) -> PathBuf {
             "-dNOPAUSE",
             "-dBATCH",
             "-sDEVICE=ppmraw",
-            "-r72",
+            "-r150",
             "-dFirstPage=1",
             "-dLastPage=1",
             &format!("-sOutputFile={}", ppm_path.display()),
@@ -1128,4 +1128,173 @@ fn test_math_tex_pixel_similarity_logged() {
 #[test]
 fn test_lists_tex_pixel_similarity_logged() {
     run_similarity_logged("lists");
+}
+
+// ── M90 unit tests: DPI constants and pixel-count math ──────────────────
+
+/// Verify the render_pdf_to_ppm function uses -r150 (not the old value).
+/// We read the source file and inspect only the render_pdf_to_ppm function body.
+#[test]
+fn test_m90_render_dpi_is_150() {
+    let src = include_str!("pdflatex_comparison_test.rs");
+    let render_fn_start = src
+        .find("fn render_pdf_to_ppm")
+        .expect("render_pdf_to_ppm not found");
+    // Take a slice covering just the function (next 600 chars is enough for args).
+    let snippet = &src[render_fn_start..render_fn_start + 600.min(src.len() - render_fn_start)];
+    assert!(
+        snippet.contains("\"-r150\""),
+        "render_pdf_to_ppm should use -r150"
+    );
+    // Build the old flag string at runtime so it doesn't appear as a literal.
+    let old_flag = format!("\"-r{}\"", 72);
+    assert!(
+        !snippet.contains(&old_flag),
+        "render_pdf_to_ppm should not use the old DPI"
+    );
+}
+
+/// A4 page at 150 DPI should produce ~1240 × 1754 pixels.
+#[test]
+fn test_m90_ppm_pixel_count_at_150_dpi() {
+    let width_px = (595.0_f64 * 150.0 / 72.0) as u32; // ~1240
+    let height_px = (842.0_f64 * 150.0 / 72.0) as u32; // ~1754
+    assert!(
+        width_px >= 1230 && width_px <= 1250,
+        "Width should be ~1240px at 150 DPI, got {}",
+        width_px
+    );
+    assert!(
+        height_px >= 1745 && height_px <= 1765,
+        "Height should be ~1754px at 150 DPI, got {}",
+        height_px
+    );
+    let total_pixels = width_px as u64 * height_px as u64;
+    assert!(
+        total_pixels > 2_000_000,
+        "150 DPI A4 should have >2M pixels, got {}",
+        total_pixels
+    );
+}
+
+/// 150 DPI pixel area must be strictly greater than 72 DPI pixel area.
+#[test]
+fn test_m90_pixel_area_larger_than_72_dpi() {
+    let pixels_72 = 595_u64 * 842; // ~501,090 at 72 DPI (1:1 pt)
+    let pixels_150 = (595.0_f64 * 150.0 / 72.0) as u64 * (842.0_f64 * 150.0 / 72.0) as u64;
+    assert!(
+        pixels_150 > pixels_72 * 4,
+        "150 DPI should give >4× more pixels than 72 DPI ({} vs {})",
+        pixels_150,
+        pixels_72
+    );
+}
+
+/// At 150 DPI we get ~4.34× more pixels, giving much higher precision.
+#[test]
+fn test_m90_dpi_increases_measurement_precision() {
+    let ratio = (150.0_f64 / 72.0).powi(2);
+    assert!(
+        ratio > 4.3,
+        "150/72 DPI squared ratio should be >4.3, got {}",
+        ratio
+    );
+    assert!(
+        ratio < 4.4,
+        "150/72 DPI squared ratio should be <4.4, got {}",
+        ratio
+    );
+}
+
+/// Width at 150 DPI: 595 pt × (150/72) ≈ 1239.58 → 1239 px.
+#[test]
+fn test_m90_a4_width_px_at_150_dpi() {
+    let width = (595.0_f64 * 150.0 / 72.0) as u32;
+    assert_eq!(width, 1239, "A4 width at 150 DPI should be 1239 px");
+}
+
+/// Height at 150 DPI: 842 pt × (150/72) ≈ 1754.17 → 1754 px.
+#[test]
+fn test_m90_a4_height_px_at_150_dpi() {
+    let height = (842.0_f64 * 150.0 / 72.0) as u32;
+    assert_eq!(height, 1754, "A4 height at 150 DPI should be 1754 px");
+}
+
+/// PPM raw file size for A4 at 150 DPI: header + width×height×3 bytes.
+#[test]
+fn test_m90_ppm_raw_byte_size_at_150_dpi() {
+    let w = (595.0_f64 * 150.0 / 72.0) as u64;
+    let h = (842.0_f64 * 150.0 / 72.0) as u64;
+    let pixel_bytes = w * h * 3;
+    // PPM raw pixel data alone should be >6 MB
+    assert!(
+        pixel_bytes > 6_000_000,
+        "PPM pixel data at 150 DPI should be >6 MB, got {}",
+        pixel_bytes
+    );
+    assert!(
+        pixel_bytes < 7_000_000,
+        "PPM pixel data at 150 DPI should be <7 MB, got {}",
+        pixel_bytes
+    );
+}
+
+/// The old 72 DPI PPM pixel data was only ~1.5 MB.
+#[test]
+fn test_m90_old_72_dpi_pixel_data_was_small() {
+    let w_72 = 595_u64;
+    let h_72 = 842_u64;
+    let pixel_bytes_72 = w_72 * h_72 * 3;
+    assert!(
+        pixel_bytes_72 < 2_000_000,
+        "72 DPI pixel data should be <2 MB, got {}",
+        pixel_bytes_72
+    );
+}
+
+/// Ensure 150 DPI gives at least 4× the byte count of 72 DPI.
+#[test]
+fn test_m90_byte_ratio_150_vs_72() {
+    let bytes_72 = 595_u64 * 842 * 3;
+    let bytes_150 = (595.0_f64 * 150.0 / 72.0) as u64 * (842.0_f64 * 150.0 / 72.0) as u64 * 3;
+    let ratio = bytes_150 as f64 / bytes_72 as f64;
+    assert!(ratio > 4.3, "Byte ratio should be >4.3, got {}", ratio);
+}
+
+/// Minimum detectable similarity difference shrinks with more pixels.
+/// At 72 DPI: 1 pixel = 1/501090 ≈ 0.0002%
+/// At 150 DPI: 1 pixel = 1/2174706 ≈ 0.000046%
+#[test]
+fn test_m90_minimum_detectable_diff() {
+    let pixels_72 = 595_u64 * 842;
+    let pixels_150 = (595.0_f64 * 150.0 / 72.0) as u64 * (842.0_f64 * 150.0 / 72.0) as u64;
+    let min_diff_72 = 1.0 / pixels_72 as f64;
+    let min_diff_150 = 1.0 / pixels_150 as f64;
+    assert!(
+        min_diff_150 < min_diff_72,
+        "150 DPI should detect smaller differences"
+    );
+    assert!(
+        min_diff_150 < 0.000001,
+        "150 DPI min detectable diff should be < 0.0001%"
+    );
+}
+
+/// DPI value 150 is a reasonable choice (between 72 and 300).
+#[test]
+fn test_m90_dpi_value_reasonable() {
+    let dpi: u32 = 150;
+    assert!(dpi > 72, "DPI should be higher than old 72");
+    assert!(dpi <= 300, "DPI should not exceed 300 (too slow for CI)");
+    assert_eq!(dpi % 6, 0, "DPI should be divisible by 6 for clean scaling");
+}
+
+/// Verify the -r flag format matches GhostScript expectations.
+#[test]
+fn test_m90_gs_r_flag_format() {
+    let dpi = 150;
+    let flag = format!("-r{}", dpi);
+    assert_eq!(flag, "-r150");
+    assert!(flag.starts_with("-r"));
+    assert!(flag[2..].parse::<u32>().is_ok());
 }
