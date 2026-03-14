@@ -2773,17 +2773,11 @@ pub fn translate_node_with_context(
                         page: 0,
                     });
 
-                    // M92: Emit 5 nodes for section headings:
-                    // AlignmentMarker{Center} + Text(number) + Kern(font_size) + Text(title) + AlignmentMarker{Justify}
-                    // The Center/Justify markers ensure each section heading is its own segment,
-                    // preventing mega-lines where section heading and body text appear on the same y-position.
+                    // Emit 3 nodes for section headings: Text(number) + Kern(font_size) + Text(title)
                     let number_str = ctx.counters.last_counter_value.clone();
                     let number_width = metrics.string_width_for_style(&number_str, FontStyle::Bold);
                     let title_width = metrics.string_width_for_style(&title, FontStyle::Bold);
                     let result = vec![
-                        BoxNode::AlignmentMarker {
-                            alignment: Alignment::Center,
-                        },
                         BoxNode::Text {
                             text: number_str,
                             width: number_width,
@@ -2800,9 +2794,6 @@ pub fn translate_node_with_context(
                             color: None,
                             font_style: FontStyle::Bold,
                             vertical_offset: 0.0,
-                        },
-                        BoxNode::AlignmentMarker {
-                            alignment: Alignment::Justify,
                         },
                     ];
                     // Suppress indentation for the first paragraph after a heading
@@ -13913,15 +13904,15 @@ mod tests {
 
     #[test]
     fn test_section_vskip_before_context_15_07pt() {
-        // M92: Section now emits AlignmentMarker{Center} as first node (wraps heading in its own segment)
+        // M55: VSkip removed — first item is now Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(items.first(), Some(BoxNode::AlignmentMarker { alignment: Alignment::Center })),
-            "M92: first item should be AlignmentMarker{{Center}} (section heading wrapper), got {:?}",
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M55: first item should be Text (no VSkip), got {:?}",
             items.first()
         );
     }
@@ -16727,20 +16718,15 @@ mod tests {
 
     #[test]
     fn test_m52_first_section_gets_zero_before_vskip() {
-        // M92: Section now emits AlignmentMarker{Center} as first node (section heading wrapper)
+        // M55: VSkip removed — first item is Text (section heading)
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Center
-                })
-            ),
-            "M92: first section should start with AlignmentMarker{{Center}}, got {:?}",
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M55: first section should start with Text (no VSkip), got {:?}",
             items.first()
         );
     }
@@ -18178,17 +18164,16 @@ mod tests {
 
     #[test]
     fn test_m60_section_before_vskip_suppressed_at_top() {
-        // M92: context path: first section starts with AlignmentMarker{Center} (heading wrapper)
+        // context path: first section has no before-VSkip
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Top".to_string())])],
         }]);
         let items = translate_with_context(&node);
-        // First node should be AlignmentMarker{Center} (M92 section heading wrapper)
+        // First node should be Text (no before-VSkip)
         assert!(
-            matches!(items.first(), Some(BoxNode::AlignmentMarker { alignment: Alignment::Center })),
-            "M92: first section at top should have AlignmentMarker{{Center}} as first node, got {:?}",
-            items.first()
+            matches!(items.first(), Some(BoxNode::Text { .. })),
+            "M60: first section at top should have Text as first node"
         );
     }
 
@@ -18623,20 +18608,15 @@ mod tests {
 
     #[test]
     fn test_m63_section_context_emits_vskip_zero_as_last_node() {
-        // M92: context section last node is AlignmentMarker{Justify} (section heading wrapper end)
+        // context section last node is Text
         let node = Node::Document(vec![Node::Command {
             name: "section".to_string(),
             args: vec![Node::Group(vec![Node::Text("Hello".to_string())])],
         }]);
         let items = translate_with_context(&node);
         assert!(
-            matches!(
-                items.last(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M92: context section last node must be AlignmentMarker{{Justify}}, got {:?}",
+            matches!(items.last(), Some(BoxNode::Text { .. })),
+            "context section last node must be Text, got {:?}",
             items.last()
         );
     }
@@ -22961,401 +22941,5 @@ mod tests {
             has_subscript,
             "Subscript should have font_size=7.0, offset=-2.5"
         );
-    }
-
-    // ===== M92: Section Heading AlignmentMarker Tests =====
-
-    #[test]
-    fn test_m92_section_produces_five_nodes_in_context() {
-        // M92: section in context mode emits 5 nodes:
-        // AlignmentMarker{Center} + Text(number) + Kern(font_size) + Text(title) + AlignmentMarker{Justify}
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Overview".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(
-            items.len(),
-            5,
-            "M92: section should produce exactly 5 nodes, got {}: {:?}",
-            items.len(),
-            items
-        );
-    }
-
-    #[test]
-    fn test_m92_section_first_node_is_alignment_center() {
-        // M92: first node of section in context is AlignmentMarker{Center}
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert!(
-            matches!(
-                items.first(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Center
-                })
-            ),
-            "M92: first node should be AlignmentMarker{{Center}}, got {:?}",
-            items.first()
-        );
-    }
-
-    #[test]
-    fn test_m92_section_last_node_is_alignment_justify() {
-        // M92: last node of section in context is AlignmentMarker{Justify}
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Conclusion".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert!(
-            matches!(
-                items.last(),
-                Some(BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                })
-            ),
-            "M92: last node should be AlignmentMarker{{Justify}}, got {:?}",
-            items.last()
-        );
-    }
-
-    #[test]
-    fn test_m92_section_second_node_is_number_text() {
-        // M92: node[1] is Text with the section number
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Methods".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(items.len(), 5, "M92: section should produce 5 nodes");
-        assert!(
-            matches!(&items[1], BoxNode::Text { text, .. } if text == "1"),
-            "M92: items[1] should be Text('1'), got {:?}",
-            &items[1]
-        );
-    }
-
-    #[test]
-    fn test_m92_section_third_node_is_kern_font_size() {
-        // M92: node[2] is Kern(14.4) - the section font_size
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Results".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(items.len(), 5, "M92: section should produce 5 nodes");
-        assert!(
-            matches!(&items[2], BoxNode::Kern { amount } if (*amount - 14.4).abs() < 0.01),
-            "M92: items[2] should be Kern(14.4), got {:?}",
-            &items[2]
-        );
-    }
-
-    #[test]
-    fn test_m92_section_fourth_node_is_title_text() {
-        // M92: node[3] is Text with the section title
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Discussion".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(items.len(), 5, "M92: section should produce 5 nodes");
-        assert!(
-            matches!(&items[3], BoxNode::Text { text, .. } if text == "Discussion"),
-            "M92: items[3] should be Text('Discussion'), got {:?}",
-            &items[3]
-        );
-    }
-
-    #[test]
-    fn test_m92_section_number_is_bold() {
-        // M92: section number Text node should have FontStyle::Bold
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Background".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(items.len(), 5, "M92: section should produce 5 nodes");
-        assert!(
-            matches!(
-                &items[1],
-                BoxNode::Text {
-                    font_style: FontStyle::Bold,
-                    ..
-                }
-            ),
-            "M92: section number should be Bold"
-        );
-    }
-
-    #[test]
-    fn test_m92_section_title_is_bold() {
-        // M92: section title Text node should have FontStyle::Bold
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Related Work".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        assert_eq!(items.len(), 5, "M92: section should produce 5 nodes");
-        assert!(
-            matches!(
-                &items[3],
-                BoxNode::Text {
-                    font_style: FontStyle::Bold,
-                    ..
-                }
-            ),
-            "M92: section title should be Bold"
-        );
-    }
-
-    #[test]
-    fn test_m92_subsection_produces_five_nodes_in_context() {
-        // M92: subsection in context mode also emits 5 nodes with AlignmentMarkers
-        let node = Node::Document(vec![
-            Node::Command {
-                name: "section".to_string(),
-                args: vec![Node::Group(vec![Node::Text("Main".to_string())])],
-            },
-            Node::Command {
-                name: "subsection".to_string(),
-                args: vec![Node::Group(vec![Node::Text("Sub".to_string())])],
-            },
-        ]);
-        let items = translate_with_context(&node);
-        // Find subsection AlignmentMarker{Center} followed by Text("1.1")
-        let sub_center_idx = items.iter().rposition(|n| {
-            matches!(
-                n,
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Center
-                }
-            )
-        });
-        assert!(
-            sub_center_idx.is_some(),
-            "M92: subsection should have AlignmentMarker{{Center}}"
-        );
-        let idx = sub_center_idx.unwrap();
-        // Check that 4 nodes follow the Center marker
-        assert!(
-            idx + 4 < items.len(),
-            "M92: subsection should have 4 more nodes after Center marker"
-        );
-        assert!(
-            matches!(&items[idx + 1], BoxNode::Text { text, .. } if text == "1.1"),
-            "M92: node after Center should be Text('1.1'), got {:?}",
-            &items[idx + 1]
-        );
-        assert!(
-            matches!(&items[idx + 2], BoxNode::Kern { amount } if (*amount - 12.0).abs() < 0.01),
-            "M92: subsection Kern should be 12.0, got {:?}",
-            &items[idx + 2]
-        );
-        assert!(
-            matches!(
-                &items[idx + 4],
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            ),
-            "M92: subsection last of 5 should be AlignmentMarker{{Justify}}, got {:?}",
-            &items[idx + 4]
-        );
-    }
-
-    #[test]
-    fn test_m92_subsubsection_produces_five_nodes_in_context() {
-        // M92: subsubsection in context mode also emits 5 nodes with AlignmentMarkers
-        let node = Node::Document(vec![
-            Node::Command {
-                name: "section".to_string(),
-                args: vec![Node::Group(vec![Node::Text("S".to_string())])],
-            },
-            Node::Command {
-                name: "subsection".to_string(),
-                args: vec![Node::Group(vec![Node::Text("SS".to_string())])],
-            },
-            Node::Command {
-                name: "subsubsection".to_string(),
-                args: vec![Node::Group(vec![Node::Text("SSS".to_string())])],
-            },
-        ]);
-        let items = translate_with_context(&node);
-        // Total AlignmentMarker{Center} count should be 3 (one per heading)
-        let center_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Center
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            center_count, 3,
-            "M92: section+subsection+subsubsection should emit 3 AlignmentMarker{{Center}} nodes"
-        );
-        let justify_count = items
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .count();
-        assert_eq!(
-            justify_count, 3,
-            "M92: section+subsection+subsubsection should emit 3 AlignmentMarker{{Justify}} nodes"
-        );
-    }
-
-    #[test]
-    fn test_m92_subsection_kern_equals_12_pt() {
-        // M92: subsection Kern between number and title should equal 12.0 (subsection font_size)
-        let node = Node::Document(vec![
-            Node::Command {
-                name: "section".to_string(),
-                args: vec![Node::Group(vec![Node::Text("Sec".to_string())])],
-            },
-            Node::Command {
-                name: "subsection".to_string(),
-                args: vec![Node::Group(vec![Node::Text("SubSec".to_string())])],
-            },
-        ]);
-        let items = translate_with_context(&node);
-        // Find "1.1" text node and verify Kern is 12.0
-        let num_idx = items
-            .iter()
-            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "1.1"));
-        assert!(num_idx.is_some(), "M92: expected '1.1' text node");
-        let kern = &items[num_idx.unwrap() + 1];
-        assert!(
-            matches!(kern, BoxNode::Kern { amount } if (*amount - 12.0).abs() < 0.01),
-            "M92: Kern after subsection number should be 12.0, got {:?}",
-            kern
-        );
-    }
-
-    #[test]
-    fn test_m92_section_followed_by_text_has_two_alignment_segments() {
-        // M92: section followed by paragraph text produces:
-        // [Center, Text(1), Kern, Text(Title), Justify, ...paragraph text...]
-        // break_items_with_alignment should split this into Center segment and Justify segment
-        let node = Node::Document(vec![
-            Node::Command {
-                name: "section".to_string(),
-                args: vec![Node::Group(vec![Node::Text("Intro".to_string())])],
-            },
-            Node::Paragraph(vec![Node::Text("Body text here.".to_string())]),
-        ]);
-        let items = translate_with_context(&node);
-        // Should have at least Center and Justify markers
-        let has_center = items.iter().any(|n| {
-            matches!(
-                n,
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Center
-                }
-            )
-        });
-        let has_justify = items.iter().any(|n| {
-            matches!(
-                n,
-                BoxNode::AlignmentMarker {
-                    alignment: Alignment::Justify
-                }
-            )
-        });
-        assert!(
-            has_center,
-            "M92: section+paragraph should contain AlignmentMarker{{Center}}"
-        );
-        assert!(
-            has_justify,
-            "M92: section+paragraph should contain AlignmentMarker{{Justify}}"
-        );
-        // Paragraph text should appear after the Justify marker
-        let justify_idx = items
-            .iter()
-            .position(|n| {
-                matches!(
-                    n,
-                    BoxNode::AlignmentMarker {
-                        alignment: Alignment::Justify
-                    }
-                )
-            })
-            .unwrap();
-        let body_text_after_justify = items[justify_idx + 1..]
-            .iter()
-            .any(|n| matches!(n, BoxNode::Text { text, .. } if text.contains("Body")));
-        assert!(
-            body_text_after_justify,
-            "M92: body text should appear after AlignmentMarker{{Justify}}"
-        );
-    }
-
-    #[test]
-    fn test_m92_translate_node_with_metrics_section_unchanged() {
-        // M92: translate_node_with_metrics (simple path) should still produce 1 node for section
-        // (only the context path adds AlignmentMarkers)
-        let metrics = StandardFontMetrics;
-        let node = Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Test".to_string())])],
-        };
-        let nodes = translate_node_with_metrics(&node, &metrics);
-        assert_eq!(
-            nodes.len(),
-            1,
-            "M92: translate_node_with_metrics for section should still produce 1 node (Text only)"
-        );
-        assert!(
-            matches!(&nodes[0], BoxNode::Text { .. }),
-            "M92: translate_node_with_metrics section should be Text, not AlignmentMarker"
-        );
-    }
-
-    #[test]
-    fn test_m92_section_alignment_markers_wrap_heading_only() {
-        // M92: AlignmentMarkers should only wrap the heading nodes (number, kern, title)
-        // NOT the entire document content
-        let node = Node::Document(vec![Node::Command {
-            name: "section".to_string(),
-            args: vec![Node::Group(vec![Node::Text("Solo".to_string())])],
-        }]);
-        let items = translate_with_context(&node);
-        // Exactly 5 nodes: Center, Text(1), Kern, Text(Solo), Justify
-        assert_eq!(
-            items.len(),
-            5,
-            "M92: single section should produce exactly 5 nodes total"
-        );
-        // Verify structure
-        assert!(matches!(
-            &items[0],
-            BoxNode::AlignmentMarker {
-                alignment: Alignment::Center
-            }
-        ));
-        assert!(matches!(&items[1], BoxNode::Text { text, .. } if text == "1"));
-        assert!(matches!(&items[2], BoxNode::Kern { .. }));
-        assert!(matches!(&items[3], BoxNode::Text { text, .. } if text == "Solo"));
-        assert!(matches!(
-            &items[4],
-            BoxNode::AlignmentMarker {
-                alignment: Alignment::Justify
-            }
-        ));
     }
 }
