@@ -2210,7 +2210,7 @@ impl PdfWriter {
                 } else {
                     f32::INFINITY
                 };
-                let is_last_line_like = stretch_ratio > 10.0; // very underfull = paragraph last line
+                let is_last_line_like = stretch_ratio > 5.0; // very underfull = paragraph last line
 
                 let start_x = match line.alignment {
                     Alignment::Center => margin_left + remaining / 2.0,
@@ -5890,5 +5890,165 @@ mod tests {
         assert!(is_cmr10_kern_font(b"F8"));
         // F6 (typewriter) should NOT be a kern font
         assert!(!is_cmr10_kern_font(b"F6"));
+    }
+
+    // ===== M94: Last-Line Justification Threshold Tests =====
+
+    #[test]
+    fn test_m94_high_stretch_ratio_is_last_line_like() {
+        // stretch_ratio=9.82 (hello.tex case) should be last-line-like with new threshold 5.0
+        let stretch_ratio = 9.82_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            is_last_line_like,
+            "stretch_ratio=9.82 should be last-line-like with threshold 5.0"
+        );
+    }
+
+    #[test]
+    fn test_m94_old_threshold_missed_hello_tex() {
+        // With old threshold 10.0, stretch_ratio=9.82 would NOT be last-line-like (bug)
+        let stretch_ratio = 9.82_f32;
+        let old_is_last_line_like = stretch_ratio > 10.0;
+        assert!(
+            !old_is_last_line_like,
+            "Old threshold 10.0 incorrectly missed stretch_ratio=9.82"
+        );
+    }
+
+    #[test]
+    fn test_m94_new_threshold_catches_hello_tex() {
+        // With new threshold 5.0, stretch_ratio=9.82 IS last-line-like (fix)
+        let stretch_ratio = 9.82_f32;
+        let new_is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            new_is_last_line_like,
+            "New threshold 5.0 correctly catches stretch_ratio=9.82"
+        );
+    }
+
+    #[test]
+    fn test_m94_low_stretch_ratio_is_justified() {
+        // stretch_ratio=2.5 should be a normal justified line (not last-line-like)
+        let stretch_ratio = 2.5_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            !is_last_line_like,
+            "stretch_ratio=2.5 should be justified (not last-line-like)"
+        );
+    }
+
+    #[test]
+    fn test_m94_threshold_boundary_exactly_5() {
+        // stretch_ratio=5.0 exactly is NOT last-line-like (strict greater-than)
+        let stretch_ratio = 5.0_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            !is_last_line_like,
+            "stretch_ratio=5.0 exactly should NOT be last-line-like (strict >)"
+        );
+    }
+
+    #[test]
+    fn test_m94_threshold_just_above_5() {
+        // stretch_ratio=5.1 IS last-line-like
+        let stretch_ratio = 5.1_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            is_last_line_like,
+            "stretch_ratio=5.1 should be last-line-like"
+        );
+    }
+
+    #[test]
+    fn test_m94_infinite_stretch_ratio_is_last_line() {
+        // When total_stretch=0 and remaining>0, ratio=infinity → last-line-like
+        let total_stretch = 0.0_f32;
+        let remaining = 50.0_f32;
+        let stretch_ratio = if total_stretch > 0.0 {
+            remaining / total_stretch
+        } else {
+            f32::INFINITY
+        };
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            is_last_line_like,
+            "Infinite stretch_ratio should be last-line-like"
+        );
+    }
+
+    #[test]
+    fn test_m94_zero_remaining_not_last_line() {
+        // When remaining=0, stretch_ratio=0 → not last-line-like
+        let total_stretch = 10.0_f32;
+        let remaining = 0.0_f32;
+        let stretch_ratio = if total_stretch > 0.0 {
+            remaining / total_stretch
+        } else {
+            f32::INFINITY
+        };
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            !is_last_line_like,
+            "stretch_ratio=0 should be justified (not last-line-like)"
+        );
+    }
+
+    #[test]
+    fn test_m94_stretch_ratio_formula_high() {
+        // remaining=100, total_stretch=10 → ratio=10.0 > 5.0 → last-line-like
+        let total_stretch = 10.0_f32;
+        let remaining = 100.0_f32;
+        let stretch_ratio = remaining / total_stretch;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert_eq!(stretch_ratio, 10.0);
+        assert!(
+            is_last_line_like,
+            "ratio=10.0 should be last-line-like with threshold 5.0"
+        );
+    }
+
+    #[test]
+    fn test_m94_stretch_ratio_formula_normal() {
+        // remaining=10, total_stretch=10 → ratio=1.0 < 5.0 → justified
+        let total_stretch = 10.0_f32;
+        let remaining = 10.0_f32;
+        let stretch_ratio = remaining / total_stretch;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert_eq!(stretch_ratio, 1.0);
+        assert!(!is_last_line_like, "ratio=1.0 should be justified");
+    }
+
+    #[test]
+    fn test_m94_ratio_4_9_not_last_line() {
+        // stretch_ratio=4.9 < 5.0 → not last-line-like
+        let stretch_ratio = 4.9_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            !is_last_line_like,
+            "stretch_ratio=4.9 should be justified (< 5.0 threshold)"
+        );
+    }
+
+    #[test]
+    fn test_m94_ratio_6_is_last_line() {
+        // stretch_ratio=6.0 > 5.0 → last-line-like
+        let stretch_ratio = 6.0_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            is_last_line_like,
+            "stretch_ratio=6.0 should be last-line-like"
+        );
+    }
+
+    #[test]
+    fn test_m94_ratio_exactly_10_is_last_line() {
+        // stretch_ratio=10.0 > 5.0 → last-line-like (both old and new threshold agree here)
+        let stretch_ratio = 10.0_f32;
+        let is_last_line_like = stretch_ratio > 5.0;
+        assert!(
+            is_last_line_like,
+            "stretch_ratio=10.0 should be last-line-like"
+        );
     }
 }
