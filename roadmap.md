@@ -1542,9 +1542,46 @@ Added AlignmentMarker{Center/Justify} around section headings in translate_node_
 - **Cycles budget:** 1 | **Cycles actual:** 1 (Ares, commit 216d190)
 - **Status:** ✅ Complete — M93 reverted M92, CI green, 1312 tests pass, compare.tex similarity restored to 97.88%
 
-### M94 scope: Fix Last-Line Justification Heuristic
-Diana's forensic analysis identified the most impactful remaining non-layout bug: the `is_last_line_like` threshold=10.0 in `rustlatex-pdf/src/lib.rs` misses stretch_ratio=9.82. Hello.tex's only paragraph line gets fully justified (word spaces = 19.5pt each, 5.8× too large) instead of ragged-right (natural 3.333pt). Fix: lower threshold from 10.0 to 5.0. Target: 1325+ tests, hello.tex > 99.87%.
-- **Estimated impact**: ~1,500-2,000 pixel improvement (~0.07-0.09% similarity)
+### M94: Fix Last-Line Justification Heuristic ✅ COMPLETE (ZERO IMPACT)
+Changed `is_last_line_like` threshold from 10.0→5.0 in rustlatex-pdf. 13 new tests, 1325 total pass.
+
+**CI result: ZERO improvement.** Root cause of failure:
+- parfillskip Glue (stretch=100000) is included in `total_stretch` computation in PDF backend
+- stretch_ratio = remaining / (12.5 + 100000) ≈ 0.0013 — always < 5.0 threshold too!
+- Both thresholds (10.0 and 5.0) give `is_last_line_like=False` due to parfillskip dominance
+- Word spacing WAS already ~natural (3.335pt) because parfillskip absorbs remaining space
+- hello.tex was already correct BEFORE M94! The threshold fix had no effect.
+
+**Lesson**: M94's threshold fix was solving the wrong problem. The parfillskip mechanism already handles last-line detection correctly via a different mechanism (absorbs remaining space). No fix needed.
+
+- **Cycles budget:** 1 | **Cycles actual:** 1 (Leo, commit 66e3f1f)
+- **Status:** ✅ Tests pass (1325), CI green, **ZERO similarity impact**
+- **Scores unchanged**: hello=99.87%, sections=99.12%, math=99.66%, lists=99.50%, compare=97.88%
+
+### M95: Fix Section Heading Vertical Spacing (27.9pt for sections, AlignmentMarker)
+New approach to the mega-line problem based on Athena's analysis of M92 root cause.
+
+**Root cause of M92 regression identified:**
+M92 put section headings on own lines (via AlignmentMarker), BUT kept compute_line_height(14.4pt)=21pt.
+pdflatex section-to-body spacing = section_baselineskip(18) + afterskip(9.9) = 27.9pt.
+With 21pt line height, body was 6.9pt TOO HIGH → regression!
+
+**Fix (two components):**
+1. `compute_line_height(14.4pt)` → 27.9pt (was 21.0pt)
+   This makes section heading line advance the CORRECT 27.9pt to body text
+2. `compute_line_height(12.0pt)` → 20.46pt (was 17.0pt)
+   subsection: 14pt baselineskip + 6.46pt afterskip = 20.46pt
+3. Add AlignmentMarker{Center} before + AlignmentMarker{Justify} after section/subsection headings
+   Puts section headings on their OWN LINE (not merged with body text in mega-line)
+
+**Expected:**
+- sections.tex: heading on own line + correct 27.9pt spacing → ~+0.88% improvement
+- compare.tex: heading on own line + correct spacing to body → NO regression (or improvement)
+- If compare.tex regresses: revert AlignmentMarker, keep compute_line_height changes only
+
+**Fallback**: If both changes regress compare.tex → PROJECT_COMPLETE
+
+- **Cycles budget:** 2
 
 ---
 
