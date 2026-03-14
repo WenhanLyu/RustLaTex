@@ -620,6 +620,8 @@ impl FontMetrics for StandardFontMetrics {
             '*' => 5.000,
             '/' => 5.000,
             '_' => 2.778,
+            // Space character: cmr10 AFM WX=333.333 / 100 = 3.333pt
+            ' ' => 3.333,
             _ => 5.000,
         }
     }
@@ -688,6 +690,8 @@ impl FontMetrics for StandardFontMetrics {
                     'y' => 6.514,
                     'z' => 5.306,
                     '0'..='9' => 5.000,
+                    // Space character: cmbx10 AFM WX=383.333 / 100 = 3.833pt
+                    ' ' => 3.833,
                     _ => self.char_width(ch), // fallback to cmr10
                 }
             }
@@ -741,17 +745,19 @@ fn cmmi10_char_width(ch: char) -> Option<f64> {
         'X' => Some(8.285),
         'Y' => Some(5.806),
         'Z' => Some(6.826),
-        // Lowercase letters (a–z) from cmmi10.afm
+        // Lowercase letters (a–z) from cmmi10 PDF-embedded font metrics (authoritative)
         'a' => Some(5.286),
         'b' => Some(4.292),
         'c' => Some(4.328),
         'd' => Some(5.205),
         'e' => Some(4.656),
-        'f' => Some(4.896),
+        // 'f': PDF-embedded cmmi10 = 302.8 scaled units → 3.028pt (vs AFM 489.6 → 4.896pt)
+        'f' => Some(3.028),
         'g' => Some(4.770),
         'h' => Some(5.762),
         'i' => Some(3.445),
-        'j' => Some(4.118),
+        // 'j': PDF-embedded cmmi10 = 299.8 scaled units → 2.998pt (vs AFM 411.8 → 4.118pt)
+        'j' => Some(2.998),
         'k' => Some(5.206),
         'l' => Some(2.984),
         'm' => Some(8.780),
@@ -1856,8 +1862,8 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                                 shrink: 0.5,
                             });
                         }
-                        // Indentation kern
-                        result.push(BoxNode::Kern { amount: 20.0 });
+                        // Indentation kern (pdflatex \leftmargini = 2.5em = 25pt at 10pt)
+                        result.push(BoxNode::Kern { amount: 25.0 });
                         // Label prefix
                         if is_enumerate {
                             let label = format!("{}. ", i + 1);
@@ -3461,7 +3467,8 @@ pub fn translate_node_with_context(
                                 shrink: 0.5,
                             });
                         }
-                        result.push(BoxNode::Kern { amount: 20.0 });
+                        // Indentation kern (pdflatex \leftmargini = 2.5em = 25pt at 10pt)
+                        result.push(BoxNode::Kern { amount: 25.0 });
                         if is_enumerate {
                             let label = format!("{}. ", i + 1);
                             result.push(BoxNode::Text {
@@ -3830,7 +3837,8 @@ pub fn translate_node_with_context(
                                 shrink: 0.5,
                             });
                         }
-                        result.push(BoxNode::Kern { amount: 20.0 });
+                        // Indentation kern (pdflatex \leftmargini = 2.5em = 25pt at 10pt)
+                        result.push(BoxNode::Kern { amount: 25.0 });
                         if let Some(t) = term {
                             // Bold term
                             result.push(BoxNode::Text {
@@ -7262,9 +7270,9 @@ mod tests {
         let node = make_itemize(vec![vec![Node::Text("apple".to_string())]]);
         let items = translate_node(&node);
         let has_kern = items.iter().any(
-            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
         );
-        assert!(has_kern, "Expected Kern(20.0) indentation in itemize");
+        assert!(has_kern, "Expected Kern(25.0) indentation in itemize");
     }
 
     #[test]
@@ -7272,9 +7280,9 @@ mod tests {
         let node = make_enumerate(vec![vec![Node::Text("first".to_string())]]);
         let items = translate_node(&node);
         let has_kern = items.iter().any(
-            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
         );
-        assert!(has_kern, "Expected Kern(20.0) indentation in enumerate");
+        assert!(has_kern, "Expected Kern(25.0) indentation in enumerate");
     }
 
     #[test]
@@ -20929,6 +20937,290 @@ mod tests {
         assert_eq!(
             first_kern_count, 1,
             "First item should be parindent from Paragraph"
+        );
+    }
+
+    // ===== M85-G: List item indentation 25pt tests =====
+
+    #[test]
+    fn test_m85g_itemize_kern_is_25pt() {
+        // M85-G: List item indentation must be 25pt (pdflatex \leftmargini = 2.5em)
+        let node = make_itemize(vec![vec![Node::Text("test item".to_string())]]);
+        let items = translate_node(&node);
+        let kern_25 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            kern_25,
+            "Itemize list item must have Kern(25.0) indentation (M85-G)"
+        );
+        let kern_20 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            !kern_20,
+            "Itemize list item must NOT have old Kern(20.0) indentation (M85-G)"
+        );
+    }
+
+    #[test]
+    fn test_m85g_enumerate_kern_is_25pt() {
+        // M85-G: Enumerate list item indentation must be 25pt
+        let node = make_enumerate(vec![vec![Node::Text("first item".to_string())]]);
+        let items = translate_node(&node);
+        let kern_25 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            kern_25,
+            "Enumerate list item must have Kern(25.0) indentation (M85-G)"
+        );
+        let kern_20 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 20.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            !kern_20,
+            "Enumerate list item must NOT have old Kern(20.0) indentation (M85-G)"
+        );
+    }
+
+    #[test]
+    fn test_m85g_itemize_context_kern_is_25pt() {
+        // M85-G: List item indentation in context mode must also be 25pt
+        let node = make_itemize(vec![vec![Node::Text("context item".to_string())]]);
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let kern_25 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            kern_25,
+            "Itemize context path must have Kern(25.0) indentation (M85-G)"
+        );
+    }
+
+    #[test]
+    fn test_m85g_paragraph_indentation_still_15pt() {
+        // M85-G: Paragraph indentation must NOT be changed (must remain 15pt)
+        let node = Node::Paragraph(vec![Node::Text("some text".to_string())]);
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        let kern_15 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 15.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            kern_15,
+            "Paragraph indentation must remain Kern(15.0), not changed by M85-G"
+        );
+    }
+
+    #[test]
+    fn test_m85g_multiple_list_items_all_kern_25pt() {
+        // M85-G: All items in a list with 3 items should have Kern(25.0)
+        let node = make_itemize(vec![
+            vec![Node::Text("alpha".to_string())],
+            vec![Node::Text("beta".to_string())],
+            vec![Node::Text("gamma".to_string())],
+        ]);
+        let items = translate_node(&node);
+        let kern_25_count = items
+            .iter()
+            .filter(
+                |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
+            )
+            .count();
+        assert_eq!(
+            kern_25_count, 3,
+            "Three-item list must have exactly 3 Kern(25.0) nodes (M85-G)"
+        );
+    }
+
+    // ===== M85-F: Space character width tests =====
+
+    #[test]
+    fn test_m85f_space_width_in_char_width_normal() {
+        // M85-F: Space character must return 3.333pt in Normal (cmr10) font
+        let w = StandardFontMetrics.char_width(' ');
+        assert!(
+            (w - 3.333).abs() < 0.001,
+            "Space width in Normal (cmr10) must be 3.333pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_space_width_for_style_normal() {
+        // M85-F: Space in Normal style should return 3.333pt
+        let w = StandardFontMetrics.char_width_for_style(' ', FontStyle::Normal);
+        assert!(
+            (w - 3.333).abs() < 0.001,
+            "Space width for Normal style must be 3.333pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_space_width_for_style_bold() {
+        // M85-F: Space character in Bold (cmbx10) must return 3.833pt
+        let w = StandardFontMetrics.char_width_for_style(' ', FontStyle::Bold);
+        assert!(
+            (w - 3.833).abs() < 0.001,
+            "Space width for Bold (cmbx10) must be 3.833pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_space_not_falling_through_to_default() {
+        // M85-F: Space must NOT fall through to default 5.000pt
+        let w = StandardFontMetrics.char_width(' ');
+        assert!(
+            (w - 5.000).abs() > 0.1,
+            "Space must not return default 5.000pt; got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_string_width_with_space_normal() {
+        // M85-F: string_width of "a b" must use 3.333pt for space
+        let w = StandardFontMetrics.string_width("a b");
+        // 'a' = 5.000, ' ' = 3.333, 'b' = 5.556
+        let expected = 5.000 + 3.333 + 5.556;
+        assert!(
+            (w - expected).abs() < 0.01,
+            "string_width('a b') should be {:.3}, got {:.3}",
+            expected,
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_string_width_intro_bold() {
+        // M85-F: string_width_for_style('1 Introduction', Bold) uses 3.833 for space
+        // '1'=5.000, ' '=3.833, 'I'=4.368, 'n'=6.514, 't'=4.806, 'r'=4.569, 'o'=6.014,
+        // 'd'=6.514, 'u'=6.514, 'c'=5.306, 't'=4.806, 'i'=3.382, 'o'=6.014, 'n'=6.514
+        let w = StandardFontMetrics.string_width_for_style("1 Introduction", FontStyle::Bold);
+        // Space must contribute 3.833 not 5.000 (default)
+        // Use space width function to check
+        let space_contribution = StandardFontMetrics.char_width_for_style(' ', FontStyle::Bold);
+        assert!(
+            (space_contribution - 3.833).abs() < 0.001,
+            "Space in Bold must be 3.833 for '1 Introduction' computation"
+        );
+        // Total width should be computable and positive
+        assert!(
+            w > 50.0,
+            "Width of '1 Introduction' in Bold should be > 50pt, got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85f_space_width_bold_greater_than_normal() {
+        // M85-F: Bold space (3.833) must be wider than Normal space (3.333)
+        let bold_space = StandardFontMetrics.char_width_for_style(' ', FontStyle::Bold);
+        let normal_space = StandardFontMetrics.char_width_for_style(' ', FontStyle::Normal);
+        assert!(
+            bold_space > normal_space,
+            "Bold space ({}) must be wider than Normal space ({})",
+            bold_space,
+            normal_space
+        );
+    }
+
+    // ===== M85-H: cmmi10 PDF width alignment tests =====
+
+    #[test]
+    fn test_m85h_cmmi10_f_matches_pdf_width() {
+        // M85-H: cmmi10 'f' must match PDF-embedded font value (3.028pt, not AFM 4.896pt)
+        let w = StandardFontMetrics.char_width_for_style('f', FontStyle::MathItalic);
+        assert!(
+            (w - 3.028).abs() < 0.01,
+            "cmmi10 'f' must be 3.028pt (PDF-embedded), got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85h_cmmi10_j_matches_pdf_width() {
+        // M85-H: cmmi10 'j' must match PDF-embedded font value (2.998pt, not AFM 4.118pt)
+        let w = StandardFontMetrics.char_width_for_style('j', FontStyle::MathItalic);
+        assert!(
+            (w - 2.998).abs() < 0.01,
+            "cmmi10 'j' must be 2.998pt (PDF-embedded), got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85h_cmmi10_f_not_old_afm_value() {
+        // M85-H: cmmi10 'f' must NOT be the old AFM value 4.896pt
+        let w = StandardFontMetrics.char_width_for_style('f', FontStyle::MathItalic);
+        assert!(
+            (w - 4.896).abs() > 0.1,
+            "cmmi10 'f' must not be old AFM 4.896pt; got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85h_cmmi10_j_not_old_afm_value() {
+        // M85-H: cmmi10 'j' must NOT be the old AFM value 4.118pt
+        let w = StandardFontMetrics.char_width_for_style('j', FontStyle::MathItalic);
+        assert!(
+            (w - 4.118).abs() > 0.1,
+            "cmmi10 'j' must not be old AFM 4.118pt; got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_m85h_cmmi10_other_letters_unchanged() {
+        // M85-H: Other cmmi10 letters not in the >100-unit discrepancy list should be unchanged
+        let a = StandardFontMetrics.char_width_for_style('a', FontStyle::MathItalic);
+        let x = StandardFontMetrics.char_width_for_style('x', FontStyle::MathItalic);
+        let m_upper = StandardFontMetrics.char_width_for_style('M', FontStyle::MathItalic);
+        assert!(
+            (a - 5.286).abs() < 0.001,
+            "cmmi10 'a' unchanged: expected 5.286, got {}",
+            a
+        );
+        assert!(
+            (x - 5.715).abs() < 0.001,
+            "cmmi10 'x' unchanged: expected 5.715, got {}",
+            x
+        );
+        assert!(
+            (m_upper - 9.701).abs() < 0.001,
+            "cmmi10 'M' unchanged: expected 9.701, got {}",
+            m_upper
+        );
+    }
+
+    #[test]
+    fn test_m85g_description_list_kern_is_25pt() {
+        // M85-G: Description list item indentation must also be 25pt
+        let node = Node::Environment {
+            name: "description".to_string(),
+            options: None,
+            content: vec![
+                Node::Command {
+                    name: "item".to_string(),
+                    args: vec![Node::Group(vec![Node::Text("Term".to_string())])],
+                },
+                Node::Text("Definition text".to_string()),
+            ],
+        };
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        let kern_25 = items.iter().any(
+            |n| matches!(n, BoxNode::Kern { amount } if (*amount - 25.0).abs() < f64::EPSILON),
+        );
+        assert!(
+            kern_25,
+            "Description list must have Kern(25.0) indentation (M85-G)"
         );
     }
 }
