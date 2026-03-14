@@ -1525,7 +1525,22 @@ Diana performed pixel-by-pixel analysis; Leo implemented 4 fixes:
 
 **M91 LESSON:** Even Diana's predicted "1,500-2,000 pixel" parfillskip fix had no measurable impact at 150 DPI. Non-layout fixes ≤0.03% cannot be measured reliably even at 150 DPI. We are truly in a local maximum for non-layout improvements.
 
-**M92 scope:** Add AlignmentMarker{Center/Justify} wrapper around section/subsection/subsubsection headings in `translate_node_with_context`. Root cause: section headings currently produce plain Text nodes with NO AlignmentMarker, so they flow into the same KP segment as body text — resulting in section headings and paragraph text on the SAME y-line (confirmed: sections.tex has only 5 y-positions, pdflatex has ~9+). Fix: in the section handler (~line 2781 of engine/lib.rs), wrap the result vec with AlignmentMarker{Center} before and AlignmentMarker{Justify} after. This is DIFFERENT from M76 (which added AlignmentMarker per PARAGRAPH — regressed). M92 only wraps SECTION HEADINGS, leaving body text paragraphs in continuous segments. Expected: sections.tex 99.12%→~99.8%+ (short one-paragraph segments match pdflatex trivially). Risk: LOW for sections/lists/compare (body text still flows together). Target: 1325+ tests pass, sections.tex ≥99.5%.
+**M92 REGRESSION:** Ares implemented AlignmentMarker{Center/Justify} around section headings in `translate_node_with_context`. CI results: compare.tex **97.51%** (DOWN from 97.88%, -0.37% REGRESSION), sections.tex 99.15% (+0.03%). Net: compare.tex regression dominates. This is CONFIRMED ANTI-PATTERN #9: AlignmentMarker around section headings in translate_node_with_context regresses compare.tex. DO NOT retry this approach.
+
+### M92: Section Heading AlignmentMarker ⚠️ REGRESSION
+Added AlignmentMarker{Center/Justify} around section headings in translate_node_with_context.
+
+**CI results:**
+- compare.tex: **97.51%** (REGRESSION from 97.88%, -0.37%)
+- sections.tex: **99.15%** (+0.03%, negligible)
+- hello.tex: 99.87%, math.tex: 99.66%, lists.tex: 99.50% (all unchanged)
+
+**Lesson:** AlignmentMarker around section headings in translate_node_with_context causes same regression pattern as all other separation approaches. Body text after section headings flows into different KP segments, producing different line breaks than pdflatex's continuous flow. This is CONFIRMED ANTI-PATTERN.
+
+**M93 scope:** Revert M92 to restore 97.88% for compare.tex. Then have Diana analyze sections.tex and compare.tex at the PDF content stream level to identify the EXACT y-positions of text in both our output and pdflatex output, to determine what non-layout gaps remain.
+
+- **Cycles budget:** 1 | **Cycles actual:** 1 (Ares, commit 6bd8fb6)
+- **Status:** ⚠️ REGRESSION — needs revert in M93
 
 ---
 
