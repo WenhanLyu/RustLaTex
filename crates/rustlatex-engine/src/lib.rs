@@ -939,7 +939,7 @@ pub fn math_node_to_text(node: &Node) -> String {
 ///
 /// - `Node::Text(s)`: emit `BoxNode::Text` at normal size and baseline.
 /// - `Node::Superscript { base, exponent }`: emit base at normal offset,
-///   exponent at `font_size=7.07` with `vertical_offset=+3.622`.
+///   exponent at `font_size=7.0` with `vertical_offset=+4.12` (M91: TeX fontdimen13).
 /// - `Node::Subscript { base, subscript }`: emit base at normal offset,
 ///   subscript at `font_size=7.0` with `vertical_offset=-2.5`.
 /// - Other node types fall back to `math_node_to_text()`.
@@ -1142,7 +1142,8 @@ fn math_node_to_boxes_inner(
         }
         Node::Superscript { base, exponent } => {
             let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
-            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.07, 3.622));
+            // M91: TeX's \fontdimen13 sup1 for cmr10 = 4.12pt; scriptsize = 7.0pt
+            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.0, 4.12));
             boxes
         }
         Node::Subscript { base, subscript } => {
@@ -1811,7 +1812,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size: font_size * 0.7,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: 2.15 * scale,
+                            vertical_offset: 2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.5 * scale,
@@ -1833,7 +1834,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: -2.15 * scale,
+                            vertical_offset: -2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.25 * scale,
@@ -1870,7 +1871,7 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             font_size,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: -2.15 * scale,
+                            vertical_offset: -2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.25 * scale,
@@ -3031,7 +3032,7 @@ pub fn translate_node_with_context(
                             font_size: font_size * 0.7,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: 2.15 * scale,
+                            vertical_offset: 2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.5 * scale,
@@ -3053,7 +3054,7 @@ pub fn translate_node_with_context(
                             font_size,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: -2.15 * scale,
+                            vertical_offset: -2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.25 * scale,
@@ -3090,7 +3091,7 @@ pub fn translate_node_with_context(
                             font_size,
                             color: None,
                             font_style: FontStyle::Normal,
-                            vertical_offset: -2.15 * scale,
+                            vertical_offset: -2.05 * scale, // M91: cmr10 cap height correction
                         },
                         BoxNode::Kern {
                             amount: -1.25 * scale,
@@ -4725,9 +4726,14 @@ fn chunk_has_visible_content(items: &[BoxNode]) -> bool {
 }
 
 /// Strip leading and trailing `Glue` nodes from a line.
+/// M91: Preserve trailing parfillskip glue (stretch >= 10000) so the PDF renderer
+/// can correctly detect last-line-of-paragraph and avoid over-justification.
 fn strip_glue(mut items: Vec<BoxNode>) -> Vec<BoxNode> {
-    // Strip trailing glue
-    while matches!(items.last(), Some(BoxNode::Glue { .. })) {
+    // Strip trailing glue, but preserve parfillskip (stretch >= 10000)
+    while let Some(BoxNode::Glue { stretch, .. }) = items.last() {
+        if *stretch >= 10000.0 {
+            break; // preserve parfillskip
+        }
         items.pop();
     }
     // Strip leading glue
@@ -14315,7 +14321,7 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_superscript_vertical_offset() {
-        // Superscript exponent should have vertical_offset=+3.622
+        // Superscript exponent should have vertical_offset=+4.12
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -14331,12 +14337,12 @@ mod tests {
         } else {
             panic!("Expected BoxNode::Text for base");
         }
-        // Exponent should have vertical_offset=+3.622
+        // Exponent should have vertical_offset=+4.12
         if let BoxNode::Text {
             vertical_offset, ..
         } = &boxes[1]
         {
-            assert_eq!(*vertical_offset, 3.622);
+            assert_eq!(*vertical_offset, 4.12);
         } else {
             panic!("Expected BoxNode::Text for exponent");
         }
@@ -14364,7 +14370,7 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_superscript_font_size() {
-        // Superscript exponent should have font_size=7.07
+        // Superscript exponent should have font_size=7.0
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -14372,8 +14378,8 @@ mod tests {
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         if let BoxNode::Text { font_size, .. } = &boxes[1] {
             assert!(
-                (*font_size - 7.07).abs() < 0.001,
-                "Expected font_size=7.07, got {}",
+                (*font_size - 7.0).abs() < 0.001,
+                "Expected font_size=7.0, got {}",
                 font_size
             );
         } else {
@@ -14441,10 +14447,10 @@ mod tests {
         } = &items[1]
         {
             assert_eq!(text, "2");
-            assert_eq!(*vertical_offset, 3.622);
+            assert_eq!(*vertical_offset, 4.12);
             assert!(
-                (*font_size - 7.07).abs() < 0.001,
-                "Expected font_size=7.07, got {}",
+                (*font_size - 7.0).abs() < 0.001,
+                "Expected font_size=7.0, got {}",
                 font_size
             );
         } else {
@@ -14518,8 +14524,8 @@ mod tests {
             } = item
             {
                 assert_eq!(
-                    *vertical_offset, 3.622,
-                    "Superscript group should have vertical_offset=3.622"
+                    *vertical_offset, 4.12,
+                    "Superscript group should have vertical_offset=4.12"
                 );
             }
         }
@@ -15816,7 +15822,7 @@ mod tests {
 
     #[test]
     fn test_m42_superscript_font_size_7_07() {
-        // Superscript exponent should have font_size=7.07 (not 7.0)
+        // Superscript exponent should have font_size=7.0 (not 7.0)
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -15824,8 +15830,8 @@ mod tests {
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         if let BoxNode::Text { font_size, .. } = &boxes[1] {
             assert!(
-                (*font_size - 7.07).abs() < 0.001,
-                "Expected superscript font_size=7.07, got {}",
+                (*font_size - 7.0).abs() < 0.001,
+                "Expected superscript font_size=7.0, got {}",
                 font_size
             );
         } else {
@@ -15835,7 +15841,7 @@ mod tests {
 
     #[test]
     fn test_m42_superscript_vertical_offset_3_45() {
-        // Superscript exponent should have vertical_offset=3.622 (not 4.0)
+        // Superscript exponent should have vertical_offset=4.12 (not 4.0)
         let node = Node::Superscript {
             base: Box::new(Node::Text("a".to_string())),
             exponent: Box::new(Node::Text("b".to_string())),
@@ -15846,8 +15852,8 @@ mod tests {
         } = &boxes[1]
         {
             assert_eq!(
-                *vertical_offset, 3.622,
-                "Expected superscript vertical_offset=3.622, got {}",
+                *vertical_offset, 4.12,
+                "Expected superscript vertical_offset=4.12, got {}",
                 vertical_offset
             );
         } else {
@@ -21216,7 +21222,7 @@ mod tests {
 
     #[test]
     fn test_m85_superscript_rise_is_3_622() {
-        // Superscript exponent should have vertical_offset = 3.622
+        // Superscript exponent should have vertical_offset = 4.12
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -21228,8 +21234,8 @@ mod tests {
         } = &boxes[1]
         {
             assert!(
-                (*vertical_offset - 3.622).abs() < 0.001,
-                "Superscript rise should be 3.622, got {}",
+                (*vertical_offset - 4.12).abs() < 0.001,
+                "Superscript rise should be 4.12, got {}",
                 vertical_offset
             );
         } else {
@@ -22628,5 +22634,313 @@ mod tests {
                 inter_word_extra
             );
         }
+    }
+
+    // ===== M91 tests: Diana's forensic fixes =====
+
+    #[test]
+    fn test_m91_strip_glue_preserves_parfillskip() {
+        // M91: strip_glue should preserve trailing Glue with stretch >= 10000 (parfillskip)
+        let items = vec![
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: 25.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 0.0,
+                stretch: 100000.0,
+                shrink: 0.0,
+            },
+        ];
+        let result = strip_glue(items);
+        assert_eq!(result.len(), 2, "parfillskip glue should be preserved");
+        assert!(
+            matches!(result[1], BoxNode::Glue { stretch, .. } if stretch >= 10000.0),
+            "Trailing parfillskip should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_m91_strip_glue_removes_normal_trailing_glue() {
+        // M91: Normal trailing glue (stretch < 10000) should still be stripped
+        let items = vec![
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: 25.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 3.333,
+                stretch: 1.667,
+                shrink: 1.111,
+            },
+        ];
+        let result = strip_glue(items);
+        assert_eq!(result.len(), 1, "Normal trailing glue should be stripped");
+    }
+
+    #[test]
+    fn test_m91_strip_glue_preserves_parfillskip_after_normal_glue() {
+        // M91: If parfillskip follows normal glue, normal glue should be stripped but parfillskip kept
+        let items = vec![
+            BoxNode::Text {
+                text: "word".to_string(),
+                width: 20.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+            BoxNode::Glue {
+                natural: 0.0,
+                stretch: 100000.0,
+                shrink: 0.0,
+            },
+        ];
+        let result = strip_glue(items);
+        // parfillskip (last) has stretch=100000 → preserved
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_m91_superscript_vertical_offset_is_4_12() {
+        // M91: TeX's fontdimen13 sup1 for cmr10 = 4.12pt
+        let metrics = StandardFontMetrics;
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &metrics);
+        let has_correct_offset = boxes.iter().any(|b| {
+            if let BoxNode::Text {
+                vertical_offset, ..
+            } = b
+            {
+                (*vertical_offset - 4.12).abs() < 0.001
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_correct_offset,
+            "Superscript should have vertical_offset=4.12"
+        );
+    }
+
+    #[test]
+    fn test_m91_superscript_font_size_is_7_0() {
+        // M91: TeX scriptsize at 10pt base is exactly 7.0pt
+        let metrics = StandardFontMetrics;
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &metrics);
+        let has_correct_size = boxes.iter().any(|b| {
+            if let BoxNode::Text {
+                font_size,
+                vertical_offset,
+                ..
+            } = b
+            {
+                (*font_size - 7.0).abs() < 0.001 && *vertical_offset > 0.0
+            } else {
+                false
+            }
+        });
+        assert!(has_correct_size, "Superscript should have font_size=7.0");
+    }
+
+    #[test]
+    fn test_m91_latex_logo_a_raise_is_2_05() {
+        // M91: cmr10 cap height: ht(T@10pt) - ht(A@7pt) = 6.833 - 4.783 = 2.050pt
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Node 2 = 'A' with positive vertical offset
+        if let BoxNode::Text {
+            vertical_offset,
+            text,
+            ..
+        } = &nodes[2]
+        {
+            assert_eq!(text, "A");
+            assert!(
+                (*vertical_offset - 2.05).abs() < 0.001,
+                "LaTeX A raise should be 2.05, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Node 2 should be Text('A')");
+        }
+    }
+
+    #[test]
+    fn test_m91_latex_logo_e_lower_is_neg_2_05() {
+        // M91: E lowering should match A raising at 2.05
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "LaTeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // Node 6 = 'E' with negative vertical offset
+        if let BoxNode::Text {
+            vertical_offset,
+            text,
+            ..
+        } = &nodes[6]
+        {
+            assert_eq!(text, "E");
+            assert!(
+                (*vertical_offset - (-2.05)).abs() < 0.001,
+                "LaTeX E lower should be -2.05, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Node 6 should be Text('E')");
+        }
+    }
+
+    #[test]
+    fn test_m91_tex_logo_e_lower_is_neg_2_05() {
+        // M91: \TeX logo E lowering should also be 2.05
+        let metrics = StandardFontMetrics;
+        let node = Node::Command {
+            name: "TeX".to_string(),
+            args: vec![],
+        };
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        // \TeX = T kern E(lowered) kern X → nodes[2] = E
+        if let BoxNode::Text {
+            vertical_offset,
+            text,
+            ..
+        } = &nodes[2]
+        {
+            assert_eq!(text, "E");
+            assert!(
+                (*vertical_offset - (-2.05)).abs() < 0.001,
+                "TeX E lower should be -2.05, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Node 2 should be Text('E')");
+        }
+    }
+
+    #[test]
+    fn test_m91_parfillskip_absorbs_remaining_space() {
+        // M91: When parfillskip (stretch=100000) is preserved,
+        // proportional stretch distribution gives almost all extra space to parfillskip
+        let parfillskip_stretch = 100000.0_f64;
+        let word_stretch = 1.667_f64;
+        let num_word_spaces = 7;
+        let total_stretch = parfillskip_stretch + word_stretch * num_word_spaces as f64;
+        let remaining = 122.7_f64; // typical for hello.tex
+
+        // Each word space gets: remaining * word_stretch / total_stretch
+        let word_extra = remaining * word_stretch / total_stretch;
+        assert!(
+            word_extra < 0.01,
+            "M91: word space extra should be < 0.01pt with parfillskip, got {:.6}pt",
+            word_extra
+        );
+
+        // parfillskip absorbs almost all remaining
+        let parfill_extra = remaining * parfillskip_stretch / total_stretch;
+        assert!(
+            (parfill_extra - remaining).abs() < 0.1,
+            "M91: parfillskip should absorb ~all remaining space"
+        );
+    }
+
+    #[test]
+    fn test_m91_superscript_rise_not_old_value() {
+        // M91: Verify old value 3.622 is no longer used
+        let metrics = StandardFontMetrics;
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("a".to_string())),
+            exponent: Box::new(Node::Text("n".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &metrics);
+        for b in &boxes {
+            if let BoxNode::Text {
+                vertical_offset, ..
+            } = b
+            {
+                if *vertical_offset > 0.0 {
+                    assert!(
+                        (*vertical_offset - 3.622).abs() > 0.01,
+                        "M91: old superscript rise 3.622 should not be used, got {}",
+                        vertical_offset
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_m91_strip_glue_leading_still_stripped() {
+        // M91: Leading glue should still be stripped regardless of stretch
+        let items = vec![
+            BoxNode::Glue {
+                natural: 3.0,
+                stretch: 100000.0,
+                shrink: 0.0,
+            },
+            BoxNode::Text {
+                text: "hello".to_string(),
+                width: 25.0,
+                font_size: 10.0,
+                color: None,
+                font_style: FontStyle::Normal,
+                vertical_offset: 0.0,
+            },
+        ];
+        let result = strip_glue(items);
+        assert_eq!(
+            result.len(),
+            1,
+            "Leading glue should be stripped even with high stretch"
+        );
+        assert!(matches!(result[0], BoxNode::Text { .. }));
+    }
+
+    #[test]
+    fn test_m91_subscript_unchanged() {
+        // M91: Subscript values should remain unchanged (font_size=7.0, offset=-2.5)
+        let metrics = StandardFontMetrics;
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &metrics);
+        let has_subscript = boxes.iter().any(|b| {
+            if let BoxNode::Text {
+                font_size,
+                vertical_offset,
+                ..
+            } = b
+            {
+                (*font_size - 7.0).abs() < 0.001 && (*vertical_offset - (-2.5)).abs() < 0.001
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_subscript,
+            "Subscript should have font_size=7.0, offset=-2.5"
+        );
     }
 }
