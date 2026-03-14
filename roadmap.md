@@ -169,6 +169,8 @@ Binary-identical output requires:
 - **M85 scope:** (1) Fix bare text → paragraph wrapping in parser: document environment content that is not already in Paragraph nodes should get implicit paragraph wrapping so parindent is applied (fixes hello.tex 0.17% gap). (2) Diana deep-dives sections.tex and math.tex pixel differences for non-mega-line fixable bugs. (3) Implement any confirmed safe fixes. Target: hello.tex >99.9%, 1225+ tests.
 - **Cycle (M85):** M85 DEADLINE MISSED (2/2 cycles). Leo implemented: (cycle 1) parindent for bare text, BINOP_KERN=2.222, superscript rise=3.622, math space filtering. (cycle 2) inter-word glue between bare Text and Command nodes. CI results unchanged: hello=99.83%, compare=97.32%, math=99.56%, sections=98.92%, lists=99.39%. 1228 tests pass. The hello.tex 0.17% gap remains — cause is likely \LaTeX logo rendering differences or sub-pixel kerning, not missing glue/indentation.
 - **M86 scope:** Implement Diana's remaining confirmed safe fixes: (1) list item indent 20pt→25pt (M85-G), (2) space char width 5.0→3.333/3.833 in char_width/string_width_for_style (M85-F), (3) cmmi10 engine/PDF width table alignment for letters with >0.5pt discrepancy (e.g., 'f': 4.896→3.028, 'j': 4.118→2.998). Target: lists.tex >99.5%, math.tex >99.6%, 1242+ tests. NOTE: hello.tex 0.17% gap is likely from \LaTeX logo rendering (complex, deferred to later milestone).
+- **Cycle (M86):** M86 completed in 1 implementation cycle (Ares, labeled as "M85" in commit ed41dd0). All three fixes implemented: list indent 25pt, space char width (3.333/3.833), cmmi10 width table alignment. 18 new tests, 1242 total tests pass, CI green. Results: hello=99.83%, sections=98.92%, math=99.56%, lists=99.40%, compare=97.32%. NOTE: lists.tex and math.tex did NOT hit their targets (99.5% and 99.6% respectively) — the fixes were correct but had less impact than estimated.
+- **M87 scope:** Greek letter rendering fix for math.tex (M85-D): map \alpha/\beta/\gamma etc. to cmmi10 byte positions (OML encoding positions 11-39) instead of Unicode. This requires: (1) engine: math_node_to_boxes_inner() maps Greek command names to byte values [11], [12], [13] etc. with FontStyle::MathItalic; (2) PDF: extend F7 cmmi10 /Differences array to cover positions 11-39 with Greek glyph names (alpha, beta, gamma etc.); (3) engine: add cmmi10 Greek letter widths to char_width_for_style(). Also: \LaTeX{} logo rendering improvement — implement proper logo layout (raised "A", special kerning) to fix hello.tex 0.17% gap. Target: math.tex >99.7%, hello.tex >99.9%, 1260+ tests.
 
 ## Milestones
 
@@ -1444,7 +1446,25 @@ Implement the confirmed low-risk rendering improvements from Diana's M85 researc
 - Key discrepancies: 'f' (engine: 4.896pt, PDF: 3.028pt), 'j' (engine: 4.118pt, PDF: 2.998pt)
 
 **Tests**: 14+ new tests. Target: 1242+ tests pass, CI green, lists.tex ≥ 99.5%, math.tex ≥ 99.6%.
-**Cycles budget:** 2
+**Cycles budget:** 2 | **Cycles actual:** 1 (Ares, commit ed41dd0)
+**Status:** ✅ Complete — 1242 tests pass, CI green. hello=99.83%, sections=98.92%, math=99.56%, lists=99.40%, compare=97.32%.
+
+### M87: Greek Letter Rendering in cmmi10 + \LaTeX Logo Improvement
+Fix two remaining rendering issues:
+
+**Goal 1: Greek letter OML encoding in cmmi10 (math.tex gap)**
+- Engine: In `math_node_to_boxes_inner()`, map Greek command names (`\alpha`, `\beta`, etc.) to single-byte values [11], [12], [13], etc. with `FontStyle::MathItalic` instead of Unicode strings
+- PDF: Extend F7 (cmmi10) /Differences encoding to cover positions 11-39 with Greek letter glyph names
+- Engine: Add cmmi10 Greek letter widths to cmmi10_char_width() function
+- Expected: math.tex similarity > 99.7%
+
+**Goal 2: \LaTeX logo rendering (hello.tex gap)**
+- Implement proper \LaTeX logo as special BoxNode::LatexLogo (or multiple Text nodes with precise positioning)
+- pdflatex renders: L + A(smaller, raised) + T + E(kerned) + X with specific kern adjustments
+- Expected: hello.tex similarity > 99.9%
+
+**Tests**: 18+ new tests. Target: 1260+ tests pass, CI green.
+**Cycles budget:** 3
 
 ---
 
