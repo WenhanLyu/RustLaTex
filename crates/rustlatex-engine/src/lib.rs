@@ -2116,8 +2116,28 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                     if has_bare_text {
                         result.push(BoxNode::Kern { amount: 15.0 });
                     }
+                    let mut last_ended_with_text = false;
                     for node in content {
-                        result.extend(translate_node_with_metrics(node, metrics));
+                        let items = translate_node_with_metrics(node, metrics);
+                        if last_ended_with_text
+                            && items
+                                .first()
+                                .is_some_and(|n| matches!(n, BoxNode::Text { .. }))
+                        {
+                            result.push(inter_word_glue(metrics, "x", FontStyle::Normal));
+                        }
+                        last_ended_with_text = items
+                            .last()
+                            .is_some_and(|n| matches!(n, BoxNode::Text { .. }));
+                        result.extend(items);
+                    }
+                    if has_bare_text {
+                        result.push(BoxNode::Glue {
+                            natural: 0.0,
+                            stretch: 1.0,
+                            shrink: 0.0,
+                        });
+                        result.push(BoxNode::ParagraphEnd);
                     }
                     result
                 }
@@ -3874,8 +3894,35 @@ pub fn translate_node_with_context(
                     if has_bare_text && !ctx.after_heading {
                         result.push(BoxNode::Kern { amount: 15.0 });
                     }
+                    let mut last_ended_with_text = false;
                     for node in content {
-                        result.extend(translate_node_with_context(node, metrics, ctx));
+                        let items = translate_node_with_context(node, metrics, ctx);
+                        // Add inter-word glue between adjacent text-producing nodes
+                        // (e.g., between Text{"sample"} and Command{LaTeX} output)
+                        if last_ended_with_text
+                            && items
+                                .first()
+                                .is_some_and(|n| matches!(n, BoxNode::Text { .. }))
+                        {
+                            result.push(inter_word_glue(
+                                metrics,
+                                "x", // non-sentence-ending placeholder
+                                ctx.current_font_style,
+                            ));
+                        }
+                        last_ended_with_text = items
+                            .last()
+                            .is_some_and(|n| matches!(n, BoxNode::Text { .. }));
+                        result.extend(items);
+                    }
+                    // Add parfillskip (stretchable glue) and ParagraphEnd for bare-text paragraphs
+                    if has_bare_text {
+                        result.push(BoxNode::Glue {
+                            natural: 0.0,
+                            stretch: 1.0,
+                            shrink: 0.0,
+                        });
+                        result.push(BoxNode::ParagraphEnd);
                     }
                     result
                 }
@@ -5467,8 +5514,8 @@ mod tests {
             content: vec![Node::Text("content here".to_string())],
         };
         let items = translate_node(&node);
-        // document env with bare text → Kern(15.0), Text("content"), Glue, Text("here")
-        assert_eq!(items.len(), 4);
+        // document env with bare text → Kern(15.0), Text("content"), Glue, Text("here"), Glue(parfillskip), ParagraphEnd
+        assert_eq!(items.len(), 6);
         assert!(matches!(items[0], BoxNode::Kern { amount } if (amount - 15.0).abs() < 0.001));
         // content: c+o+n+t+e+n+t = 4.44+5.00+5.56+3.89+4.44+5.56+3.89 = 32.78
         assert_eq!(
@@ -5495,6 +5542,12 @@ mod tests {
                 vertical_offset: 0.0,
             }
         );
+        // parfillskip glue
+        assert!(
+            matches!(items[4], BoxNode::Glue { natural, stretch, shrink } if natural == 0.0 && stretch == 1.0 && shrink == 0.0)
+        );
+        // ParagraphEnd
+        assert!(matches!(items[5], BoxNode::ParagraphEnd));
     }
 
     #[test]
