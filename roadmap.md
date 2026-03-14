@@ -1478,25 +1478,40 @@ Fix two remaining rendering issues:
   - compare.tex: **97.32%** (2.68% gap = mega-lines confirmed)
   - 1261 tests pass, CI green
 
-### M88: Increase Comparison DPI + Diagnose Remaining Gaps
-Goal: Get more accurate pixel similarity measurements by increasing GhostScript DPI from 72 to 150. At 150 DPI, even small improvements are measurable. Also diagnose why M87's Greek encoding didn't improve math.tex.
+### M88: Section Quad Spacing + Enumerate Label Width ✅ COMPLETE (but ZERO SIMILARITY IMPACT)
+Ares's team implemented section number → Kern(font_size) → title (3-node approach) and dynamic enumerate label widths.
 
-**Goal 1: Increase GhostScript DPI to 150**
-- Change all `gs -r72` calls to `gs -r150` in comparison tests
-- Update PPM size expectations (150 DPI A4 ≈ 1240×1753 pixels = 6.5M pixel page)
-- Re-run comparisons to get accurate baseline scores at new DPI
+- **Cycles budget:** 2 | **Cycles actual:** 3 (deadline missed)
+- **Status:** ✅ Tests pass (1276 total), CI green. **BUT: similarity = 0.9733 (unchanged from M87)**
+- **DPI increase (original M88 goal): NOT DONE** — Ares skipped the DPI increase and implemented different changes instead
+- **Lesson**: These rendering fixes have no measurable impact at 72 DPI due to the mega-line problem dominating the pixel positions
 
-**Goal 2: Diana fresh analysis**
-- Check why math.tex didn't improve despite M87 Greek encoding
-- Verify Greek bytes are being correctly output in PDF
-- Check if there are remaining encoding issues affecting any document
+### M89: Parfillskip Stretch Fix ✅ COMPLETE (but ZERO SIMILARITY IMPACT)
+Leo fixed parfillskip stretch from 1.0 to 100000.0 (matching pdflatex's "0pt plus 1fil").
 
-**Goal 3: Lists.tex analysis**
-- lists.tex has 0.60% gap (3,006 pixels at 72 DPI = ~18,750 pixels at 150 DPI)
-- Should be mostly layout differences, but may have fixable rendering issues
-- Diana to check if list item bullet rendering differs from pdflatex
+- **Cycles budget:** 1 | **Cycles actual:** 1
+- **Status:** ✅ Tests pass (1288 total), CI green. **BUT: similarity = 0.9729 (effectively unchanged)**
+- **Lesson**: Structurally correct fix, but the mega-line problem at 72 DPI means word spacing changes don't improve measurements
 
-**Tests**: 12+ new tests. Target: 1273+ tests pass, CI green.
+### M90: Increase GhostScript DPI from 72 to 150 + Fresh Analysis
+**The mandatory next step.** Original M88 goal, still not done. At 72 DPI, improvements of <0.1% are invisible. Moving to 150 DPI gives ~4.3× more pixels to measure (from ~501K to ~2.17M pixels), making improvements of ~0.02% measurable.
+
+**Goal 1: Change -r72 → -r150 in all comparison tests**
+- File: `crates/rustlatex-cli/tests/pdflatex_comparison_test.rs`
+- Function: `render_pdf_to_ppm()` at line 96: change `"-r72"` to `"-r150"`
+- All 5 per-document similarity tests use this function — they'll all benefit
+- Update any hardcoded pixel count/size assertions that assume 72 DPI
+
+**Goal 2: Get new baseline measurements at 150 DPI**
+- Expected pixel counts: ~2.17M pixels per A4 page at 150 DPI
+- New similarity scores will be different (likely lower at first since more pixels = more precision)
+- These become the new baseline targets for future milestones
+
+**Goal 3: Diana fresh analysis at higher DPI**
+- After running comparison at 150 DPI, identify which specific pixel regions differ
+- Find any remaining non-layout fixable bugs that are now measurable
+
+**Tests**: 10+ new tests. Target: 1300+ tests pass, CI green.
 **Cycles budget:** 2
 
 ---
