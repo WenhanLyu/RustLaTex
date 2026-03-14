@@ -933,7 +933,7 @@ pub fn math_node_to_text(node: &Node) -> String {
 ///
 /// - `Node::Text(s)`: emit `BoxNode::Text` at normal size and baseline.
 /// - `Node::Superscript { base, exponent }`: emit base at normal offset,
-///   exponent at `font_size=7.07` with `vertical_offset=+3.45`.
+///   exponent at `font_size=7.07` with `vertical_offset=+3.622`.
 /// - `Node::Subscript { base, subscript }`: emit base at normal offset,
 ///   subscript at `font_size=7.0` with `vertical_offset=-2.5`.
 /// - Other node types fall back to `math_node_to_text()`.
@@ -949,7 +949,7 @@ fn math_node_to_boxes_inner(
     vertical_offset: f64,
 ) -> Vec<BoxNode> {
     // Kern amounts for math operator spacing (in points, matching TeX thin/thick space)
-    const BINOP_KERN: f64 = 1.667; // medium space for binary operators
+    const BINOP_KERN: f64 = 2.222; // medium space for binary operators (4mu = 2.222pt)
     const RELOP_KERN: f64 = 2.778; // thick space for relations
 
     /// Check if a single-character text node is a binary operator in math mode.
@@ -989,6 +989,9 @@ fn math_node_to_boxes_inner(
     match node {
         Node::Text(s) => {
             if s.is_empty() {
+                return vec![];
+            }
+            if s.trim().is_empty() {
                 return vec![];
             }
             // Check for math operator/relation spacing on single-char text nodes
@@ -1039,7 +1042,7 @@ fn math_node_to_boxes_inner(
         }
         Node::Superscript { base, exponent } => {
             let mut boxes = math_node_to_boxes_inner(base, metrics, font_size, vertical_offset);
-            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.07, 3.45));
+            boxes.extend(math_node_to_boxes_inner(exponent, metrics, 7.07, 3.622));
             boxes
         }
         Node::Subscript { base, subscript } => {
@@ -2104,6 +2107,19 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
                             shrink: 0.0,
                         },
                     ]
+                }
+                "document" => {
+                    let has_bare_text = content
+                        .iter()
+                        .any(|n| matches!(n, Node::Text(_) | Node::Command { .. }));
+                    let mut result = Vec::new();
+                    if has_bare_text {
+                        result.push(BoxNode::Kern { amount: 15.0 });
+                    }
+                    for node in content {
+                        result.extend(translate_node_with_metrics(node, metrics));
+                    }
+                    result
                 }
                 _ => content
                     .iter()
@@ -3850,6 +3866,19 @@ pub fn translate_node_with_context(
                     });
                     result
                 }
+                "document" => {
+                    let has_bare_text = content
+                        .iter()
+                        .any(|n| matches!(n, Node::Text(_) | Node::Command { .. }));
+                    let mut result = Vec::new();
+                    if has_bare_text && !ctx.after_heading {
+                        result.push(BoxNode::Kern { amount: 15.0 });
+                    }
+                    for node in content {
+                        result.extend(translate_node_with_context(node, metrics, ctx));
+                    }
+                    result
+                }
                 other => {
                     // Check if this is a user-defined environment
                     if let Some((begin_code, end_code)) = ctx.user_environments.get(other).cloned()
@@ -5438,11 +5467,12 @@ mod tests {
             content: vec![Node::Text("content here".to_string())],
         };
         let items = translate_node(&node);
-        // "content here" → Text("content"), Glue, Text("here")
-        assert_eq!(items.len(), 3);
+        // document env with bare text → Kern(15.0), Text("content"), Glue, Text("here")
+        assert_eq!(items.len(), 4);
+        assert!(matches!(items[0], BoxNode::Kern { amount } if (amount - 15.0).abs() < 0.001));
         // content: c+o+n+t+e+n+t = 4.44+5.00+5.56+3.89+4.44+5.56+3.89 = 32.78
         assert_eq!(
-            items[0],
+            items[1],
             BoxNode::Text {
                 text: "content".to_string(),
                 width: cm10_width("content"),
@@ -5452,10 +5482,10 @@ mod tests {
                 vertical_offset: 0.0,
             }
         );
-        assert!(matches!(items[1], BoxNode::Glue { .. }));
+        assert!(matches!(items[2], BoxNode::Glue { .. }));
         // here: h+e+r+e = 6.94+4.44+3.92+4.44 = 19.74
         assert_eq!(
-            items[2],
+            items[3],
             BoxNode::Text {
                 text: "here".to_string(),
                 width: cm10_width("here"),
@@ -6924,7 +6954,7 @@ mod tests {
     #[test]
     fn test_math_operator_times() {
         // $a \times b$ should produce text items including "×"
-        // With M39 operator spacing: a, Kern(1.667), ×, Kern(1.667), b = 5 items
+        // With M39 operator spacing: a, Kern(2.222), ×, Kern(2.222), b = 5 items
         let node = Node::InlineMath(vec![
             Node::Text("a".to_string()),
             Node::Command {
@@ -13886,7 +13916,7 @@ mod tests {
 
     #[test]
     fn test_math_node_to_boxes_superscript_vertical_offset() {
-        // Superscript exponent should have vertical_offset=+3.45
+        // Superscript exponent should have vertical_offset=+3.622
         let node = Node::Superscript {
             base: Box::new(Node::Text("x".to_string())),
             exponent: Box::new(Node::Text("2".to_string())),
@@ -13902,12 +13932,12 @@ mod tests {
         } else {
             panic!("Expected BoxNode::Text for base");
         }
-        // Exponent should have vertical_offset=+3.45
+        // Exponent should have vertical_offset=+3.622
         if let BoxNode::Text {
             vertical_offset, ..
         } = &boxes[1]
         {
-            assert_eq!(*vertical_offset, 3.45);
+            assert_eq!(*vertical_offset, 3.622);
         } else {
             panic!("Expected BoxNode::Text for exponent");
         }
@@ -14012,7 +14042,7 @@ mod tests {
         } = &items[1]
         {
             assert_eq!(text, "2");
-            assert_eq!(*vertical_offset, 3.45);
+            assert_eq!(*vertical_offset, 3.622);
             assert!(
                 (*font_size - 7.07).abs() < 0.001,
                 "Expected font_size=7.07, got {}",
@@ -14089,8 +14119,8 @@ mod tests {
             } = item
             {
                 assert_eq!(
-                    *vertical_offset, 3.45,
-                    "Superscript group should have vertical_offset=3.45"
+                    *vertical_offset, 3.622,
+                    "Superscript group should have vertical_offset=3.622"
                 );
             }
         }
@@ -14297,15 +14327,13 @@ mod tests {
 
     #[test]
     fn test_math_italic_space_uses_normal() {
-        // A single space should use FontStyle::Normal (not alphabetic)
+        // A single space in math mode should produce no output nodes (whitespace-only filter)
         let node = Node::Text(" ".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
-        assert_eq!(boxes.len(), 1);
-        if let BoxNode::Text { font_style, .. } = &boxes[0] {
-            assert_eq!(*font_style, FontStyle::Normal);
-        } else {
-            panic!("Expected BoxNode::Text");
-        }
+        assert!(
+            boxes.is_empty(),
+            "Whitespace-only text in math mode should produce no boxes"
+        );
     }
 
     #[test]
@@ -14967,7 +14995,7 @@ mod tests {
 
     #[test]
     fn test_m39_plus_operator_has_binop_kern() {
-        // $x + y$: the '+' text node should produce Kern(1.667) before and after
+        // $x + y$: the '+' text node should produce Kern(2.222) before and after
         let node = Node::Text("+".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(
@@ -14976,8 +15004,8 @@ mod tests {
             "'+' should produce 3 box nodes: Kern, Text, Kern"
         );
         assert!(
-            matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001),
-            "First node should be Kern(1.667), got {:?}",
+            matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001),
+            "First node should be Kern(2.222), got {:?}",
             boxes[0]
         );
         assert!(
@@ -14986,8 +15014,8 @@ mod tests {
             boxes[1]
         );
         assert!(
-            matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001),
-            "Last node should be Kern(1.667), got {:?}",
+            matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001),
+            "Last node should be Kern(2.222), got {:?}",
             boxes[2]
         );
     }
@@ -14998,9 +15026,9 @@ mod tests {
         let node = Node::Text("-".to_string());
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3);
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "-"));
-        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15052,16 +15080,16 @@ mod tests {
 
     #[test]
     fn test_m39_times_command_has_binop_kern() {
-        // \times command should produce Kern(1.667) before and after
+        // \times command should produce Kern(2.222) before and after
         let node = Node::Command {
             name: "times".to_string(),
             args: vec![],
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3, "\\times should produce 3 box nodes");
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "×"));
-        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15072,9 +15100,9 @@ mod tests {
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3);
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[1], BoxNode::Text { text, .. } if text == "÷"));
-        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15085,7 +15113,7 @@ mod tests {
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3);
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15096,8 +15124,8 @@ mod tests {
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3);
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
-        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
+        assert!(matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15108,7 +15136,7 @@ mod tests {
         };
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 3);
-        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
     }
 
     #[test]
@@ -15234,12 +15262,12 @@ mod tests {
             Node::Text("y".to_string()),
         ]);
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
-        // x(1) + Kern(1.667) + Text(+) + Kern(1.667) + y(1) = 5 nodes
+        // x(1) + Kern(2.222) + Text(+) + Kern(2.222) + y(1) = 5 nodes
         assert_eq!(boxes.len(), 5, "x+y should produce 5 box nodes");
         assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "x"));
-        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[2], BoxNode::Text { text, .. } if text == "+"));
-        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[4], BoxNode::Text { text, .. } if text == "y"));
     }
 
@@ -15274,9 +15302,9 @@ mod tests {
         let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
         assert_eq!(boxes.len(), 5, "a \\times b should produce 5 box nodes");
         assert!(matches!(&boxes[0], BoxNode::Text { text, .. } if text == "a"));
-        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[1], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[2], BoxNode::Text { text, .. } if text == "×"));
-        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 1.667).abs() < 0.001));
+        assert!(matches!(&boxes[3], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001));
         assert!(matches!(&boxes[4], BoxNode::Text { text, .. } if text == "b"));
     }
 
@@ -15403,7 +15431,7 @@ mod tests {
 
     #[test]
     fn test_m42_superscript_vertical_offset_3_45() {
-        // Superscript exponent should have vertical_offset=3.45 (not 4.0)
+        // Superscript exponent should have vertical_offset=3.622 (not 4.0)
         let node = Node::Superscript {
             base: Box::new(Node::Text("a".to_string())),
             exponent: Box::new(Node::Text("b".to_string())),
@@ -15414,8 +15442,8 @@ mod tests {
         } = &boxes[1]
         {
             assert_eq!(
-                *vertical_offset, 3.45,
-                "Expected superscript vertical_offset=3.45, got {}",
+                *vertical_offset, 3.622,
+                "Expected superscript vertical_offset=3.622, got {}",
                 vertical_offset
             );
         } else {
@@ -20624,6 +20652,230 @@ mod tests {
             joined.contains('1') && joined.contains('2'),
             "M84: two sections should be numbered 1 and 2, got {:?}",
             texts
+        );
+    }
+
+    // =====================================================================
+    // M85 Tests: parindent for document env bare text, math spacing fixes
+    // =====================================================================
+
+    #[test]
+    fn test_m85_document_env_bare_text_gets_parindent_metrics() {
+        // Document environment with bare text should get 15pt parindent kern
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![Node::Text("Hello world".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        assert!(
+            !items.is_empty(),
+            "Document env with bare text should produce items"
+        );
+        assert!(
+            matches!(items[0], BoxNode::Kern { amount } if (amount - 15.0).abs() < 0.001),
+            "First item should be Kern(15.0) parindent, got {:?}",
+            items[0]
+        );
+    }
+
+    #[test]
+    fn test_m85_document_env_bare_text_gets_parindent_context() {
+        // Document environment with bare text should get 15pt parindent kern in context mode
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![Node::Text("Hello world".to_string())],
+        };
+        let mut ctx = TranslationContext::new_collecting();
+        let items = translate_node_with_context(&node, &StandardFontMetrics, &mut ctx);
+        assert!(
+            !items.is_empty(),
+            "Document env with bare text should produce items in context mode"
+        );
+        assert!(
+            matches!(items[0], BoxNode::Kern { amount } if (amount - 15.0).abs() < 0.001),
+            "First item should be Kern(15.0) parindent in context mode, got {:?}",
+            items[0]
+        );
+    }
+
+    #[test]
+    fn test_m85_document_env_paragraph_no_double_indent() {
+        // Document environment with Paragraph content should NOT add extra kern
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![Node::Paragraph(vec![Node::Text("Hello world".to_string())])],
+        };
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        // Paragraph arm already adds parindent, document env should NOT add another
+        // The first item should be the parindent from Paragraph, not an extra one
+        let kern_count = items
+            .iter()
+            .filter(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.001))
+            .count();
+        assert_eq!(
+            kern_count, 1,
+            "Should have exactly 1 parindent kern, got {}",
+            kern_count
+        );
+    }
+
+    #[test]
+    fn test_m85_document_env_command_gets_parindent() {
+        // Document environment with bare Command should get 15pt parindent
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![Node::Command {
+                name: "textbf".to_string(),
+                args: vec![Node::Text("Bold text".to_string())],
+            }],
+        };
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        assert!(
+            matches!(items[0], BoxNode::Kern { amount } if (amount - 15.0).abs() < 0.001),
+            "Document env with bare command should get parindent, got {:?}",
+            items[0]
+        );
+    }
+
+    #[test]
+    fn test_m85_non_document_env_no_parindent() {
+        // Non-document environment should NOT add parindent
+        let node = Node::Environment {
+            name: "center".to_string(),
+            options: None,
+            content: vec![Node::Text("Centered text".to_string())],
+        };
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        assert!(
+            !matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < 0.001),
+            "Non-document env should NOT add parindent kern"
+        );
+    }
+
+    #[test]
+    fn test_m85_math_whitespace_produces_no_boxes() {
+        // Whitespace-only text in math mode should produce no output
+        let node = Node::Text("  ".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert!(
+            boxes.is_empty(),
+            "Whitespace-only text in math mode should produce no boxes, got {} boxes",
+            boxes.len()
+        );
+    }
+
+    #[test]
+    fn test_m85_math_tab_whitespace_produces_no_boxes() {
+        // Tab characters should also be filtered
+        let node = Node::Text("\t".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert!(
+            boxes.is_empty(),
+            "Tab whitespace in math mode should produce no boxes"
+        );
+    }
+
+    #[test]
+    fn test_m85_math_newline_whitespace_produces_no_boxes() {
+        // Newline characters should also be filtered
+        let node = Node::Text("\n".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert!(
+            boxes.is_empty(),
+            "Newline whitespace in math mode should produce no boxes"
+        );
+    }
+
+    #[test]
+    fn test_m85_binop_kern_is_2_222() {
+        // BINOP_KERN should be 2.222 (4mu = 2.222pt medium space)
+        let node = Node::Text("+".to_string());
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 3, "Binary op should produce 3 items");
+        assert!(
+            matches!(&boxes[0], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001),
+            "BINOP_KERN before should be 2.222, got {:?}",
+            boxes[0]
+        );
+        assert!(
+            matches!(&boxes[2], BoxNode::Kern { amount } if (*amount - 2.222).abs() < 0.001),
+            "BINOP_KERN after should be 2.222, got {:?}",
+            boxes[2]
+        );
+    }
+
+    #[test]
+    fn test_m85_superscript_rise_is_3_622() {
+        // Superscript exponent should have vertical_offset = 3.622
+        let node = Node::Superscript {
+            base: Box::new(Node::Text("x".to_string())),
+            exponent: Box::new(Node::Text("2".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2, "x^2 should produce 2 boxes");
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert!(
+                (*vertical_offset - 3.622).abs() < 0.001,
+                "Superscript rise should be 3.622, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Expected BoxNode::Text for exponent, got {:?}", boxes[1]);
+        }
+    }
+
+    #[test]
+    fn test_m85_subscript_offset_negative() {
+        // Subscript should have negative vertical_offset (-2.5)
+        let node = Node::Subscript {
+            base: Box::new(Node::Text("x".to_string())),
+            subscript: Box::new(Node::Text("i".to_string())),
+        };
+        let boxes = math_node_to_boxes(&node, &StandardFontMetrics);
+        assert_eq!(boxes.len(), 2, "x_i should produce 2 boxes");
+        if let BoxNode::Text {
+            vertical_offset, ..
+        } = &boxes[1]
+        {
+            assert!(
+                (*vertical_offset - (-2.5)).abs() < 0.001,
+                "Subscript offset should be -2.5, got {}",
+                vertical_offset
+            );
+        } else {
+            panic!("Expected BoxNode::Text for subscript, got {:?}", boxes[1]);
+        }
+    }
+
+    #[test]
+    fn test_m85_document_env_only_paragraphs_no_extra_kern() {
+        // Document env containing only Paragraph nodes should NOT add parindent
+        let node = Node::Environment {
+            name: "document".to_string(),
+            options: None,
+            content: vec![
+                Node::Paragraph(vec![Node::Text("First paragraph".to_string())]),
+                Node::Paragraph(vec![Node::Text("Second paragraph".to_string())]),
+            ],
+        };
+        let items = translate_node_with_metrics(&node, &StandardFontMetrics);
+        // The first item should be the Kern from the first Paragraph, not an extra one
+        // has_bare_text should be false (no bare Text/Command, only Paragraphs)
+        let first_kern_count = items
+            .iter()
+            .take(1)
+            .filter(|n| matches!(n, BoxNode::Kern { amount } if (*amount - 15.0).abs() < 0.001))
+            .count();
+        assert_eq!(
+            first_kern_count, 1,
+            "First item should be parindent from Paragraph"
         );
     }
 }
