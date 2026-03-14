@@ -1439,6 +1439,11 @@ pub fn translate_node_with_metrics(node: &Node, metrics: &dyn FontMetrics) -> Ve
             result
         }
         Node::Paragraph(nodes) => {
+            // Skip whitespace-only paragraphs to avoid phantom parindent artifacts
+            if is_whitespace_only_paragraph(nodes) {
+                return vec![];
+            }
+
             // Check if paragraph starts with \noindent
             let starts_with_noindent = nodes
                 .first()
@@ -2287,6 +2292,21 @@ fn prescan_sections_rec(
     }
 }
 
+/// Returns true if every child node in a paragraph would produce only
+/// whitespace or empty output. Used to skip phantom paragraphs that would
+/// otherwise leave a bare parindent kern.
+fn is_whitespace_only_paragraph(nodes: &[Node]) -> bool {
+    nodes.iter().all(|n| match n {
+        Node::Text(s) => s.trim().is_empty(),
+        Node::Group(children) => is_whitespace_only_paragraph(children),
+        Node::Command { name, .. } => matches!(
+            name.as_str(),
+            "noindent" | "label" | "index" | "protect" | "relax" | "phantom"
+        ),
+        _ => false,
+    })
+}
+
 /// Translate a parser AST node with full cross-reference context.
 ///
 /// This is the context-aware version that tracks section/figure counters,
@@ -2317,6 +2337,11 @@ pub fn translate_node_with_context(
             result
         }
         Node::Paragraph(nodes) => {
+            // Skip whitespace-only paragraphs to avoid phantom parindent artifacts
+            if is_whitespace_only_paragraph(nodes) {
+                return vec![];
+            }
+
             // Mark that visible content has been emitted (for first-section suppression)
             ctx.content_emitted = true;
 
@@ -19423,15 +19448,15 @@ mod tests {
 
     #[test]
     fn test_m72_empty_paragraph_no_trailing_penalty() {
-        // M82: empty paragraph must end with ParagraphEnd
+        // M84: empty (whitespace-only) paragraphs are now skipped entirely
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: empty paragraph must end with ParagraphEnd, got {:?}",
-            nodes.last()
+            nodes.is_empty(),
+            "M84: empty paragraph should be skipped (produce no nodes), got {:?}",
+            nodes
         );
     }
 
@@ -19834,15 +19859,15 @@ mod tests {
 
     #[test]
     fn test_m74_empty_paragraph_ends_with_penalty() {
-        // M82: empty paragraph must end with ParagraphEnd
+        // M84: empty (whitespace-only) paragraphs are now skipped entirely
         let metrics = StandardFontMetrics;
         let mut ctx = TranslationContext::new_collecting();
         let node = Node::Paragraph(vec![]);
         let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
         assert!(
-            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
-            "M82: empty paragraph must end with ParagraphEnd, got {:?}",
-            nodes.last()
+            nodes.is_empty(),
+            "M84: empty paragraph should be skipped (produce no nodes), got {:?}",
+            nodes
         );
     }
 
@@ -20355,6 +20380,250 @@ mod tests {
             matches!(non_vskip.first(), Some(BoxNode::Text { .. })),
             "M82: subsection heading non-VSkip node must be Text, got {:?}",
             non_vskip.first()
+        );
+    }
+
+    // ===== M84: Whitespace-only paragraph skipping tests =====
+
+    #[test]
+    fn test_m84_whitespace_only_paragraph_skipped_context() {
+        // A paragraph containing only whitespace text should be skipped entirely
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("   \t\n  ".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            nodes.is_empty(),
+            "M84: whitespace-only paragraph should be skipped, got {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_m84_whitespace_only_paragraph_skipped_metrics() {
+        // Same check for translate_node_with_metrics path
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("   ".to_string())]);
+        let nodes = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            nodes.is_empty(),
+            "M84: whitespace-only paragraph should be skipped in metrics path, got {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_m84_paragraph_with_only_label_skipped() {
+        // A paragraph containing only \label{...} should be treated as whitespace-only
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Command {
+            name: "label".to_string(),
+            args: vec![Node::Group(vec![Node::Text("sec:foo".to_string())])],
+        }]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            nodes.is_empty(),
+            "M84: paragraph with only \\label should be skipped, got {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_m84_paragraph_with_text_not_skipped() {
+        // A paragraph with actual text content should NOT be skipped
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Text("Hello world".to_string())]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            !nodes.is_empty(),
+            "M84: paragraph with text should NOT be skipped"
+        );
+        assert!(
+            matches!(nodes.last(), Some(BoxNode::ParagraphEnd)),
+            "M84: paragraph with text should end with ParagraphEnd"
+        );
+    }
+
+    #[test]
+    fn test_m84_whitespace_group_paragraph_skipped() {
+        // Paragraph with a Group containing only whitespace should be skipped
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![Node::Group(vec![Node::Text("  ".to_string())])]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            nodes.is_empty(),
+            "M84: paragraph with whitespace-only group should be skipped, got {:?}",
+            nodes
+        );
+    }
+
+    #[test]
+    fn test_m84_mixed_whitespace_label_paragraph_skipped() {
+        // Paragraph with whitespace text + \label should be skipped
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        let node = Node::Paragraph(vec![
+            Node::Text("  ".to_string()),
+            Node::Command {
+                name: "label".to_string(),
+                args: vec![Node::Group(vec![Node::Text("x".to_string())])],
+            },
+            Node::Text(" ".to_string()),
+        ]);
+        let nodes = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            nodes.is_empty(),
+            "M84: paragraph with only whitespace + label should be skipped, got {:?}",
+            nodes
+        );
+    }
+
+    // ===== M84: Parindent behavior tests =====
+
+    #[test]
+    fn test_m84_parindent_is_15pt() {
+        // Verify paragraph indentation is exactly 15.0pt
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Test".to_string())]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        assert!(
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
+            "M84: paragraph indent must be exactly 15.0pt, got {:?}",
+            items.first()
+        );
+    }
+
+    #[test]
+    fn test_m84_parindent_present_in_context_mode() {
+        // In context mode, normal paragraph (not after heading) should have 15pt indent
+        let metrics = StandardFontMetrics;
+        let mut ctx = TranslationContext::new_collecting();
+        // Emit a prior paragraph so after_heading is false
+        let _ = translate_node_with_context(
+            &Node::Paragraph(vec![Node::Text("First".to_string())]),
+            &metrics,
+            &mut ctx,
+        );
+        let node = Node::Paragraph(vec![Node::Text("Second".to_string())]);
+        let items = translate_node_with_context(&node, &metrics, &mut ctx);
+        assert!(
+            matches!(items.first(), Some(BoxNode::Kern { amount }) if (*amount - 15.0).abs() < f64::EPSILON),
+            "M84: second paragraph should have 15pt indent, got {:?}",
+            items.first()
+        );
+    }
+
+    // ===== M84: Hello-style single bare text rendering =====
+
+    #[test]
+    fn test_m84_single_text_paragraph_structure() {
+        // A simple "Hello World" paragraph produces Kern + Text + Text + Glue + ParagraphEnd
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Hello World".to_string())]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        // Should be: Kern(15), Text("Hello"), Glue, Text("World"), Glue, ParagraphEnd
+        let texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["Hello", "World"],
+            "M84: 'Hello World' paragraph should produce two text nodes"
+        );
+        assert!(
+            matches!(items.last(), Some(BoxNode::ParagraphEnd)),
+            "M84: paragraph must end with ParagraphEnd"
+        );
+    }
+
+    #[test]
+    fn test_m84_bare_text_word_widths_positive() {
+        // Each word in text should have a positive width
+        let metrics = StandardFontMetrics;
+        let node = Node::Paragraph(vec![Node::Text("Testing positive widths".to_string())]);
+        let items = translate_node_with_metrics(&node, &metrics);
+        for item in &items {
+            if let BoxNode::Text { width, .. } = item {
+                assert!(
+                    *width > 0.0,
+                    "M84: text node width must be positive, got {}",
+                    width
+                );
+            }
+        }
+    }
+
+    // ===== M84: Section structure tests =====
+
+    #[test]
+    fn test_m84_section_followed_by_paragraph_no_indent() {
+        // In context mode, paragraph immediately after section should not have indent
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Introduction".to_string())])],
+            },
+            Node::Paragraph(vec![Node::Text(
+                "First paragraph after section".to_string(),
+            )]),
+        ]);
+        let items = translate_with_context(&node);
+        // Find the "First" text
+        let first_idx = items
+            .iter()
+            .position(|n| matches!(n, BoxNode::Text { text, .. } if text == "First"))
+            .expect("Expected 'First' text node");
+        // The item before should NOT be a Kern(15.0) indent
+        if first_idx > 0 {
+            let prev = &items[first_idx - 1];
+            assert!(
+                !matches!(prev, BoxNode::Kern { amount } if (*amount - 15.0).abs() < f64::EPSILON),
+                "M84: paragraph after section should not have 15pt indent, got {:?}",
+                prev
+            );
+        }
+    }
+
+    #[test]
+    fn test_m84_section_numbering_increments() {
+        // Two sections should produce different numbering
+        let node = Node::Document(vec![
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("First".to_string())])],
+            },
+            Node::Command {
+                name: "section".to_string(),
+                args: vec![Node::Group(vec![Node::Text("Second".to_string())])],
+            },
+        ]);
+        let items = translate_with_context(&node);
+        let texts: Vec<&str> = items
+            .iter()
+            .filter_map(|n| {
+                if let BoxNode::Text { text, .. } = n {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Should contain "1" and "2" (or "1 First" and "2 Second" combined)
+        let joined = texts.join(" ");
+        assert!(
+            joined.contains('1') && joined.contains('2'),
+            "M84: two sections should be numbered 1 and 2, got {:?}",
+            texts
         );
     }
 }

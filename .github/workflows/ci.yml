@@ -48,6 +48,17 @@ jobs:
       - name: Show pixel similarity result
         run: cat /tmp/pixel_similarity.txt || true
 
+      - name: Per-doc similarity scores (nocapture)
+        run: cargo test test_hello_tex_pixel_similarity_logged test_sections_tex_pixel_similarity_logged test_math_tex_pixel_similarity_logged test_lists_tex_pixel_similarity_logged -- --nocapture 2>&1
+        continue-on-error: true
+
+      - name: Show per-doc similarity results
+        run: |
+          cat /tmp/hello_similarity.txt || true
+          cat /tmp/sections_similarity.txt || true
+          cat /tmp/math_similarity.txt || true
+          cat /tmp/lists_similarity.txt || true
+
       - name: Check formatting
         run: cargo fmt --all -- --check
         continue-on-error: true
