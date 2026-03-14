@@ -1457,11 +1457,12 @@ Fix two remaining rendering issues:
 - PDF: Extend F7 (cmmi10) /Differences encoding to cover positions 11-39 with Greek letter glyph names
 - Engine: Add cmmi10 Greek letter widths to cmmi10_char_width() function
 - Expected: math.tex similarity > 99.7%
+- **Diana research confirmed:** Exact OML positions: Gamma=0..Omega=10, alpha=11..omega=33, varepsilon=34..varphi=39. Widths verified from embedded cmmi10.pfb.
 
 **Goal 2: \LaTeX logo rendering (hello.tex gap)**
-- Implement proper \LaTeX logo as special BoxNode::LatexLogo (or multiple Text nodes with precise positioning)
-- pdflatex renders: L + A(smaller, raised) + T + E(kerned) + X with specific kern adjustments
-- Expected: hello.tex similarity > 99.9%
+- pdflatex renders: L / kern(-3.6) / A@7pt(raised+2.15) / kern(-1.5) / T / kern(-1.667) / E(lowered-2.15) / kern(-1.25) / X
+- Replace single "LaTeX" Text node with 9-element sequence in both translate_node_with_metrics() and translate_node_with_context()
+- Expected: hello.tex similarity improvement ~+0.04-0.05%
 
 **Tests**: 18+ new tests. Target: 1260+ tests pass, CI green.
 **Cycles budget:** 3
